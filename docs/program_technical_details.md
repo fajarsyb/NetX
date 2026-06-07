@@ -76,6 +76,12 @@ Berikut adalah relasi utama tabel-tabel di dalam `netx.db`:
 * **`snmp_mibs`**: Menyimpan metadata dari berkas MIB SNMP yang diimpor oleh pengguna (nama MIB, deskripsi, asosiasi vendor perangkat, status aktif).
 * **`snmp_mib_objects`**: Menyimpan data objek OID yang berhasil diparsing dari berkas MIB (nama objek, OID absolut bertitik, tipe sintaks, dan deskripsi).
 
+### F. Monitoring, Alerting & Syslogs
+* **`network_anomalies`**: Menyimpan log alert aktif dan riwayat anomali jaringan (storms, flapping, L2 STP changes, dan auth failures).
+* **`interface_stats_latest`**: Menyimpan snapshot counter paket interface SNMP untuk menghitung laju delta dan flapping status operasional port.
+* **`mac_history_tracking`**: Mencatat lokasi penempatan port MAC address terakhir demi memantau kejadian perpindahan MAC (MAC flapping).
+* **`device_syslogs`**: Menyimpan pesan log syslog dari perangkat jaringan masuk dengan informasi facility, severity, program, timestamp, dan pesan mentah.
+
 ---
 
 ## 3. Detail Backend & Modul Layanan (Services)
@@ -116,6 +122,19 @@ Sistem backup—baik yang dieksekusi secara otomatis oleh scheduler maupun yang 
 
 ### E. MIB Parser & Resolver (mib_parser.py)
 NetX menyediakan parser asinkron khusus yang bertugas membersihkan komentar berkas MIB (sintaks `--`) dan mem-parsing blok definisi `OBJECT-TYPE` serta `OBJECT IDENTIFIER` menjadi representasi data terstruktur (nama, syntax, parent, subid, description). OID relatif yang diperoleh (misal: `{ enterprises 9 }`) kemudian dirunut secara rekursif hingga membentuk absolute dotted OID menggunakan daftar standard root OID bawaan dan referensi antar-MIB dari database untuk mendukung dependensi antar berkas MIB.
+
+### F. Anomaly Detection Service (anomaly_detector.py)
+Mesin detektor asinkron yang memantau switch jaringan dengan polling SNMP periodik (setiap 60 detik) untuk mendeteksi:
+- **Broadcast/Multicast/Unicast Storms**: Menganalisis laju paket per detik (pps) delta.
+- **Port Flapping**: Melacak frekuensi transisi status interface `up/down` dalam jendela waktu 5 menit.
+- **L2 STP Topology Changes**: Mengawasi kenaikan counter `dot1dStpTopChanges`.
+- **MAC Flapping**: Mendeteksi jika MAC address yang sama berpindah antarantarmuka dalam waktu kurang dari 15 menit.
+
+### G. Syslog Server (syslog_server.py)
+Server Syslog UDP asinkron terintegrasi yang mendengarkan pada port standard **514** (atau fallback port **5140**). Server ini melakukan:
+- **Real-Time Parser**: Memecah log menjadi PRIVAL, severity, facility, program tag, dan message body.
+- **Real-Time Anomaly Trigger**: Membaca isi syslog secara real-time dan langsung memicu alert keamanan/flapping ketika log link status atau auth failure terdeteksi.
+- **Automatic Retention Cleanup**: Scheduler background asinkron yang berjalan harian untuk menghapus data log yang berumur lebih dari 30 hari guna menghemat ruang penyimpanan SQLite.
 
 ---
 
@@ -165,6 +184,8 @@ Frontend dibangun menggunakan **Vite** + **React** (Javascript SPA) dengan CSS m
 4. **`MacInvestigation`**: Memungkinkan administrator melacak jejak MAC address tertentu; mendeteksi di switch mana dan port mana MAC tersebut aktif dari waktu ke waktu.
 5. **`MibManagement`**: Dashboard pengunggahan berkas MIB (serta parsing otomatis), pengelolaan aktivasi, dan pemetaan vendor perangkat. Menampilkan list objek hasil parsing dalam drawer interaktif.
 6. **`SnmpTester`**: Menyediakan panel pengetesan SNMP dasar (sysDescr / sysUpTime) dan tab kueri kustom OID. Tab kueri kustom ini memuat variabel OID aktif yang dicocokkan otomatis berdasarkan vendor dari perangkat terdaftar yang dipilih.
+7. **`NetworkAnomalies`**: Dasbor pusat untuk memantau status kesehatan jaringan dengan pemisahan anomali kritis/peringatan (storms, flapping, security auth fail) yang aktif saat ini serta daftar pencarian log anomali historis.
+8. **`SyslogViewer`**: Layar log log terpusat terpaginasi dengan pemilahan level severity syslog (RFC 3164), pencarian teks penuh, toggle auto-refresh 5 detik, dan pembersihan log massal.
 
 ### B. Komponen Visualisasi Port Switch (PortMapper.jsx)
 Komponen ini bertanggung jawab untuk merender visual panel port fisik switch.

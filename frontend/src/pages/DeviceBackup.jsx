@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { 
   Server, Calendar, History, Plus, Play, FileCode, Trash2, GitCompare, 
   CheckCircle, XCircle, Clock, Copy, Info, AlertTriangle, ToggleLeft, ToggleRight,
-  Eye, Download, RefreshCw, X
+  Eye, Download, RefreshCw, X, Search, ChevronLeft, ChevronRight
 } from 'lucide-react'
 import { deviceBackupApi } from '../api/client'
 import { useToast } from '../components/shared/ToastProvider'
@@ -33,6 +33,27 @@ export default function DeviceBackup() {
   const [schedTime, setSchedTime] = useState('02:00')
   const [schedDayOfWeek, setSchedDayOfWeek] = useState(0) // 0-6
   const [savingSchedule, setSavingSchedule] = useState(false)
+
+  // Search and Pagination States
+  const limit = 20
+  const [searchDevice, setSearchDevice] = useState('')
+  const [pageDevice, setPageDevice] = useState(1)
+  const [searchSchedule, setSearchSchedule] = useState('')
+  const [pageSchedule, setPageSchedule] = useState(1)
+  const [searchLog, setSearchLog] = useState('')
+  const [pageLog, setPageLog] = useState(1)
+
+  useEffect(() => {
+    setPageDevice(1)
+  }, [searchDevice])
+
+  useEffect(() => {
+    setPageSchedule(1)
+  }, [searchSchedule])
+
+  useEffect(() => {
+    setPageLog(1)
+  }, [searchLog])
 
   // System states
   const [backingUpDevices, setBackingUpDevices] = useState({})
@@ -354,6 +375,37 @@ export default function DeviceBackup() {
     return days[dayIndex] || 'Senin'
   }
 
+  // Filter & Slice Devices
+  const filteredDevices = devices.filter(d => {
+    const s = searchDevice.toLowerCase()
+    return d.name.toLowerCase().includes(s) || 
+           d.ip.includes(s) || 
+           (d.device_type && d.device_type.toLowerCase().includes(s))
+  })
+  const startIndexDevice = (pageDevice - 1) * limit
+  const paginatedDevices = filteredDevices.slice(startIndexDevice, startIndexDevice + limit)
+  const totalPagesDevice = Math.ceil(filteredDevices.length / limit) || 1
+
+  // Filter & Slice Schedules
+  const filteredSchedules = schedules.filter(s => {
+    const q = searchSchedule.toLowerCase()
+    return s.name.toLowerCase().includes(q) || s.frequency.toLowerCase().includes(q)
+  })
+  const startIndexSchedule = (pageSchedule - 1) * limit
+  const paginatedSchedules = filteredSchedules.slice(startIndexSchedule, startIndexSchedule + limit)
+  const totalPagesSchedule = Math.ceil(filteredSchedules.length / limit) || 1
+
+  // Filter & Slice Logs
+  const filteredLogs = logs.filter(log => {
+    const q = searchLog.toLowerCase()
+    return log.device_name.toLowerCase().includes(q) || 
+           log.device_ip.includes(q) || 
+           (log.error_message && log.error_message.toLowerCase().includes(q))
+  })
+  const startIndexLog = (pageLog - 1) * limit
+  const paginatedLogs = filteredLogs.slice(startIndexLog, startIndexLog + limit)
+  const totalPagesLog = Math.ceil(filteredLogs.length / limit) || 1
+
   return (
     <div className="page-container animate-fade">
       {/* Header */}
@@ -403,96 +455,135 @@ export default function DeviceBackup() {
               </button>
             </div>
 
+            {/* Search Box */}
+            <div className="search-box mb-16" style={{ maxWidth: '320px' }}>
+              <Search className="search-icon" size={14} />
+              <input 
+                placeholder="Cari nama atau IP perangkat..." 
+                value={searchDevice} 
+                onChange={e => setSearchDevice(e.target.value)} 
+                style={{ fontSize: '12.5px' }}
+              />
+            </div>
+
             {loading ? (
               <div className="loading-overlay" style={{ minHeight: '200px' }}>
                 <div className="loading-spinner" />
                 Memuat perangkat...
               </div>
-            ) : devices.length === 0 ? (
+            ) : filteredDevices.length === 0 ? (
               <div className="empty-state" style={{ minHeight: '200px' }}>
                 <Server size={32} className="text-muted" />
                 <div className="empty-title">Tidak ada perangkat ditemukan</div>
-                <div className="empty-desc">Pastikan Anda telah menambahkan perangkat jaringan yang didukung.</div>
+                <div className="empty-desc">Tambahkan perangkat atau sesuaikan filter pencarian Anda.</div>
               </div>
             ) : (
-              <div className="table-wrapper">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Nama Device</th>
-                      <th>IP Address</th>
-                      <th>Status Backup Terakhir</th>
-                      <th>Waktu Backup Terakhir</th>
-                      <th>Versi Terakhir</th>
-                      <th style={{ textAlign: 'right' }}>Aksi</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {devices.map(d => {
-                      const isSelected = selectedDevice?.id === d.id
-                      const st = d.last_backup_status || 'unknown'
-                      return (
-                        <tr key={d.id} className={isSelected ? 'active-row' : ''} style={{ background: isSelected ? 'var(--primary-dim)' : 'transparent' }}>
-                          <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                              <span 
-                                style={{ cursor: 'pointer', textDecoration: 'underline' }}
-                                onClick={() => handleOpenDeviceVersions(d)}
-                              >
-                                {d.name}
-                              </span>
-                              <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 'normal', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
-                                {d.device_type?.replace('_', ' ')}
-                              </span>
-                            </div>
-                          </td>
-                          <td className="mono">{d.ip}</td>
-                          <td>
-                            {d.last_backup_status ? (
-                              <span className={`badge ${st === 'success' ? 'badge-online' : 'badge-offline'}`}>
-                                {st === 'success' ? <CheckCircle size={10} /> : <XCircle size={10} />}
-                                {st === 'success' ? 'Berhasil' : 'Gagal'}
-                              </span>
-                            ) : (
-                              <span className="badge badge-unknown">Belum Ada</span>
-                            )}
-                          </td>
-                          <td className="mono" style={{ fontSize: '11.5px' }}>
-                            {d.last_backup_time ? formatTime(d.last_backup_time) : '—'}
-                          </td>
-                          <td className="mono" style={{ fontWeight: 'bold' }}>
-                            {d.latest_version ? `v${d.latest_version}` : '—'}
-                          </td>
-                          <td style={{ textAlign: 'right' }}>
-                            <div className="flex-center" style={{ justifyContent: 'flex-end', gap: '8px' }}>
-                              <button 
-                                className="btn btn-ghost btn-sm"
-                                onClick={() => handleOpenDeviceVersions(d)}
-                              >
-                                <Eye size={12} /> Versi
-                              </button>
-                              {!isViewer && (
-                                <button 
-                                  className="btn btn-primary btn-sm"
-                                  onClick={() => handleBackupNow(d.id, d.name)}
-                                  disabled={backingUpDevices[d.id]}
+              <>
+                <div className="table-wrapper">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Nama Device</th>
+                        <th>IP Address</th>
+                        <th>Status Backup Terakhir</th>
+                        <th>Waktu Backup Terakhir</th>
+                        <th>Versi Terakhir</th>
+                        <th style={{ textAlign: 'right' }}>Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paginatedDevices.map(d => {
+                        const isSelected = selectedDevice?.id === d.id
+                        const st = d.last_backup_status || 'unknown'
+                        return (
+                          <tr key={d.id} className={isSelected ? 'active-row' : ''} style={{ background: isSelected ? 'var(--primary-dim)' : 'transparent' }}>
+                            <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                <span 
+                                  style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                                  onClick={() => handleOpenDeviceVersions(d)}
                                 >
-                                  {backingUpDevices[d.id] ? (
-                                    <span className="loading-spinner" style={{ width: 12, height: 12, borderTopColor: '#fff' }} />
-                                  ) : (
-                                    <Play size={11} />
-                                  )}
-                                  Backup
-                                </button>
+                                  {d.name}
+                                </span>
+                                <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 'normal', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
+                                  {d.device_type?.replace('_', ' ')}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="mono">{d.ip}</td>
+                            <td>
+                              {d.last_backup_status ? (
+                                <span className={`badge ${st === 'success' ? 'badge-online' : 'badge-offline'}`}>
+                                  {st === 'success' ? <CheckCircle size={10} /> : <XCircle size={10} />}
+                                  {st === 'success' ? 'Berhasil' : 'Gagal'}
+                                </span>
+                              ) : (
+                                <span className="badge badge-unknown">Belum Ada</span>
                               )}
-                            </div>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                            </td>
+                            <td className="mono" style={{ fontSize: '11.5px' }}>
+                              {d.last_backup_time ? formatTime(d.last_backup_time) : '—'}
+                            </td>
+                            <td className="mono" style={{ fontWeight: 'bold' }}>
+                              {d.latest_version ? `v${d.latest_version}` : '—'}
+                            </td>
+                            <td style={{ textAlign: 'right' }}>
+                              <div className="flex-center" style={{ justifyContent: 'flex-end', gap: '8px' }}>
+                                <button 
+                                  className="btn btn-ghost btn-sm"
+                                  onClick={() => handleOpenDeviceVersions(d)}
+                                >
+                                  <Eye size={12} /> Versi
+                                </button>
+                                {!isViewer && (
+                                  <button 
+                                    className="btn btn-primary btn-sm"
+                                    onClick={() => handleBackupNow(d.id, d.name)}
+                                    disabled={backingUpDevices[d.id]}
+                                  >
+                                    {backingUpDevices[d.id] ? (
+                                      <span className="loading-spinner" style={{ width: 12, height: 12, borderTopColor: '#fff' }} />
+                                    ) : (
+                                      <Play size={11} />
+                                    )}
+                                    Backup
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Pagination Controls */}
+                <div className="flex-between mt-16" style={{ padding: '12px 16px', borderTop: '1px solid var(--border)' }}>
+                  <div className="text-muted" style={{ fontSize: '12.5px' }}>
+                    Menampilkan perangkat ke-{filteredDevices.length === 0 ? 0 : startIndexDevice + 1} s.d. {Math.min(pageDevice * limit, filteredDevices.length)} dari {filteredDevices.length} perangkat
+                  </div>
+                  <div className="flex-center gap-12">
+                    <button 
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => setPageDevice(p => Math.max(p - 1, 1))}
+                      disabled={pageDevice === 1 || loading}
+                    >
+                      <ChevronLeft size={14} style={{ marginRight: '4px' }} /> Sebelum
+                    </button>
+                    <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                      Halaman {pageDevice} dari {totalPagesDevice}
+                    </span>
+                    <button 
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => setPageDevice(p => Math.min(p + 1, totalPagesDevice))}
+                      disabled={pageDevice === totalPagesDevice || loading}
+                    >
+                      Berikut <ChevronRight size={14} style={{ marginLeft: '4px' }} />
+                    </button>
+                  </div>
+                </div>
+              </>
             )}
           </div>
 
@@ -628,109 +719,148 @@ export default function DeviceBackup() {
             )}
           </div>
 
+          {/* Search Box */}
+          <div className="search-box mb-16" style={{ maxWidth: '320px' }}>
+            <Search className="search-icon" size={14} />
+            <input 
+              placeholder="Cari nama jadwal..." 
+              value={searchSchedule} 
+              onChange={e => setSearchSchedule(e.target.value)} 
+              style={{ fontSize: '12.5px' }}
+            />
+          </div>
+
           {loading ? (
             <div className="loading-overlay" style={{ minHeight: '200px' }}>
               <div className="loading-spinner" />
               Memuat jadwal...
             </div>
-          ) : schedules.length === 0 ? (
+          ) : filteredSchedules.length === 0 ? (
             <div className="empty-state" style={{ minHeight: '200px' }}>
               <Calendar size={32} className="text-muted" />
-              <div className="empty-title">Belum ada jadwal backup</div>
-              <div className="empty-desc">Klik tombol "Buat Jadwal Baru" di atas untuk membuat jadwal backup berkala.</div>
+              <div className="empty-title">Tidak ada jadwal ditemukan</div>
+              <div className="empty-desc">Jalankan jadwal baru atau sesuaikan filter pencarian Anda.</div>
             </div>
           ) : (
-            <div className="table-wrapper">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Status</th>
-                    <th>Nama Jadwal</th>
-                    <th>Frekuensi</th>
-                    <th>Detail Waktu</th>
-                    <th>Target Perangkat</th>
-                    <th>Waktu Terakhir</th>
-                    <th>Waktu Berikutnya</th>
-                    <th style={{ textAlign: 'right' }}>Aksi</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {schedules.map(s => {
-                    const isActive = s.is_active === 1
-                    return (
-                      <tr key={s.id}>
-                        <td>
-                          <button 
-                            style={{ background: 'none', border: 'none', cursor: isViewer ? 'default' : 'pointer' }}
-                            onClick={() => handleToggleScheduleActive(s)}
-                            disabled={isViewer}
-                          >
-                            {isActive ? (
-                              <span style={{ color: 'var(--success)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <ToggleRight size={24} /> <span style={{ fontSize: '11px', fontWeight: 700 }}>AKTIF</span>
-                              </span>
+            <>
+              <div className="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Status</th>
+                      <th>Nama Jadwal</th>
+                      <th>Frekuensi</th>
+                      <th>Detail Waktu</th>
+                      <th>Target Perangkat</th>
+                      <th>Waktu Terakhir</th>
+                      <th>Waktu Berikutnya</th>
+                      <th style={{ textAlign: 'right' }}>Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedSchedules.map(s => {
+                      const isActive = s.is_active === 1
+                      return (
+                        <tr key={s.id}>
+                          <td>
+                            <button 
+                              style={{ background: 'none', border: 'none', cursor: isViewer ? 'default' : 'pointer' }}
+                              onClick={() => handleToggleScheduleActive(s)}
+                              disabled={isViewer}
+                            >
+                              {isActive ? (
+                                <span style={{ color: 'var(--success)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                  <ToggleRight size={24} /> <span style={{ fontSize: '11px', fontWeight: 700 }}>AKTIF</span>
+                                </span>
+                              ) : (
+                                <span style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                  <ToggleLeft size={24} /> <span style={{ fontSize: '11px', fontWeight: 700 }}>NONAKTIF</span>
+                                </span>
+                              )}
+                            </button>
+                          </td>
+                          <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{s.name}</td>
+                          <td style={{ textTransform: 'capitalize' }}>
+                            <span className="badge badge-ssh">{s.frequency}</span>
+                          </td>
+                          <td>
+                            {s.frequency === 'hourly' && 'Setiap jam'}
+                            {s.frequency === 'daily' && `Setiap hari jam ${s.time}`}
+                            {s.frequency === 'weekly' && `Setiap hari ${getDayName(s.day_of_week)} jam ${s.time}`}
+                          </td>
+                          <td>
+                            {s.device_ids === 'all' ? (
+                              <span className="badge badge-online" style={{ background: 'var(--primary-dim)', color: 'var(--primary)' }}>Semua Perangkat</span>
                             ) : (
-                              <span style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <ToggleLeft size={24} /> <span style={{ fontSize: '11px', fontWeight: 700 }}>NONAKTIF</span>
-                              </span>
+                              <span>{s.device_ids.split(',').length} Perangkat</span>
                             )}
-                          </button>
-                        </td>
-                        <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{s.name}</td>
-                        <td style={{ textTransform: 'capitalize' }}>
-                          <span className="badge badge-ssh">{s.frequency}</span>
-                        </td>
-                        <td>
-                          {s.frequency === 'hourly' && 'Setiap jam'}
-                          {s.frequency === 'daily' && `Setiap hari jam ${s.time}`}
-                          {s.frequency === 'weekly' && `Setiap hari ${getDayName(s.day_of_week)} jam ${s.time}`}
-                        </td>
-                        <td>
-                          {s.device_ids === 'all' ? (
-                            <span className="badge badge-online" style={{ background: 'var(--primary-dim)', color: 'var(--primary)' }}>Semua Perangkat</span>
-                          ) : (
-                            <span>{s.device_ids.split(',').length} Perangkat</span>
-                          )}
-                        </td>
-                        <td className="mono" style={{ fontSize: '11.5px' }}>
-                          {s.last_run ? formatTime(s.last_run) : '—'}
-                        </td>
-                        <td className="mono" style={{ fontSize: '11.5px', color: isActive ? 'var(--accent)' : 'var(--text-muted)' }}>
-                          {isActive ? formatTime(s.next_run) : '—'}
-                        </td>
-                        <td style={{ textAlign: 'right' }}>
-                          <div className="flex-center" style={{ justifyContent: 'flex-end', gap: '8px' }}>
-                            {!isViewer && (
-                              <>
-                                <button 
-                                  className="btn btn-ghost btn-sm"
-                                  onClick={() => handleRunScheduleNow(s.id, s.name)}
-                                  title="Jalankan instan di latar belakang"
-                                >
-                                  <Play size={12} />
-                                </button>
-                                <button 
-                                  className="btn btn-ghost btn-sm"
-                                  onClick={() => handleOpenScheduleModal(s)}
-                                >
-                                  Edit
-                                </button>
-                                <button 
-                                  className="btn btn-danger btn-sm"
-                                  onClick={() => handleDeleteSchedule(s.id, s.name)}
-                                >
-                                  <Trash2 size={12} />
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
+                          </td>
+                          <td className="mono" style={{ fontSize: '11.5px' }}>
+                            {s.last_run ? formatTime(s.last_run) : '—'}
+                          </td>
+                          <td className="mono" style={{ fontSize: '11.5px', color: isActive ? 'var(--accent)' : 'var(--text-muted)' }}>
+                            {isActive ? formatTime(s.next_run) : '—'}
+                          </td>
+                          <td style={{ textAlign: 'right' }}>
+                            <div className="flex-center" style={{ justifyContent: 'flex-end', gap: '8px' }}>
+                              {!isViewer && (
+                                <>
+                                  <button 
+                                    className="btn btn-ghost btn-sm"
+                                    onClick={() => handleRunScheduleNow(s.id, s.name)}
+                                    title="Jalankan instan di latar belakang"
+                                  >
+                                    <Play size={12} />
+                                  </button>
+                                  <button 
+                                    className="btn btn-ghost btn-sm"
+                                    onClick={() => handleOpenScheduleModal(s)}
+                                  >
+                                    Edit
+                                  </button>
+                                  <button 
+                                    className="btn btn-danger btn-sm"
+                                    onClick={() => handleDeleteSchedule(s.id, s.name)}
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination Controls */}
+              <div className="flex-between mt-16" style={{ padding: '12px 16px', borderTop: '1px solid var(--border)' }}>
+                <div className="text-muted" style={{ fontSize: '12.5px' }}>
+                  Menampilkan {startIndexSchedule + 1} - {Math.min(pageSchedule * limit, filteredSchedules.length)} dari {filteredSchedules.length} jadwal
+                </div>
+                <div className="flex-center gap-12">
+                  <button 
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => setPageSchedule(p => Math.max(p - 1, 1))}
+                    disabled={pageSchedule === 1 || loading}
+                  >
+                    <ChevronLeft size={14} style={{ marginRight: '4px' }} /> Sebelum
+                  </button>
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                    Halaman {pageSchedule} dari {totalPagesSchedule}
+                  </span>
+                  <button 
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => setPageSchedule(p => Math.min(p + 1, totalPagesSchedule))}
+                    disabled={pageSchedule === totalPagesSchedule || loading}
+                  >
+                    Berikut <ChevronRight size={14} style={{ marginLeft: '4px' }} />
+                  </button>
+                </div>
+              </div>
+            </>
           )}
         </div>
       )}
@@ -748,56 +878,95 @@ export default function DeviceBackup() {
             </button>
           </div>
 
+          {/* Search Box */}
+          <div className="search-box mb-16" style={{ maxWidth: '320px' }}>
+            <Search className="search-icon" size={14} />
+            <input 
+              placeholder="Cari nama device, IP, atau pesan error..." 
+              value={searchLog} 
+              onChange={e => setSearchLog(e.target.value)} 
+              style={{ fontSize: '12.5px' }}
+            />
+          </div>
+
           {loading ? (
             <div className="loading-overlay" style={{ minHeight: '200px' }}>
               <div className="loading-spinner" />
               Memuat log...
             </div>
-          ) : logs.length === 0 ? (
+          ) : filteredLogs.length === 0 ? (
             <div className="empty-state" style={{ minHeight: '200px' }}>
               <History size={32} className="text-muted" />
-              <div className="empty-title">Belum ada riwayat backup</div>
-              <div className="empty-desc">Jalankan backup manual atau aktifkan jadwal backup untuk mengumpulkan log.</div>
+              <div className="empty-title">Tidak ada log ditemukan</div>
+              <div className="empty-desc">Jalankan backup manual atau aktifkan jadwal backup, atau sesuaikan filter pencarian.</div>
             </div>
           ) : (
-            <div className="table-wrapper">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Waktu</th>
-                    <th>Nama Device</th>
-                    <th>IP Address</th>
-                    <th>Status</th>
-                    <th>Detail Versi / Pesan Error</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {logs.map(log => {
-                    const isSuccess = log.status === 'success'
-                    return (
-                      <tr key={log.id}>
-                        <td className="mono" style={{ fontSize: '11.5px' }}>{formatTime(log.created_at)}</td>
-                        <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{log.device_name}</td>
-                        <td className="mono">{log.device_ip}</td>
-                        <td>
-                          <span className={`badge ${isSuccess ? 'badge-online' : 'badge-offline'}`}>
-                            {isSuccess ? <CheckCircle size={10} /> : <XCircle size={10} />}
-                            {isSuccess ? 'Berhasil' : 'Gagal'}
-                          </span>
-                        </td>
-                        <td>
-                          {isSuccess ? (
-                            <span className="mono" style={{ fontWeight: 'bold' }}>v{log.version} ({(log.size / 1024).toFixed(1)} KB)</span>
-                          ) : (
-                            <span className="text-danger" style={{ fontSize: '12px' }}>{log.error_message}</span>
-                          )}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <>
+              <div className="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Waktu</th>
+                      <th>Nama Device</th>
+                      <th>IP Address</th>
+                      <th>Status</th>
+                      <th>Detail Versi / Pesan Error</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedLogs.map(log => {
+                      const isSuccess = log.status === 'success'
+                      return (
+                        <tr key={log.id}>
+                          <td className="mono" style={{ fontSize: '11.5px' }}>{formatTime(log.created_at)}</td>
+                          <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{log.device_name}</td>
+                          <td className="mono">{log.device_ip}</td>
+                          <td>
+                            <span className={`badge ${isSuccess ? 'badge-online' : 'badge-offline'}`}>
+                              {isSuccess ? <CheckCircle size={10} /> : <XCircle size={10} />}
+                              {isSuccess ? 'Berhasil' : 'Gagal'}
+                            </span>
+                          </td>
+                          <td>
+                            {isSuccess ? (
+                              <span className="mono" style={{ fontWeight: 'bold' }}>v{log.version} ({(log.size / 1024).toFixed(1)} KB)</span>
+                            ) : (
+                              <span className="text-danger" style={{ fontSize: '12px' }}>{log.error_message}</span>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination Controls */}
+              <div className="flex-between mt-16" style={{ padding: '12px 16px', borderTop: '1px solid var(--border)' }}>
+                <div className="text-muted" style={{ fontSize: '12.5px' }}>
+                  Menampilkan {startIndexLog + 1} - {Math.min(pageLog * limit, filteredLogs.length)} dari {filteredLogs.length} entri log
+                </div>
+                <div className="flex-center gap-12">
+                  <button 
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => setPageLog(p => Math.max(p - 1, 1))}
+                    disabled={pageLog === 1 || loading}
+                  >
+                    <ChevronLeft size={14} style={{ marginRight: '4px' }} /> Sebelum
+                  </button>
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                    Halaman {pageLog} dari {totalPagesLog}
+                  </span>
+                  <button 
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => setPageLog(p => Math.min(p + 1, totalPagesLog))}
+                    disabled={pageLog === totalPagesLog || loading}
+                  >
+                    Berikut <ChevronRight size={14} style={{ marginLeft: '4px' }} />
+                  </button>
+                </div>
+              </div>
+            </>
           )}
         </div>
       )}

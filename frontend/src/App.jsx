@@ -14,6 +14,8 @@ import SnmpTester from './pages/SnmpTester'
 import MibManagement from './pages/MibManagement'
 import Topology from './pages/Topology'
 import MacInvestigation from './pages/MacInvestigation'
+import NetworkAnomalies from './pages/NetworkAnomalies'
+import SyslogViewer from './pages/SyslogViewer'
 import ToastProvider from './components/shared/ToastProvider'
 import { AuthProvider } from './context/AuthContext'
 import ProtectedRoute from './components/shared/ProtectedRoute'
@@ -45,6 +47,8 @@ export default function App() {
                       <Route path="/topology" element={<Topology />} />
                       <Route path="/mac-investigation" element={<Navigate to="/investigation" replace />} />
                       <Route path="/investigation" element={<MacInvestigation />} />
+                      <Route path="/anomalies" element={<NetworkAnomalies />} />
+                      <Route path="/syslog" element={<SyslogViewer />} />
                       <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
                   </main>

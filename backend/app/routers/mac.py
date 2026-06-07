@@ -5,6 +5,7 @@ from app.services.connector import get_mac_table_raw
 from app.services.mac_parser import parse_mac_table
 from app.services.oui_lookup import lookup_vendor
 from app.services.auth import require_operator_or_admin
+from app.services.anomaly_detector import check_mac_flapping
 
 router = APIRouter(prefix="/api", tags=["mac"])
 
@@ -87,6 +88,13 @@ async def refresh_mac_table(device_id: int, user: dict = Depends(require_operato
         enriched["mac_vendor"] = mac_vendor
         enriched["fetched_at"] = now
         enriched_entries.append(enriched)
+
+    # Run MAC flapping check
+    try:
+        check_mac_flapping(device_id, enriched_entries, conn)
+    except Exception as e:
+        import logging
+        logging.getLogger("netx.mac_router").error(f"Error checking MAC flapping: {e}")
 
     c.execute(
         "UPDATE devices SET status='online', last_seen=? WHERE id=?",

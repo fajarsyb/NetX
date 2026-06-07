@@ -404,10 +404,119 @@ def init_db():
         oid             TEXT NOT NULL,
         syntax          TEXT DEFAULT '',
         description     TEXT DEFAULT '',
+        parent          TEXT DEFAULT '',
+        kind            TEXT DEFAULT 'Single',
+        is_unsigned     INTEGER DEFAULT 0,
+        is_64bit        INTEGER DEFAULT 0,
+        is_float        INTEGER DEFAULT 0,
+        unit            TEXT DEFAULT 'Custom',
+        unit_custom     TEXT DEFAULT '',
+        indicator       TEXT DEFAULT '',
+        scale           REAL DEFAULT 1.0,
+        scale_mode      TEXT DEFAULT 'Divide',
+        lookup          TEXT DEFAULT '',
         FOREIGN KEY (mib_id) REFERENCES snmp_mibs(id) ON DELETE CASCADE
     );
     """)
     c.execute("CREATE INDEX IF NOT EXISTS idx_snmp_mib_objects_mib ON snmp_mib_objects(mib_id);")
+
+    # Add new columns to existing snmp_mib_objects table if not exists
+    for col, type_ in [
+        ("parent", "TEXT DEFAULT ''"),
+        ("kind", "TEXT DEFAULT 'Single'"),
+        ("is_unsigned", "INTEGER DEFAULT 0"),
+        ("is_64bit", "INTEGER DEFAULT 0"),
+        ("is_float", "INTEGER DEFAULT 0"),
+        ("unit", "TEXT DEFAULT 'Custom'"),
+        ("unit_custom", "TEXT DEFAULT ''"),
+        ("indicator", "TEXT DEFAULT ''"),
+        ("scale", "REAL DEFAULT 1.0"),
+        ("scale_mode", "TEXT DEFAULT 'Divide'"),
+        ("lookup", "TEXT DEFAULT ''"),
+    ]:
+        try:
+            c.execute(f"ALTER TABLE snmp_mib_objects ADD COLUMN {col} {type_};")
+        except sqlite3.OperationalError:
+            pass
+
+    # Device SNMP Objects Association Table
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS device_snmp_objects (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        device_id       INTEGER NOT NULL,
+        mib_object_id   INTEGER NOT NULL,
+        created_at      TEXT NOT NULL,
+        FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE,
+        FOREIGN KEY (mib_object_id) REFERENCES snmp_mib_objects(id) ON DELETE CASCADE,
+        UNIQUE(device_id, mib_object_id)
+    );
+    """)
+
+    # Network Anomalies Table
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS network_anomalies (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        device_id       INTEGER NOT NULL,
+        anomaly_type    TEXT NOT NULL,
+        severity        TEXT NOT NULL,
+        interface_name  TEXT DEFAULT '',
+        details         TEXT DEFAULT '',
+        is_active       INTEGER DEFAULT 1,
+        detected_at     TEXT NOT NULL,
+        resolved_at     TEXT,
+        FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+    );
+    """)
+    c.execute("CREATE INDEX IF NOT EXISTS idx_network_anomalies_device ON network_anomalies(device_id);")
+
+    # Interface SNMP Stats Table (for delta/rate comparison)
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS interface_stats_latest (
+        device_id       INTEGER NOT NULL,
+        interface_name  TEXT NOT NULL,
+        in_broadcast    INTEGER DEFAULT 0,
+        out_broadcast   INTEGER DEFAULT 0,
+        in_multicast    INTEGER DEFAULT 0,
+        out_multicast   INTEGER DEFAULT 0,
+        in_unicast      INTEGER DEFAULT 0,
+        out_unicast     INTEGER DEFAULT 0,
+        oper_status     TEXT DEFAULT 'unknown',
+        stp_top_changes INTEGER DEFAULT 0,
+        status_changes_history TEXT DEFAULT '[]',
+        updated_at      TEXT NOT NULL,
+        PRIMARY KEY (device_id, interface_name),
+        FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+    );
+    """)
+
+    # MAC Address History/Movement tracking
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS mac_history_tracking (
+        mac_address     TEXT PRIMARY KEY,
+        device_id       INTEGER NOT NULL,
+        interface_name  TEXT NOT NULL,
+        vlan            TEXT DEFAULT '',
+        updated_at      TEXT NOT NULL,
+        FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+    );
+    """)
+
+    # Device Syslogs Table
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS device_syslogs (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        device_id       INTEGER,
+        facility        INTEGER DEFAULT 1,
+        severity        INTEGER DEFAULT 5,
+        program         TEXT DEFAULT '',
+        message         TEXT NOT NULL,
+        timestamp       TEXT NOT NULL,
+        raw_message     TEXT,
+        FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE SET NULL
+    );
+    """)
+    c.execute("CREATE INDEX IF NOT EXISTS idx_device_syslogs_device ON device_syslogs(device_id);")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_device_syslogs_time ON device_syslogs(timestamp);")
 
     conn.commit()
     conn.close()

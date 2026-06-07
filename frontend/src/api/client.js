@@ -118,6 +118,19 @@ export const mibsApi = {
   remove:           (id)       => api.delete(`/mibs/${id}`),
   listObjects:      (id)       => api.get(`/mibs/${id}/objects`),
   getActiveObjects: (params)   => api.get('/mibs/objects/active', { params }),
+  updateObject:     (objectId, data) => api.put(`/mibs/objects/${objectId}`, data),
+}
+
+export const anomaliesApi = {
+  getActive:  ()       => api.get('/anomalies/active'),
+  getHistory: (params) => api.get('/anomalies/history', { params }),
+  resolve:    (id)     => api.post(`/anomalies/${id}/resolve`),
+  resolveAll: ()       => api.post('/anomalies/resolve-all'),
+}
+
+export const syslogApi = {
+  list:  (params) => api.get('/syslog', { params }),
+  clear: ()       => api.delete('/syslog/clear'),
 }
 
 export default api

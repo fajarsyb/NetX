@@ -943,6 +943,107 @@ def resolve_oid_string(oid_str: str, conn) -> str:
     return oid_str
 
 
+def get_resolved_db_cache(conn) -> dict:
+    """
+    Returns a dictionary mapping fully numeric OID -> (object_name, mib_name)
+    by recursively resolving relative parent strings.
+    """
+    cache = {}
+    if not conn:
+        return cache
+    try:
+        c = conn.cursor()
+        c.execute("""
+            SELECT o.name, o.oid, m.name as mib_name 
+            FROM snmp_mib_objects o 
+            JOIN snmp_mibs m ON o.mib_id = m.id
+        """)
+        rows = c.fetchall()
+        
+        name_to_oid = {}
+        from app.services.mib_parser import ROOT_OIDS
+        for name, oid in ROOT_OIDS.items():
+            name_to_oid[name] = oid
+            
+        raw_objects = []
+        for r in rows:
+            raw_objects.append({
+                "name": r["name"],
+                "oid": r["oid"],
+                "mib_name": r["mib_name"]
+            })
+            
+        def resolve_val(val: str) -> str:
+            val = val.strip().strip('.')
+            if not val:
+                return ""
+            if re.match(r"^[0-9\.]+$", val):
+                return val
+            parts = val.split('.')
+            first = parts[0]
+            if first in name_to_oid:
+                resolved_prefix = name_to_oid[first]
+                new_oid = ".".join([resolved_prefix] + parts[1:])
+                return resolve_val(new_oid)
+            for obj in raw_objects:
+                if obj["name"] == first:
+                    resolved_prefix = resolve_val(obj["oid"])
+                    if resolved_prefix:
+                        name_to_oid[first] = resolved_prefix
+                        new_oid = ".".join([resolved_prefix] + parts[1:])
+                        return resolve_val(new_oid)
+            return val
+
+        for obj in raw_objects:
+            resolved_numeric = resolve_val(obj["oid"])
+            if resolved_numeric and re.match(r"^[0-9\.]+$", resolved_numeric):
+                cache[resolved_numeric] = (obj["name"], obj["mib_name"])
+    except Exception:
+        pass
+        
+    return cache
+
+
+def resolve_numeric_oid_to_name(numeric_oid: str, resolved_cache: dict) -> str:
+    numeric_oid = numeric_oid.strip().strip('.')
+    if not numeric_oid:
+        return ""
+        
+    parts = numeric_oid.split('.')
+    
+    # Check prefixes of the numeric OID from longest to shortest
+    for i in range(len(parts), 0, -1):
+        prefix = ".".join(parts[:i])
+        
+        # 1. Check database cache
+        if prefix in resolved_cache:
+            name, mib_name = resolved_cache[prefix]
+            suffix = ".".join(parts[i:])
+            suffix_str = f".{suffix}" if suffix else ""
+            return f"{mib_name}::{name}{suffix_str}"
+            
+        # 2. Check standard ROOT_OIDS
+        from app.services.mib_parser import ROOT_OIDS
+        for name, oid in ROOT_OIDS.items():
+            if oid == prefix:
+                suffix = ".".join(parts[i:])
+                suffix_str = f".{suffix}" if suffix else ""
+                
+                # Determine standard MIB Module
+                if name in ("iso", "org", "dod", "internet", "directory", "mgmt", "mib-2", "transmission", "experimental", "private", "enterprises", "security", "snmpV2"):
+                    mib_module = "SNMPv2-SMI"
+                elif name in ("cisco",):
+                    mib_module = "CISCO-SMI"
+                elif name in ("fortinet", "fnFortiGateMib"):
+                    mib_module = "FORTINET-CORE-MIB"
+                else:
+                    mib_module = "MIB"
+                return f"{mib_module}::{name}{suffix_str}"
+                
+    return numeric_oid
+
+
+
 class SNMPQueryCustom(BaseModel):
     device_id: int
     oid: str
@@ -954,34 +1055,36 @@ async def query_snmp_custom(body: SNMPQueryCustom):
     Execute a custom SNMP GET or WALK query on a device.
     """
     conn = get_db_conn()
-    resolved_oid = resolve_oid_string(body.oid, conn)
-    
-    c = conn.cursor()
-    c.execute("SELECT ip, snmp_version, snmp_community FROM devices WHERE id = ?", (body.device_id,))
-    row = c.fetchone()
-    conn.close()
-    
-    if not row:
-        raise HTTPException(status_code=404, detail="Device tidak ditemukan.")
-        
-    ip = row["ip"]
-    version = row["snmp_version"] or "v2c"
-    community = row["snmp_community"]
-    
-    if not community:
-        raise HTTPException(status_code=400, detail="SNMP Community belum dikonfigurasi untuk perangkat ini.")
-        
-    mp_model = 1 if version == "v2c" else 0
-    
-    if not resolved_oid or not re.match(r"^[0-9\.]+$", resolved_oid):
-        raise HTTPException(
-            status_code=400, 
-            detail="Format OID tidak valid. Harus berupa deretan angka yang dipisahkan titik atau nama objek MIB terdaftar."
-        )
-
-    oid_str = resolved_oid
-
     try:
+        resolved_oid = resolve_oid_string(body.oid, conn)
+        
+        c = conn.cursor()
+        c.execute("SELECT ip, snmp_version, snmp_community FROM devices WHERE id = ?", (body.device_id,))
+        row = c.fetchone()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="Device tidak ditemukan.")
+            
+        ip = row["ip"]
+        version = row["snmp_version"] or "v2c"
+        community = row["snmp_community"]
+        
+        if not community:
+            raise HTTPException(status_code=400, detail="SNMP Community belum dikonfigurasi untuk perangkat ini.")
+            
+        mp_model = 1 if version == "v2c" else 0
+        
+        if not resolved_oid or not re.match(r"^[0-9\.]+$", resolved_oid):
+            raise HTTPException(
+                status_code=400, 
+                detail="Format OID tidak valid. Harus berupa deretan angka yang dipisahkan titik atau nama objek MIB terdaftar."
+            )
+
+        oid_str = resolved_oid
+
+        # Build database OID resolution cache
+        resolved_cache = get_resolved_db_cache(conn)
+
         transport = await UdpTransportTarget.create((ip, 161), timeout=3.0, retries=1)
         snmpEngine = SnmpEngine()
         authData = CommunityData(community, mpModel=mp_model)
@@ -1003,12 +1106,14 @@ async def query_snmp_custom(body: SNMPQueryCustom):
             else:
                 results = []
                 for varBind in varBinds:
-                    oid = varBind[0].prettyPrint()
+                    numeric_oid = ".".join(str(x) for x in varBind[0].asTuple())
                     val = varBind[1]
                     val_str = val.prettyPrint()
                     syntax = val.__class__.__name__
+                    resolved_name = resolve_numeric_oid_to_name(numeric_oid, resolved_cache)
                     results.append({
-                        "oid": oid,
+                        "oid": numeric_oid,
+                        "name": resolved_name,
                         "value": val_str,
                         "syntax": syntax
                     })
@@ -1040,13 +1145,15 @@ async def query_snmp_custom(body: SNMPQueryCustom):
                 if len(current_oid_tuple) < len(prefix_tuple) or current_oid_tuple[:len(prefix_tuple)] != prefix_tuple:
                     break
                     
-                oid = current_var_bind[0].prettyPrint()
+                numeric_oid = ".".join(str(x) for x in current_var_bind[0].asTuple())
                 val = current_var_bind[1]
                 val_str = val.prettyPrint()
                 syntax = val.__class__.__name__
+                resolved_name = resolve_numeric_oid_to_name(numeric_oid, resolved_cache)
                 
                 results.append({
-                    "oid": oid,
+                    "oid": numeric_oid,
+                    "name": resolved_name,
                     "value": val_str,
                     "syntax": syntax
                 })
@@ -1062,3 +1169,5 @@ async def query_snmp_custom(body: SNMPQueryCustom):
         if "No SNMP response" in err_msg or "timeout" in err_msg.lower():
             clean_msg = "SNMP Timeout: Perangkat tidak merespons di port 161."
         raise HTTPException(status_code=400, detail=clean_msg)
+    finally:
+        conn.close()

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import {
   Server, LayoutDashboard, Plus, Network, ChevronRight, ChevronDown,
-  Radio, Wifi, RefreshCw, LogOut, Users, FolderGit2, ShieldCheck, Map, Key, Search, Settings, FileCode
+  Radio, Wifi, RefreshCw, LogOut, Users, FolderGit2, ShieldCheck, Map, Key, Search, Settings, FileCode, AlertTriangle
 } from 'lucide-react'
 import { arpApi } from '../../api/client'
 import AddDeviceModal from '../Device/AddDeviceModal'
@@ -118,6 +118,22 @@ export default function Sidebar() {
           >
             <Search className="nav-icon" />
             Investigasi
+          </NavLink>
+
+          <NavLink
+            to="/anomalies"
+            className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+          >
+            <AlertTriangle className="nav-icon" />
+            Network Anomalies
+          </NavLink>
+
+          <NavLink
+            to="/syslog"
+            className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+          >
+            <FileText className="nav-icon" />
+            Syslog Viewer
           </NavLink>
 
           <NavLink

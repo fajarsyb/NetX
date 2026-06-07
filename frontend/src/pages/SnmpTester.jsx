@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { 
-  Radio, ShieldAlert, Cpu, CheckCircle2, XCircle, Info, Server, Search, FileCode, Play, AlertTriangle
+  Radio, ShieldAlert, Cpu, CheckCircle2, XCircle, Info, Server, Search, FileCode, Play, AlertTriangle,
+  Copy, Download, Check
 } from 'lucide-react'
 import { snmpApi, devicesApi, mibsApi } from '../api/client'
 import { useToast } from '../components/shared/ToastProvider'
@@ -166,10 +167,6 @@ export default function SnmpTester() {
       toast.error('Tentukan OID query terlebih dahulu.')
       return
     }
-    if (/[a-zA-Z]/.test(customOid)) {
-      toast.error('Format OID tidak valid. Harus berupa deretan angka yang dipisahkan titik. Silakan unggah ulang berkas MIB Anda di MIB Manager untuk meresolusi OID ini.')
-      return
-    }
 
     setQueryLoading(true)
     setQueryResult(null)
@@ -199,6 +196,75 @@ export default function SnmpTester() {
       setQueryLoading(false)
     }
   }
+
+  // Copy all custom query results to clipboard as structured TSV
+  const handleCopyAll = () => {
+    if (!queryResult || !queryResult.results || queryResult.results.length === 0) return
+    const headers = ["Object Identifier", "Syntax Type", "Value"]
+    const rows = queryResult.results.map(r => [
+      r.name ? `${r.name} (${r.oid})` : r.oid,
+      r.syntax,
+      r.value
+    ])
+    const tsvContent = [headers.join("\t"), ...rows.map(row => row.join("\t"))].join("\n")
+    navigator.clipboard.writeText(tsvContent)
+      .then(() => toast.success('Semua hasil kueri berhasil disalin ke clipboard!'))
+      .catch(() => toast.error('Gagal menyalin ke clipboard.'))
+  }
+
+  // Export custom query results as CSV file
+  const handleExportCsv = () => {
+    if (!queryResult || !queryResult.results || queryResult.results.length === 0) return
+    const headers = ["Name/OID", "Numeric OID", "Syntax Type", "Value"]
+    const rows = queryResult.results.map(r => [
+      r.name || '',
+      r.oid,
+      r.syntax,
+      r.value
+    ])
+    
+    const csvContent = [headers, ...rows]
+      .map(row => row.map(val => {
+        const escaped = String(val).replace(/"/g, '""')
+        return `"${escaped}"`
+      }).join(","))
+      .join("\n")
+       
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.setAttribute("href", url)
+    link.setAttribute("download", `snmp_query_results_${Date.now()}.csv`)
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    toast.success('File CSV berhasil diunduh!')
+  }
+
+  // Export custom query results as JSON file
+  const handleExportJson = () => {
+    if (!queryResult || !queryResult.results || queryResult.results.length === 0) return
+    const jsonString = JSON.stringify(queryResult.results, null, 2)
+    const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.setAttribute("href", url)
+    link.setAttribute("download", `snmp_query_results_${Date.now()}.json`)
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    toast.success('File JSON berhasil diunduh!')
+  }
+
+  // Copy individual text value/OID
+  const handleCopyText = (text, message) => {
+    navigator.clipboard.writeText(text)
+      .then(() => toast.success(message))
+      .catch(() => toast.error('Gagal menyalin teks.'))
+  }
+
 
   return (
     <div className="page-container animate-fade">
@@ -462,10 +528,9 @@ export default function SnmpTester() {
                 )}
               </div>
 
-              {/* Custom OID Input Field */}
               <div className="form-group">
                 <label className="form-label">
-                  Object Identifier (OID) * <span style={{ fontSize: '10.5px', color: 'var(--text-muted)', fontWeight: 'normal' }}>(Gunakan deretan angka yang dipisah titik)</span>
+                  Object Identifier (OID) * <span style={{ fontSize: '10.5px', color: 'var(--text-muted)', fontWeight: 'normal' }}>(Gunakan deretan angka yang dipisah titik atau nama MIB)</span>
                 </label>
                 <input 
                   className="form-control font-mono" 
@@ -479,6 +544,9 @@ export default function SnmpTester() {
                   required
                   disabled={queryLoading}
                 />
+                <span style={{ fontSize: '10.5px', color: 'var(--text-muted)', display: 'block', marginTop: '6px', lineHeight: '1.4' }}>
+                  💡 <strong>Tip:</strong> Jika mendapat hasil <code>NOSUCHOBJECT</code> dengan <strong>SNMP GET</strong> pada variabel tunggal, tambahkan <strong><code>.0</code></strong> di belakang OID (contoh: <code>1.3.6.1.4.1.12356.101.4.1.1.0</code>) atau gunakan metode <strong>SNMP WALK</strong>.
+                </span>
               </div>
 
               {/* Selected OID Object Details */}
@@ -546,9 +614,42 @@ export default function SnmpTester() {
 
           {/* Results Area */}
           <div className="card" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: '350px' }}>
-            <h3 style={{ fontSize: '15px', fontWeight: 700, borderBottom: '1px solid var(--border)', paddingBottom: '10px', marginBottom: '14px' }}>
-              Hasil Query OID
-            </h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '10px', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+              <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
+                Hasil Query OID
+              </h3>
+              {queryResult && queryResult.success && queryResult.results.length > 0 && (
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button 
+                    type="button" 
+                    className="btn btn-ghost btn-sm" 
+                    onClick={handleCopyAll}
+                    title="Salin seluruh tabel ke clipboard"
+                    style={{ padding: '4px 10px', fontSize: '11.5px', height: '28px' }}
+                  >
+                    <Copy size={12} /> Salin Semua
+                  </button>
+                  <button 
+                    type="button" 
+                    className="btn btn-ghost btn-sm" 
+                    onClick={handleExportCsv}
+                    title="Unduh sebagai file CSV"
+                    style={{ padding: '4px 10px', fontSize: '11.5px', height: '28px' }}
+                  >
+                    <Download size={12} /> CSV
+                  </button>
+                  <button 
+                    type="button" 
+                    className="btn btn-ghost btn-sm" 
+                    onClick={handleExportJson}
+                    title="Unduh sebagai file JSON"
+                    style={{ padding: '4px 10px', fontSize: '11.5px', height: '28px' }}
+                  >
+                    <Download size={12} /> JSON
+                  </button>
+                </div>
+              )}
+            </div>
 
             {queryLoading ? (
               <div style={{ display: 'flex', flex: 1, flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: '10px', minHeight: '200px' }}>
@@ -574,19 +675,75 @@ export default function SnmpTester() {
                 <table>
                   <thead>
                     <tr>
-                      <th style={{ width: '220px' }}>Object Identifier (OID)</th>
-                      <th style={{ width: '120px' }}>Syntax Type</th>
-                      <th>Value</th>
+                      <th style={{ width: '50%' }}>Object Identifier (OID)</th>
+                      <th style={{ width: '15%' }}>Syntax Type</th>
+                      <th style={{ width: '35%' }}>Value</th>
                     </tr>
                   </thead>
                   <tbody>
                     {queryResult.results.map((r, i) => (
                       <tr key={i}>
-                        <td className="mono" style={{ fontSize: '11px', color: 'var(--text-secondary)', wordBreak: 'break-all' }}>{r.oid}</td>
-                        <td>
-                          <span className="badge badge-ssh" style={{ fontSize: '9px', padding: '1px 5px' }}>{r.syntax}</span>
+                        <td style={{ verticalAlign: 'top', padding: '12px 14px' }} className="mono">
+                          <div 
+                            style={{ 
+                              fontSize: '12.5px', 
+                              color: 'var(--text-primary)', 
+                              fontWeight: 600, 
+                              cursor: 'pointer',
+                              wordBreak: 'break-all'
+                            }}
+                            onClick={() => handleCopyText(r.oid, 'OID numerik berhasil disalin!')}
+                            title="Klik untuk menyalin OID numerik"
+                          >
+                            {r.oid}
+                          </div>
+                          {r.name && r.name !== r.oid && (
+                            <div 
+                              style={{ 
+                                fontSize: '10.5px', 
+                                color: 'var(--text-muted)', 
+                                marginTop: '4px',
+                                cursor: 'pointer',
+                                wordBreak: 'break-all',
+                                fontFamily: 'Inter, sans-serif'
+                              }}
+                              onClick={() => handleCopyText(r.name, 'Nama OID berhasil disalin!')}
+                              title="Klik untuk menyalin nama OID"
+                            >
+                              {r.name}
+                            </div>
+                          )}
                         </td>
-                        <td className="mono" style={{ fontSize: '12px', fontWeight: 600, color: 'var(--accent)', wordBreak: 'break-all' }}>{r.value}</td>
+                        <td style={{ verticalAlign: 'top', padding: '12px 14px' }}>
+                          <span 
+                            className="badge badge-ssh" 
+                            style={{ 
+                              fontSize: '9.5px', 
+                              padding: '2px 6px',
+                              textTransform: 'uppercase',
+                              fontWeight: 700,
+                              borderRadius: '4px'
+                            }}
+                          >
+                            {r.syntax}
+                          </span>
+                        </td>
+                        <td 
+                          className="mono" 
+                          style={{ 
+                            fontSize: '12.5px', 
+                            fontWeight: 700, 
+                            color: '#10b981', 
+                            wordBreak: 'break-all',
+                            cursor: 'pointer',
+                            verticalAlign: 'top',
+                            padding: '12px 14px'
+                          }}
+                          onClick={() => handleCopyText(r.value, 'Nilai kueri berhasil disalin!')}
+                          title="Klik untuk menyalin nilai"
+                        >
+                          {r.value}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

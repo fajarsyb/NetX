@@ -14,7 +14,14 @@ ROOT_OIDS = {
     "private": "1.3.6.1.4",
     "enterprises": "1.3.6.1.4.1",
     "security": "1.3.6.1.5",
-    "snmpV2": "1.3.6.1.6"
+    "snmpV2": "1.3.6.1.6",
+    # Common Enterprise Roots
+    "cisco": "1.3.6.1.4.1.9",
+    "fortinet": "1.3.6.1.4.1.12356",
+    "fnFortiGateMib": "1.3.6.1.4.1.12356.1",
+    "alliedTelesis": "1.3.6.1.4.1.207",
+    "juniperMIB": "1.3.6.1.4.1.2636",
+    "ruijie": "1.3.6.1.4.1.4881"
 }
 
 def parse_mib_text(text: str) -> tuple[str, list[dict]]:

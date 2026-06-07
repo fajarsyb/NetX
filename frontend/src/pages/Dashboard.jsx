@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Network, Radio, ChevronRight, RefreshCw, Wifi, Shield, Download, Zap, Sliders, CheckSquare, Square, X } from 'lucide-react'
-import { arpApi, lldpApi, groupsApi, devicesApi, macApi } from '../api/client'
+import { Plus, Network, Radio, ChevronRight, RefreshCw, Wifi, Shield, Download, Zap, Sliders, CheckSquare, Square, X, AlertTriangle } from 'lucide-react'
+import { arpApi, lldpApi, groupsApi, devicesApi, macApi, anomaliesApi } from '../api/client'
 import AddDeviceModal from '../components/Device/AddDeviceModal'
 import ExportModal from '../components/Device/ExportModal'
 import { useToast } from '../components/shared/ToastProvider'
@@ -130,6 +130,8 @@ export default function Dashboard() {
     }
   })
 
+  const [activeAnomalies, setActiveAnomalies] = useState([])
+
   const toast = useToast()
   const navigate = useNavigate()
 
@@ -142,16 +144,18 @@ export default function Dashboard() {
   const fetchData = async () => {
     setLoading(true)
     try {
-      const [arpRes, lldpRes, groupsRes, macRes] = await Promise.all([
+      const [arpRes, lldpRes, groupsRes, macRes, anomaliesRes] = await Promise.all([
         arpApi.getSummary(),
         lldpApi.getSummary(),
         groupsApi.list(),
         macApi.getSummary(),
+        anomaliesApi.getActive(),
       ])
       setArpSummary(arpRes.data)
       setLldpSummary(lldpRes.data)
       setGroups(groupsRes.data)
       setMacSummary(macRes.data)
+      setActiveAnomalies(anomaliesRes.data)
     } catch (_) {}
     setLoading(false)
   }
@@ -313,6 +317,26 @@ export default function Dashboard() {
           </button>
         </div>
       </div>
+
+      {/* Alert Warning for Active Anomalies */}
+      {activeAnomalies.length > 0 && (
+        <div className="card" style={{ background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '12px', padding: '16px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', boxShadow: '0 4px 15px rgba(239, 68, 68, 0.1)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <AlertTriangle className="animate-pulse" style={{ color: 'var(--danger)' }} size={24} />
+            <div>
+              <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '14.5px' }}>
+                Terdeteksi {activeAnomalies.length} Anomali Jaringan Aktif!
+              </div>
+              <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                Sistem mendeteksi aktivitas tidak wajar (seperti storms atau flapping) yang memerlukan perhatian segera.
+              </div>
+            </div>
+          </div>
+          <button className="btn btn-danger btn-sm" onClick={() => navigate('/anomalies')}>
+            Tinjau Anomali
+          </button>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="stat-grid">

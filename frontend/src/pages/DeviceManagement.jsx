@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Server, Plus, Trash2, Edit2, Play, RefreshCw, Search, Download, Upload } from 'lucide-react'
+import { Server, Plus, Trash2, Edit2, Play, RefreshCw, Search, Download, Upload, ChevronLeft, ChevronRight } from 'lucide-react'
 import { devicesApi, groupsApi } from '../api/client'
 import { useToast } from '../components/shared/ToastProvider'
 import { useAuth } from '../context/AuthContext'
@@ -16,6 +16,12 @@ export default function DeviceManagement() {
   const [search, setSearch] = useState('')
   const [selectedGroup, setSelectedGroup] = useState('')
   const [testingDevices, setTestingDevices] = useState({})
+  const [page, setPage] = useState(1)
+  const limit = 20
+
+  useEffect(() => {
+    setPage(1)
+  }, [search, selectedGroup])
   
   // Modal states
   const [showAddModal, setShowAddModal] = useState(false)
@@ -120,6 +126,10 @@ export default function DeviceManagement() {
     return matchSearch && matchGroup
   })
 
+  const startIndex = (page - 1) * limit
+  const paginatedDevices = filteredDevices.slice(startIndex, startIndex + limit)
+  const totalPages = Math.ceil(filteredDevices.length / limit) || 1
+
   const STATUS_DOT_STYLE = {
     online:  { background: 'var(--success)', boxShadow: '0 0 6px var(--success)' },
     offline: { background: 'var(--danger)' },
@@ -200,102 +210,130 @@ export default function DeviceManagement() {
             <div className="empty-desc">Tambahkan perangkat baru atau sesuaikan filter pencarian Anda.</div>
           </div>
         ) : (
-          <div className="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>Nama Device</th>
-                  <th>IP Address</th>
-                  <th>Kategori</th>
-                  <th>Protokol</th>
-                  <th>Tipe Vendor</th>
-                  <th>Group</th>
-                  <th>Status</th>
-                  <th>Terakhir Dilihat</th>
-                  {!isViewer && <th style={{ textAlign: 'right' }}>Aksi</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {filteredDevices.map(d => {
-                  const st = d.status || 'unknown'
-                  return (
-                    <tr key={d.id}>
-                      <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
-                        <span 
-                          onClick={() => navigate(`/device/${d.id}`)}
-                          style={{ cursor: 'pointer', textDecoration: 'underline' }}
-                        >
-                          {d.name}
-                        </span>
-                        {d.hardware_model && (
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 'normal', marginTop: '2px' }}>
-                            {d.hardware_model}
-                          </div>
-                        )}
-                      </td>
-                      <td className="mono">{d.ip}</td>
-                      <td>
-                        <span className="badge badge-neutral" style={{ textTransform: 'capitalize' }}>
-                          {d.device_role || 'Access Switch'}
-                        </span>
-                      </td>
-                      <td>
-                        <span className={`badge badge-${d.protocol}`}>
-                          {d.protocol?.toUpperCase()} ({d.port})
-                        </span>
-                      </td>
-                      <td>
-                        <span className="vendor-badge networking">
-                          {d.device_type}
-                        </span>
-                      </td>
-                      <td>
-                        {d.group_name ? (
-                          <span className="badge badge-online" style={{ background: 'var(--primary-dim)', color: 'var(--primary)' }}>
-                            {d.group_name}
+          <>
+            <div className="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Nama Device</th>
+                    <th>IP Address</th>
+                    <th>Kategori</th>
+                    <th>Protokol</th>
+                    <th>Tipe Vendor</th>
+                    <th>Group</th>
+                    <th>Status</th>
+                    <th>Terakhir Dilihat</th>
+                    {!isViewer && <th style={{ textAlign: 'right' }}>Aksi</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedDevices.map(d => {
+                    const st = d.status || 'unknown'
+                    return (
+                      <tr key={d.id}>
+                        <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                          <span 
+                            onClick={() => navigate(`/device/${d.id}`)}
+                            style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                          >
+                            {d.name}
                           </span>
-                        ) : '—'}
-                      </td>
-                      <td>
-                        <span className={`badge badge-${st}`}>
-                          <span className="status-dot" style={STATUS_DOT_STYLE[st] || STATUS_DOT_STYLE.unknown} />
-                          {st}
-                        </span>
-                      </td>
-                      <td className="mono" style={{ fontSize: '11.5px' }}>
-                        {d.last_seen ? new Date(d.last_seen).toLocaleString('id-ID') : '—'}
-                      </td>
-                      {!isViewer && (
-                        <td style={{ textAlign: 'right' }}>
-                          <div className="flex-center" style={{ justifyContent: 'flex-end', gap: '8px' }}>
-                            <button 
-                              className="btn btn-ghost btn-sm" 
-                              style={{ color: 'var(--accent)' }}
-                              onClick={() => handleTestConnection(d.id)}
-                              disabled={testingDevices[d.id]}
-                              title="Test Koneksi (SSH/Telnet)"
-                            >
-                              {testingDevices[d.id] ? (
-                                <RefreshCw size={14} className="animate-spin" />
-                              ) : (
-                                <Play size={13} />
-                              )}
-                            </button>
-                            <button className="btn btn-ghost btn-sm" onClick={() => openEdit(d)} title="Edit Device">
-                              <Edit2 size={13} />
-                            </button>
-                            <button className="btn btn-danger btn-sm" onClick={() => handleDeleteDevice(d.id, d.name)} title="Hapus Device">
-                              <Trash2 size={13} />
-                            </button>
-                          </div>
+                          {d.hardware_model && (
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 'normal', marginTop: '2px' }}>
+                              {d.hardware_model}
+                            </div>
+                          )}
                         </td>
-                      )}
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+                        <td className="mono">{d.ip}</td>
+                        <td>
+                          <span className="badge badge-neutral" style={{ textTransform: 'capitalize' }}>
+                            {d.device_role || 'Access Switch'}
+                          </span>
+                        </td>
+                        <td>
+                          <span className={`badge badge-${d.protocol}`}>
+                            {d.protocol?.toUpperCase()} ({d.port})
+                          </span>
+                        </td>
+                        <td>
+                          <span className="vendor-badge networking">
+                            {d.device_type}
+                          </span>
+                        </td>
+                        <td>
+                          {d.group_name ? (
+                            <span className="badge badge-online" style={{ background: 'var(--primary-dim)', color: 'var(--primary)' }}>
+                              {d.group_name}
+                            </span>
+                          ) : '—'}
+                        </td>
+                        <td>
+                          <span className={`badge badge-${st}`}>
+                            <span className="status-dot" style={STATUS_DOT_STYLE[st] || STATUS_DOT_STYLE.unknown} />
+                            {st}
+                          </span>
+                        </td>
+                        <td className="mono" style={{ fontSize: '11.5px' }}>
+                          {d.last_seen ? new Date(d.last_seen).toLocaleString('id-ID') : '—'}
+                        </td>
+                        {!isViewer && (
+                          <td style={{ textAlign: 'right' }}>
+                            <div className="flex-center" style={{ justifyContent: 'flex-end', gap: '8px' }}>
+                              <button 
+                                className="btn btn-ghost btn-sm" 
+                                style={{ color: 'var(--accent)' }}
+                                onClick={() => handleTestConnection(d.id)}
+                                disabled={testingDevices[d.id]}
+                                title="Test Koneksi (SSH/Telnet)"
+                              >
+                                {testingDevices[d.id] ? (
+                                  <RefreshCw size={14} className="animate-spin" />
+                                ) : (
+                                  <Play size={13} />
+                                )}
+                              </button>
+                              <button className="btn btn-ghost btn-sm" onClick={() => openEdit(d)} title="Edit Device">
+                                <Edit2 size={13} />
+                              </button>
+                              <button className="btn btn-danger btn-sm" onClick={() => handleDeleteDevice(d.id, d.name)} title="Hapus Device">
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination Controls */}
+            <div className="flex-between mt-16" style={{ padding: '12px 16px', borderTop: '1px solid var(--border)' }}>
+              <div className="text-muted" style={{ fontSize: '12.5px' }}>
+                Menampilkan perangkat ke-{filteredDevices.length === 0 ? 0 : startIndex + 1} s.d. {Math.min(page * limit, filteredDevices.length)} dari {filteredDevices.length} perangkat
+              </div>
+              <div className="flex-center gap-12">
+                <button 
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setPage(p => Math.max(p - 1, 1))}
+                  disabled={page === 1 || loading}
+                >
+                  <ChevronLeft size={14} style={{ marginRight: '4px' }} /> Sebelum
+                </button>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                  Halaman {page} dari {totalPages}
+                </span>
+                <button 
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setPage(p => Math.min(p + 1, totalPages))}
+                  disabled={page === totalPages || loading}
+                >
+                  Berikut <ChevronRight size={14} style={{ marginLeft: '4px' }} />
+                </button>
+              </div>
+            </div>
+          </>
         )}
       </div>
 
