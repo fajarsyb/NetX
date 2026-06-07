@@ -144,5 +144,9 @@ export const dbSettingsApi = {
   getSqliteTables:  () => api.get('/db-settings/sqlite-tables'),
 }
 
+export const healthApi = {
+  getDiagnostics: () => api.get('/health/diagnostics'),
+}
+
 export default api
 

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Database, HardDrive, RefreshCw, AlertTriangle, CheckCircle2, Cpu, Activity, Clock, ServerCrash } from 'lucide-react'
-import axios from 'axios'
+import { healthApi } from '../api/client'
 import { useToast } from '../components/shared/ToastProvider'
 import { useAuth } from '../context/AuthContext'
 
@@ -15,7 +15,7 @@ export default function SystemHealth() {
 
   const fetchHealth = async () => {
     try {
-      const res = await axios.get('/api/health/diagnostics')
+      const res = await healthApi.getDiagnostics()
       setData(res.data)
     } catch (err) {
       toast.error('Gagal memuat status kesehatan sistem.')
