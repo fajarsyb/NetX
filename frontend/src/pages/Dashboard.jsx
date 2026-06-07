@@ -5,6 +5,7 @@ import { arpApi, lldpApi, groupsApi, devicesApi, macApi, anomaliesApi } from '..
 import AddDeviceModal from '../components/Device/AddDeviceModal'
 import ExportModal from '../components/Device/ExportModal'
 import { useToast } from '../components/shared/ToastProvider'
+import { useTheme } from '../context/ThemeContext'
 
 import { Line } from 'react-chartjs-2'
 import {
@@ -99,6 +100,7 @@ function StatCard({ label, value, color = 'blue', sub }) {
 }
 
 export default function Dashboard() {
+  const { theme } = useTheme()
 
   const [arpSummary,  setArpSummary]  = useState([])
   const [lldpSummary, setLldpSummary] = useState([])
@@ -417,7 +419,7 @@ export default function Dashboard() {
                       backgroundColor: 'rgba(0, 212, 255, 0.05)',
                       borderWidth: 2.5,
                       pointBackgroundColor: 'rgba(0, 212, 255, 1)',
-                      pointBorderColor: '#111827',
+                      pointBorderColor: theme === 'light' ? '#ffffff' : '#111827',
                       pointHoverRadius: 6,
                       pointRadius: timeframe === 'month' ? 0 : 3,
                       pointHitRadius: 10,
@@ -431,7 +433,7 @@ export default function Dashboard() {
                       backgroundColor: 'rgba(245, 158, 11, 0.05)',
                       borderWidth: 2.5,
                       pointBackgroundColor: 'rgba(245, 158, 11, 1)',
-                      pointBorderColor: '#111827',
+                      pointBorderColor: theme === 'light' ? '#ffffff' : '#111827',
                       pointHoverRadius: 6,
                       pointRadius: timeframe === 'month' ? 0 : 3,
                       pointHitRadius: 10,
@@ -451,7 +453,7 @@ export default function Dashboard() {
                     legend: {
                       position: 'top',
                       labels: {
-                        color: '#94a3b8',
+                        color: theme === 'light' ? 'var(--text-secondary)' : '#94a3b8',
                         font: { family: 'Inter', size: 12, weight: '600' },
                         boxWidth: 12,
                         boxHeight: 12,
@@ -459,11 +461,11 @@ export default function Dashboard() {
                       }
                     },
                     tooltip: {
-                      backgroundColor: '#1a2235',
-                      borderColor: '#1e2d45',
+                      backgroundColor: theme === 'light' ? '#ffffff' : '#1a2235',
+                      borderColor: theme === 'light' ? '#cbd5e1' : '#1e2d45',
                       borderWidth: 1,
-                      titleColor: '#f1f5f9',
-                      bodyColor: '#94a3b8',
+                      titleColor: theme === 'light' ? '#0f172a' : '#f1f5f9',
+                      bodyColor: theme === 'light' ? '#475569' : '#94a3b8',
                       padding: 12,
                       bodyFont: { family: 'Inter', size: 12 },
                       titleFont: { family: 'Inter', size: 12, weight: '700' },
@@ -488,22 +490,22 @@ export default function Dashboard() {
                   scales: {
                     x: {
                       grid: {
-                        color: 'rgba(30, 45, 69, 0.4)',
+                        color: theme === 'light' ? 'rgba(226, 232, 240, 0.8)' : 'rgba(30, 45, 69, 0.4)',
                         drawTicks: false
                       },
                       ticks: {
-                        color: '#4b6180',
+                        color: theme === 'light' ? '#64748b' : '#4b6180',
                         font: { family: 'Inter', size: 11 },
                         maxTicksLimit: timeframe === 'day' ? 8 : timeframe === 'week' ? 7 : 12
                       }
                     },
                     y: {
                       grid: {
-                        color: 'rgba(30, 45, 69, 0.4)',
+                        color: theme === 'light' ? 'rgba(226, 232, 240, 0.8)' : 'rgba(30, 45, 69, 0.4)',
                         drawTicks: false
                       },
                       ticks: {
-                        color: '#4b6180',
+                        color: theme === 'light' ? '#64748b' : '#4b6180',
                         font: { family: 'Inter', size: 11 }
                       }
                     }

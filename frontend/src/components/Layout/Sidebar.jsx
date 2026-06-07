@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react'
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import {
   Server, LayoutDashboard, Plus, Network, ChevronRight, ChevronDown,
-  Radio, Wifi, RefreshCw, LogOut, Users, FolderGit2, ShieldCheck, Map, Key, Search, Settings, FileCode, AlertTriangle, FileText, Database, Activity
+  Radio, Wifi, RefreshCw, LogOut, Users, FolderGit2, ShieldCheck, Map, Key, Search, Settings, FileCode, AlertTriangle, FileText, Database, Activity,
+  Sun, Moon
 } from 'lucide-react'
 import { arpApi } from '../../api/client'
 import AddDeviceModal from '../Device/AddDeviceModal'
 import { useAuth } from '../../context/AuthContext'
+import { useTheme } from '../../context/ThemeContext'
 
 export default function Sidebar() {
   const [devices, setDevices]       = useState([])
@@ -15,6 +17,7 @@ export default function Sidebar() {
   const [openGroups, setOpenGroups] = useState({ 'Ungrouped': true })
   const navigate = useNavigate()
   const { user, logout } = useAuth()
+  const { theme, toggleTheme } = useTheme()
   const location = useLocation()
   const [openSettings, setOpenSettings] = useState(() => {
     return ['/users', '/credentials', '/backup', '/db-settings', '/system-health', '/device-backup', '/snmp-tester', '/mibs'].includes(location.pathname)
@@ -347,14 +350,25 @@ export default function Sidebar() {
                   {user.role}
                 </div>
               </div>
-              <button 
-                className="btn btn-ghost btn-sm" 
-                onClick={logout}
-                title="Logout"
-                style={{ padding: '6px' }}
-              >
-                <LogOut size={14} />
-              </button>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={toggleTheme}
+                  title={theme === 'dark' ? 'Aktifkan Tema Terang' : 'Aktifkan Tema Gelap'}
+                  style={{ padding: '6px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                >
+                  {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+                </button>
+                <button 
+                  className="btn btn-ghost btn-sm" 
+                  onClick={logout}
+                  title="Logout"
+                  style={{ padding: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                >
+                  <LogOut size={14} />
+                </button>
+              </div>
             </div>
           </div>
         )}

@@ -3,10 +3,12 @@ import { Network } from 'vis-network'
 import { topologyApi, groupsApi } from '../api/client'
 import { RefreshCcw, LayoutTemplate, Save } from 'lucide-react'
 import { useToast } from '../components/shared/ToastProvider'
+import { useTheme } from '../context/ThemeContext'
 
 export default function Topology() {
   const containerRef = useRef(null)
   const networkRef = useRef(null)
+  const { theme } = useTheme()
   
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -60,14 +62,14 @@ export default function Topology() {
             border: isOffline ? '#ef4444' : '#4f8ef7',
             background: isOffline ? 'rgba(239,68,68,0.2)' : 'transparent'
           },
-          font: { color: isOffline ? '#ef4444' : '#e6edf3', background: 'rgba(0,0,0,0.6)', size: 12 },
+          font: { color: isOffline ? '#ef4444' : (theme === 'light' ? '#0f172a' : '#e6edf3'), background: theme === 'light' ? 'rgba(255,255,255,0.8)' : 'rgba(0,0,0,0.6)', size: 12 },
           borderWidth: isOffline ? 3 : 0,
         }
       } else {
         return {
           ...n,
-          color: { background: '#1a2235', border: '#4b6180' },
-          font: { color: '#94a3b8', size: 10 },
+          color: { background: theme === 'light' ? '#f8fafc' : '#1a2235', border: theme === 'light' ? '#cbd5e1' : '#4b6180' },
+          font: { color: theme === 'light' ? '#475569' : '#94a3b8', size: 10 },
           shape: 'ellipse',
         }
       }
@@ -75,8 +77,8 @@ export default function Topology() {
 
     const styledEdges = data.edges.map(e => ({
       ...e,
-      font: { color: '#8b949e', size: 10, align: 'middle' },
-      color: { color: '#484f58', highlight: '#58a6ff' },
+      font: { color: theme === 'light' ? '#475569' : '#8b949e', size: 10, align: 'middle' },
+      color: { color: theme === 'light' ? '#cbd5e1' : '#484f58', highlight: '#2563eb' },
       arrows: { to: { enabled: false } },
       smooth: { type: 'continuous' }
     }))
@@ -184,15 +186,17 @@ export default function Topology() {
       <div style={{ 
         flex: 1, 
         position: 'relative', 
-        backgroundColor: '#070b14', 
-        backgroundImage: 'linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px)',
+        backgroundColor: theme === 'light' ? '#ffffff' : '#070b14', 
+        backgroundImage: theme === 'light' 
+          ? 'linear-gradient(rgba(15, 23, 42, 0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(15, 23, 42, 0.04) 1px, transparent 1px)' 
+          : 'linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px)',
         backgroundSize: '20px 20px',
         borderRadius: '12px', 
         border: '1px solid var(--border)', 
         overflow: 'hidden' 
       }}>
         {loading && (
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)', zIndex: 10 }}>
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: theme === 'light' ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.5)', zIndex: 10 }}>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
               <span className="loading-spinner" style={{ width: '40px', height: '40px' }} />
               <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Membangun Topologi...</span>

@@ -20,14 +20,16 @@ import DatabaseSettings from './pages/DatabaseSettings'
 import SystemHealth from './pages/SystemHealth'
 import ToastProvider from './components/shared/ToastProvider'
 import { AuthProvider } from './context/AuthContext'
+import { ThemeProvider } from './context/ThemeContext'
 import ProtectedRoute from './components/shared/ProtectedRoute'
 
 export default function App() {
   return (
     <BrowserRouter>
       <ToastProvider>
-        <AuthProvider>
-          <Routes>
+        <ThemeProvider>
+          <AuthProvider>
+            <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="*" element={
               <ProtectedRoute>
@@ -61,6 +63,7 @@ export default function App() {
             } />
           </Routes>
         </AuthProvider>
+      </ThemeProvider>
       </ToastProvider>
     </BrowserRouter>
   )
