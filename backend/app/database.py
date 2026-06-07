@@ -373,6 +373,16 @@ def init_db():
     );
     """)
 
+    # Network History
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS network_history (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        arp_count       INTEGER NOT NULL,
+        mac_count       INTEGER NOT NULL,
+        fetched_at      TEXT NOT NULL
+    );
+    """)
+
     conn.commit()
     conn.close()
 

@@ -20,6 +20,45 @@ export default function Sidebar() {
     return ['/users', '/credentials', '/backup', '/device-backup', '/snmp-tester'].includes(location.pathname)
   })
 
+  // Resizable Sidebar logic
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = localStorage.getItem('netx_sidebar_width')
+    return saved ? parseInt(saved, 10) : 260
+  })
+  const [isResizing, setIsResizing] = useState(false)
+
+  useEffect(() => {
+    document.documentElement.style.setProperty('--sidebar-w', `${sidebarWidth}px`)
+    localStorage.setItem('netx_sidebar_width', sidebarWidth)
+  }, [sidebarWidth])
+
+  const startResizing = (e) => {
+    e.preventDefault()
+    setIsResizing(true)
+  }
+
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (!isResizing) return
+      const newWidth = Math.max(200, Math.min(e.clientX, 450))
+      setSidebarWidth(newWidth)
+    }
+
+    const handleMouseUp = () => {
+      setIsResizing(false)
+    }
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove)
+      document.addEventListener('mouseup', handleMouseUp)
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isResizing])
+
   const fetchSummary = async () => {
     setLoading(true)
     try {
@@ -282,6 +321,12 @@ export default function Sidebar() {
             </div>
           </div>
         )}
+        {/* Resize Handle */}
+        <div 
+          className={`sidebar-resizer ${isResizing ? 'resizing' : ''}`} 
+          onMouseDown={startResizing}
+          title="Geser untuk mengatur lebar menu"
+        />
       </aside>
 
       {showAdd && (

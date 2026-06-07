@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 from app.routers import devices, arp, lldp, auth, groups, cdp, routing, terminal, topology, snmp, credentials, audit_logs, backup, mac, device_backup
 from app.services.auth import get_current_user
 from app.services.device_backup_service import start_device_backup_scheduler
+from app.services.network_history_service import start_network_history_scheduler
 import asyncio
 
 # Path to the built frontend (relative to this file)
@@ -61,6 +62,8 @@ app.include_router(terminal.router)
 async def startup_event():
     # Start the device configuration backup scheduler in the background
     asyncio.create_task(start_device_backup_scheduler())
+    # Start the network history tracker in the background
+    asyncio.create_task(start_network_history_scheduler())
 
 
 @app.get("/health", tags=["health"])

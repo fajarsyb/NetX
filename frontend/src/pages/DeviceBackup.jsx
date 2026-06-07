@@ -37,6 +37,41 @@ export default function DeviceBackup() {
   // System states
   const [backingUpDevices, setBackingUpDevices] = useState({})
   
+  // Right Panel resizing logic
+  const [rightPanelWidth, setRightPanelWidth] = useState(() => {
+    const saved = localStorage.getItem('netx_backup_right_panel_width')
+    return saved ? parseInt(saved, 10) : 380
+  })
+  const [isResizingRight, setIsResizingRight] = useState(false)
+
+  const startResizingRight = (e) => {
+    e.preventDefault()
+    setIsResizingRight(true)
+  }
+
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (!isResizingRight) return
+      const newWidth = Math.max(280, Math.min(window.innerWidth - e.clientX, 600))
+      setRightPanelWidth(newWidth)
+      localStorage.setItem('netx_backup_right_panel_width', newWidth)
+    }
+
+    const handleMouseUp = () => {
+      setIsResizingRight(false)
+    }
+
+    if (isResizingRight) {
+      document.addEventListener('mousemove', handleMouseMove)
+      document.addEventListener('mouseup', handleMouseUp)
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isResizingRight])
+
   const toast = useToast()
   const { user: currentUser } = useAuth()
   const isViewer = currentUser?.role === 'viewer'
@@ -75,7 +110,11 @@ export default function DeviceBackup() {
     try {
       const res = await deviceBackupApi.create(deviceId)
       if (res.data.success) {
-        toast.success(`Backup untuk perangkat "${name}" versi ${res.data.version} berhasil dibuat.`)
+        if (res.data.skipped) {
+          toast.info(`Backup untuk perangkat "${name}" dilewati karena tidak ada perubahan konfigurasi.`)
+        } else {
+          toast.success(`Backup untuk perangkat "${name}" versi ${res.data.version} berhasil dibuat.`)
+        }
         fetchData()
         if (selectedDevice && selectedDevice.id === deviceId) {
           fetchVersions(deviceId)
@@ -200,7 +239,7 @@ export default function DeviceBackup() {
         setSchedTargetDevices([])
       } else {
         setSchedTarget('custom')
-        setSchedTargetDevices(sched.device_ids.split(',').map(x => parseInt(x.strip())))
+        setSchedTargetDevices(sched.device_ids.split(',').map(x => parseInt(x.trim(), 10)))
       }
       setSchedFreq(sched.frequency)
       setSchedTime(sched.time)
@@ -354,7 +393,7 @@ export default function DeviceBackup() {
 
       {/* ─── TAB CONTENT: BACKUPS ─── */}
       {activeTab === 'backups' && (
-        <div className="grid-layout" style={{ display: 'grid', gridTemplateColumns: selectedDevice ? '1fr 380px' : '1fr', gap: '20px' }}>
+        <div className="grid-layout" style={{ display: 'grid', gridTemplateColumns: selectedDevice ? `1fr ${rightPanelWidth}px` : '1fr', gap: '20px' }}>
           {/* Main Device List */}
           <div className="card">
             <div className="flex-between mb-16" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -459,7 +498,13 @@ export default function DeviceBackup() {
 
           {/* Right Panel: Versions List */}
           {selectedDevice && (
-            <div className="card animate-slide">
+            <div className="card animate-slide" style={{ position: 'relative' }}>
+              {/* Resize Handle */}
+              <div 
+                className={`right-panel-resizer ${isResizingRight ? 'resizing' : ''}`} 
+                onMouseDown={startResizingRight}
+                title="Geser untuk mengatur lebar panel"
+              />
               <div className="flex-between mb-16" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '12px' }}>
                 <div>
                   <h4 style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>Riwayat: {selectedDevice.name}</h4>

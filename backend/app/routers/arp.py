@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends
-from app.services.auth import require_operator_or_admin
-from datetime import datetime
+from app.services.auth import require_operator_or_admin, get_current_user
+from datetime import datetime, timedelta
 from app.database import get_db_conn, decrypt_password, get_device_credentials
 from app.services.connector import get_arp_raw
 from app.services.arp_parser import parse_arp
@@ -204,3 +204,33 @@ async def mac_lookup(mac: str):
     """One-shot MAC → vendor lookup (useful for manual queries)."""
     result = await lookup_vendor(mac)
     return result
+
+
+@router.get("/network/history")
+async def get_network_history(timeframe: str = "week", current_user: dict = Depends(get_current_user)):
+    """Retrieve historical unique ARP and MAC counts filtered by timeframe (day, week, month)."""
+    now = datetime.now()
+    if timeframe == "day":
+        start_time = now - timedelta(days=1)
+    elif timeframe == "week":
+        start_time = now - timedelta(weeks=1)
+    elif timeframe == "month":
+        start_time = now - timedelta(days=30)
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Timeframe tidak valid. Gunakan 'day', 'week', atau 'month'."
+        )
+
+    conn = get_db_conn()
+    c = conn.cursor()
+    c.execute("""
+        SELECT arp_count, mac_count, fetched_at
+        FROM network_history
+        WHERE fetched_at >= ?
+        ORDER BY fetched_at ASC
+    """, (start_time.isoformat(),))
+    rows = [dict(r) for r in c.fetchall()]
+    conn.close()
+    return rows
+

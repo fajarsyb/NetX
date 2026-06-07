@@ -102,8 +102,13 @@ Layanan ini juga menyematkan algoritma heuristik klasifikasi perangkat (`device_
 * Jika mengandung "Hikvision", "Dahua" -> Dikategorikan sebagai **IP Camera**.
 * Jika mengandung "Avaya", "Polycom", "Yealink" -> Dikategorikan sebagai **IP Phone**.
 
-### D. Backup Scheduler (device_backup_service.py)
+### D. Backup Scheduler & Deteksi Perubahan (device_backup_service.py)
 Scheduler berjalan sebagai background task asinkron saat FastAPI melakukan *startup*. Scheduler ini bangun setiap 60 detik untuk memeriksa apakah ada jadwal backup aktif di `device_backup_schedules` yang nilai `next_run`-nya telah terlewati. Jika cocok, scheduler memicu thread pool untuk menarik konfigurasi switch target.
+
+Sistem backup—baik yang dieksekusi secara otomatis oleh scheduler maupun yang dipicu secara manual oleh pengguna (melalui router API `device_backup.py`)—dilengkapi dengan mekanisme **Deteksi Perubahan Konfigurasi**. Sebelum menyimpan versi baru ke database:
+1. Sistem membandingkan output konfigurasi saat ini dengan versi pencadangan sukses terakhir di tabel `device_config_backups`.
+2. Jika tidak terdeteksi adanya perbedaan baris konfigurasi, sistem akan melewati (*skip*) proses penyimpanan versi baru, sehingga nomor versi tidak bertambah. Kejadian ini dicatat dalam log audit dengan status `DEVICE_BACKUP_SKIPPED`.
+3. Jika terdapat perubahan, versi baru disimpan dan dicatat dalam log audit sebagai `DEVICE_BACKUP_SUCCESS` dengan referensi nama pengguna yang memicunya (untuk backup manual) atau nama pengguna `"system"` (untuk backup terjadwal).
 
 ---
 

@@ -6,6 +6,30 @@ import AddDeviceModal from '../components/Device/AddDeviceModal'
 import ExportModal from '../components/Device/ExportModal'
 import { useToast } from '../components/shared/ToastProvider'
 
+import { Line } from 'react-chartjs-2'
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler
+} from 'chart.js'
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler
+)
+
 const buildHierarchicalGroups = (groupsList) => {
   const map = {}
   const roots = []
@@ -86,6 +110,11 @@ export default function Dashboard() {
   const [refreshingGroup, setRefreshingGroup] = useState(false)
   const [showCustomize, setShowCustomize] = useState(false)
   const [showExportModal, setShowExportModal] = useState(false)
+
+  const [historyData, setHistoryData] = useState([])
+  const [timeframe, setTimeframe]     = useState('week') // day | week | month
+  const [loadingHistory, setLoadingHistory] = useState(false)
+
   const [visibleWidgets, setVisibleWidgets] = useState(() => {
     const saved = localStorage.getItem('netx_dashboard_widgets')
     if (saved) {
@@ -97,6 +126,7 @@ export default function Dashboard() {
       totalArp: true,
       totalMac: true,
       lldpNeighbors: true,
+      networkHistoryChart: true,
     }
   })
 
@@ -160,6 +190,21 @@ export default function Dashboard() {
       setRefreshingGroup(false)
     }
   }
+
+  const fetchHistory = async (tf) => {
+    setLoadingHistory(true)
+    try {
+      const res = await arpApi.getNetworkHistory(tf)
+      setHistoryData(res.data)
+    } catch (_) {
+      toast.error('Gagal memuat grafik riwayat jaringan.')
+    }
+    setLoadingHistory(false)
+  }
+
+  useEffect(() => {
+    fetchHistory(timeframe)
+  }, [timeframe])
 
   useEffect(() => { fetchData() }, [])
 
@@ -288,6 +333,164 @@ export default function Dashboard() {
         )}
       </div>
 
+      {/* ARP & MAC History Chart Widget */}
+      {visibleWidgets.networkHistoryChart && (
+        <div className="card mb-24 animate-slide" style={{ padding: '24px' }}>
+          <div className="flex-between mb-16" style={{ flexWrap: 'wrap', gap: '12px' }}>
+            <div>
+              <h3 style={{ fontSize: '15px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                📈 Grafik Tren Penggunaan ARP & MAC
+              </h3>
+              <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '4px 0 0 0' }}>
+                Menampilkan jumlah total alamat ARP dan MAC unik dalam jaringan
+              </p>
+            </div>
+            
+            {/* Timeframe selector */}
+            <div className="refresh-intervals" style={{ margin: 0 }}>
+              {[
+                { key: 'day', label: 'Hari (24j)' },
+                { key: 'week', label: 'Minggu (7h)' },
+                { key: 'month', label: 'Bulan (30h)' }
+              ].map(item => (
+                <button
+                  key={item.key}
+                  className={`refresh-btn-option ${timeframe === item.key ? 'active' : ''}`}
+                  onClick={() => setTimeframe(item.key)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {loadingHistory ? (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '280px', gap: '12px', color: 'var(--text-muted)' }}>
+              <div className="loading-spinner" />
+              Memuat grafik tren...
+            </div>
+          ) : historyData.length === 0 ? (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '280px', color: 'var(--text-muted)', fontSize: '13px' }}>
+              Tidak ada data riwayat untuk ditampilkan.
+            </div>
+          ) : (
+            <div style={{ height: '300px', position: 'relative', width: '100%' }}>
+              <Line 
+                data={{
+                  labels: historyData.map(d => {
+                    const date = new Date(d.fetched_at)
+                    if (timeframe === 'day') {
+                      return date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+                    } else {
+                      return date.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })
+                    }
+                  }),
+                  datasets: [
+                    {
+                      label: 'Unique ARP',
+                      data: historyData.map(d => d.arp_count),
+                      borderColor: 'rgba(0, 212, 255, 1)',
+                      backgroundColor: 'rgba(0, 212, 255, 0.05)',
+                      borderWidth: 2.5,
+                      pointBackgroundColor: 'rgba(0, 212, 255, 1)',
+                      pointBorderColor: '#111827',
+                      pointHoverRadius: 6,
+                      pointRadius: timeframe === 'month' ? 0 : 3,
+                      pointHitRadius: 10,
+                      tension: 0.35,
+                      fill: true,
+                    },
+                    {
+                      label: 'Unique MAC',
+                      data: historyData.map(d => d.mac_count),
+                      borderColor: 'rgba(245, 158, 11, 1)',
+                      backgroundColor: 'rgba(245, 158, 11, 0.05)',
+                      borderWidth: 2.5,
+                      pointBackgroundColor: 'rgba(245, 158, 11, 1)',
+                      pointBorderColor: '#111827',
+                      pointHoverRadius: 6,
+                      pointRadius: timeframe === 'month' ? 0 : 3,
+                      pointHitRadius: 10,
+                      tension: 0.35,
+                      fill: true,
+                    }
+                  ]
+                }}
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  interaction: {
+                    mode: 'index',
+                    intersect: false,
+                  },
+                  plugins: {
+                    legend: {
+                      position: 'top',
+                      labels: {
+                        color: '#94a3b8',
+                        font: { family: 'Inter', size: 12, weight: '600' },
+                        boxWidth: 12,
+                        boxHeight: 12,
+                        borderRadius: 3,
+                      }
+                    },
+                    tooltip: {
+                      backgroundColor: '#1a2235',
+                      borderColor: '#1e2d45',
+                      borderWidth: 1,
+                      titleColor: '#f1f5f9',
+                      bodyColor: '#94a3b8',
+                      padding: 12,
+                      bodyFont: { family: 'Inter', size: 12 },
+                      titleFont: { family: 'Inter', size: 12, weight: '700' },
+                      callbacks: {
+                        title: (ctx) => {
+                          const idx = ctx[0].dataIndex
+                          const originalItem = historyData[idx]
+                          if (originalItem) {
+                            return new Date(originalItem.fetched_at).toLocaleString('id-ID', {
+                              day: 'numeric',
+                              month: 'long',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })
+                          }
+                          return ctx[0].label
+                        }
+                      }
+                    }
+                  },
+                  scales: {
+                    x: {
+                      grid: {
+                        color: 'rgba(30, 45, 69, 0.4)',
+                        drawTicks: false
+                      },
+                      ticks: {
+                        color: '#4b6180',
+                        font: { family: 'Inter', size: 11 },
+                        maxTicksLimit: timeframe === 'day' ? 8 : timeframe === 'week' ? 7 : 12
+                      }
+                    },
+                    y: {
+                      grid: {
+                        color: 'rgba(30, 45, 69, 0.4)',
+                        drawTicks: false
+                      },
+                      ticks: {
+                        color: '#4b6180',
+                        font: { family: 'Inter', size: 11 }
+                      }
+                    }
+                  }
+                }}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Device Grid */}
       {loading && devices.length === 0 ? (
         <div className="loading-overlay">
@@ -412,6 +615,7 @@ export default function Dashboard() {
                   { key: 'totalArp', label: 'Total ARP Entries', desc: 'Menampilkan total entri ARP unik (tanpa duplikasi)' },
                   { key: 'totalMac', label: 'Total MAC Addresses', desc: 'Menampilkan total alamat MAC unik dari perangkat' },
                   { key: 'lldpNeighbors', label: 'LLDP Neighbors', desc: 'Menampilkan total neighbor LLDP yang terdeteksi' },
+                  { key: 'networkHistoryChart', label: 'Grafik Riwayat ARP & MAC', desc: 'Menampilkan grafik tren penggunaan ARP & MAC (Hari/Minggu/Bulan)' },
                 ].map((item) => {
                   const isChecked = visibleWidgets[item.key]
                   return (

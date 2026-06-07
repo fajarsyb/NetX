@@ -86,28 +86,17 @@ async def list_device_backup_versions(device_id: int, current_user: dict = Depen
     return rows
 
 
-@router.get("/{backup_id}")
-async def get_backup_content(backup_id: int, current_user: dict = Depends(get_current_user)):
-    """Get the full configuration text of a specific backup."""
-    conn = get_db_conn()
-    c = conn.cursor()
-    c.execute("""
-        SELECT b.id, b.device_id, b.config_content, b.version, b.created_at, d.name as device_name
-        FROM device_config_backups b
-        JOIN devices d ON b.device_id = d.id
-        WHERE b.id = ?
-    """, (backup_id,))
-    row = c.fetchone()
-    conn.close()
-    if not row:
-        raise HTTPException(status_code=404, detail="Cadangan tidak ditemukan.")
-    return dict(row)
 
 
 @router.post("/backup/{device_id}")
 async def trigger_device_backup(device_id: int, user: dict = Depends(require_operator_or_admin)):
     """Trigger a manual backup for a specific device immediately."""
-    res = await backup_device_config(device_id)
+    res = await backup_device_config(
+        device_id, 
+        only_if_changed=True, 
+        user_id=user["id"], 
+        username=user["username"]
+    )
     if not res["success"]:
         raise HTTPException(status_code=500, detail=res["error"])
     return res
@@ -276,3 +265,22 @@ async def run_schedule_now(schedule_id: int, user: dict = Depends(require_operat
     asyncio.create_task(execute_schedule_backups(schedule))
 
     return {"success": True, "message": "Pencadangan terjadwal berhasil dijalankan di latar belakang."}
+
+
+@router.get("/{backup_id}")
+async def get_backup_content(backup_id: int, current_user: dict = Depends(get_current_user)):
+    """Get the full configuration text of a specific backup."""
+    conn = get_db_conn()
+    c = conn.cursor()
+    c.execute("""
+        SELECT b.id, b.device_id, b.config_content, b.version, b.created_at, d.name as device_name
+        FROM device_config_backups b
+        JOIN devices d ON b.device_id = d.id
+        WHERE b.id = ?
+    """, (backup_id,))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Cadangan tidak ditemukan.")
+    return dict(row)
+

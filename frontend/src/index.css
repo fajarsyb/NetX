@@ -881,3 +881,40 @@ select.form-control {
 ::-webkit-scrollbar-track { background: var(--bg-base); }
 ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ── Resizer Handles ─────────────────────────────────────────────────────── */
+.sidebar-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 5px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 1000;
+  background-color: transparent;
+  transition: background-color 0.15s, width 0.15s;
+}
+.sidebar-resizer:hover,
+.sidebar-resizer.resizing {
+  background-color: var(--primary);
+  width: 7px;
+  box-shadow: 0 0 8px var(--primary-glow);
+}
+
+.right-panel-resizer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 5px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 1000;
+  background-color: transparent;
+  transition: background-color 0.15s, width 0.15s;
+}
+.right-panel-resizer:hover,
+.right-panel-resizer.resizing {
+  background-color: var(--primary);
+  width: 7px;
+  box-shadow: 0 0 8px var(--primary-glow);
+}

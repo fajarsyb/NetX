@@ -65,7 +65,7 @@ def calculate_next_run(frequency: str, time_str: str = "", day_of_week: int = 0)
     return target
 
 
-async def backup_device_config(device_id: int) -> dict:
+async def backup_device_config(device_id: int, only_if_changed: bool = False, user_id: int = 1, username: str = "system") -> dict:
     """
     Connects to the network device, fetches the configuration via the vendor's command,
     and stores it in the database under a new version number.
@@ -86,8 +86,8 @@ async def backup_device_config(device_id: int) -> dict:
     if device_type not in CONFIG_COMMANDS:
         return {"success": False, "error": f"Tipe perangkat '{device_type}' tidak didukung untuk backup konfigurasi."}
 
-    username, password = get_device_credentials(device)
-    device["username"] = username
+    username_cred, password = get_device_credentials(device)
+    device["username"] = username_cred
 
     now = datetime.now().isoformat()
 
@@ -105,6 +105,24 @@ async def backup_device_config(device_id: int) -> dict:
         if output.startswith("ERROR:"):
             raise Exception(output)
 
+        # Check for changes if requested
+        if only_if_changed:
+            c.execute("""
+                SELECT config_content FROM device_config_backups 
+                WHERE device_id = ? AND status = 'success' 
+                ORDER BY version DESC LIMIT 1
+            """, (device_id,))
+            last_row = c.fetchone()
+            if last_row and last_row["config_content"] == output:
+                logger.info(f"Device {device_id} configuration has not changed. Skipping backup.")
+                
+                # Log audit
+                from app.services.audit import log_audit
+                log_audit(user_id, username, "DEVICE_BACKUP_SKIPPED", f"device_backups/{device_id}", 
+                          f"Backup konfigurasi untuk {device['name']} dilewati karena tidak ada perubahan.")
+                          
+                return {"success": True, "skipped": True, "message": "Tidak ada perubahan konfigurasi."}
+
         # Save successful backup
         c.execute("""
             INSERT INTO device_config_backups (device_id, config_content, version, status, created_at)
@@ -114,7 +132,7 @@ async def backup_device_config(device_id: int) -> dict:
 
         # Log audit
         from app.services.audit import log_audit
-        log_audit(1, "system", "DEVICE_BACKUP_SUCCESS", f"device_backups/{device_id}", 
+        log_audit(user_id, username, "DEVICE_BACKUP_SUCCESS", f"device_backups/{device_id}", 
                   f"Backup konfigurasi {device_type} untuk {device['name']} versi {next_version} berhasil.")
 
         return {"success": True, "version": next_version}
@@ -128,7 +146,7 @@ async def backup_device_config(device_id: int) -> dict:
         conn.commit()
 
         from app.services.audit import log_audit
-        log_audit(1, "system", "DEVICE_BACKUP_FAILED", f"device_backups/{device_id}", 
+        log_audit(user_id, username, "DEVICE_BACKUP_FAILED", f"device_backups/{device_id}", 
                   f"Backup konfigurasi {device_type} untuk {device['name']} GAGAL: {error_msg}")
 
         return {"success": False, "error": error_msg}
@@ -191,7 +209,7 @@ async def execute_schedule_backups(schedule: dict):
 
     for dev_id in device_ids:
         try:
-            await backup_device_config(dev_id)
+            await backup_device_config(dev_id, only_if_changed=True)
         except Exception as e:
             logger.error(f"Error running scheduled backup for device {dev_id}: {e}")
         # brief sleep between devices to avoid overloading

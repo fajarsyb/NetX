@@ -43,6 +43,7 @@ export const arpApi = {
   getHistory:  (id) => api.get(`/arp/history/${id}`),
   lookupMac:   (mac) => api.get('/mac/lookup', { params: { mac } }),
   getAll:      ()   => api.get('/arp/all'),
+  getNetworkHistory: (timeframe) => api.get('/network/history', { params: { timeframe } }),
 }
 
 export const lldpApi = {
