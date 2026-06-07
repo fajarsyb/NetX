@@ -49,9 +49,9 @@ def parse_mib_text(text: str) -> tuple[str, list[dict]]:
     #    DESCRIPTION "My description"
     #    ::= { parent 12 }
     
-    # We search for the pattern name followed by OBJECT-TYPE or OBJECT IDENTIFIER, 
+    # We search for the pattern name followed by OBJECT-TYPE, OBJECT IDENTIFIER, MODULE-IDENTITY, etc.
     # capturing the body up to ::= { parent integer }
-    pattern = r"(\w+)\s+(OBJECT-TYPE|OBJECT\s+IDENTIFIER)\s+(.*?)::=\s*\{\s*(\w+)\s+(\d+)\s*\}"
+    pattern = r"(\w+)\s+([A-Z0-9\-]+|OBJECT\s+IDENTIFIER)\s+(.*?)::=\s*\{\s*(\w+)\s+(\d+)\s*\}"
     matches = re.finditer(pattern, clean_text, re.DOTALL | re.IGNORECASE)
     
     parsed_objects = []

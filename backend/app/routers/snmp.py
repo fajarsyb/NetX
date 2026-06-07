@@ -914,6 +914,35 @@ async def get_snmp_interfaces(device_id: int):
     return list_ifs
 
 
+def resolve_oid_string(oid_str: str, conn) -> str:
+    oid_str = oid_str.strip().strip('.')
+    if not oid_str:
+        return ""
+        
+    if re.match(r"^[0-9\.]+$", oid_str):
+        return oid_str
+        
+    parts = oid_str.split('.')
+    first_part = parts[0]
+    
+    from app.services.mib_parser import ROOT_OIDS
+    resolved_prefix = ""
+    if first_part in ROOT_OIDS:
+        resolved_prefix = ROOT_OIDS[first_part]
+    else:
+        c = conn.cursor()
+        c.execute("SELECT oid FROM snmp_mib_objects WHERE name = ? LIMIT 1", (first_part,))
+        row = c.fetchone()
+        if row:
+            resolved_prefix = row["oid"]
+            
+    if resolved_prefix:
+        new_oid = ".".join([resolved_prefix] + parts[1:])
+        return resolve_oid_string(new_oid, conn)
+        
+    return oid_str
+
+
 class SNMPQueryCustom(BaseModel):
     device_id: int
     oid: str
@@ -925,6 +954,8 @@ async def query_snmp_custom(body: SNMPQueryCustom):
     Execute a custom SNMP GET or WALK query on a device.
     """
     conn = get_db_conn()
+    resolved_oid = resolve_oid_string(body.oid, conn)
+    
     c = conn.cursor()
     c.execute("SELECT ip, snmp_version, snmp_community FROM devices WHERE id = ?", (body.device_id,))
     row = c.fetchone()
@@ -941,10 +972,14 @@ async def query_snmp_custom(body: SNMPQueryCustom):
         raise HTTPException(status_code=400, detail="SNMP Community belum dikonfigurasi untuk perangkat ini.")
         
     mp_model = 1 if version == "v2c" else 0
-    oid_str = body.oid.strip()
     
-    if not re.match(r"^[0-9\.]+$", oid_str):
-        raise HTTPException(status_code=400, detail="Format OID tidak valid. Harus berupa deretan angka yang dipisahkan titik.")
+    if not resolved_oid or not re.match(r"^[0-9\.]+$", resolved_oid):
+        raise HTTPException(
+            status_code=400, 
+            detail="Format OID tidak valid. Harus berupa deretan angka yang dipisahkan titik atau nama objek MIB terdaftar."
+        )
+
+    oid_str = resolved_oid
 
     try:
         transport = await UdpTransportTarget.create((ip, 161), timeout=3.0, retries=1)

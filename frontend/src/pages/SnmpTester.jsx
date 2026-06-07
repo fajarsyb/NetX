@@ -166,6 +166,10 @@ export default function SnmpTester() {
       toast.error('Tentukan OID query terlebih dahulu.')
       return
     }
+    if (/[a-zA-Z]/.test(customOid)) {
+      toast.error('Format OID tidak valid. Harus berupa deretan angka yang dipisahkan titik. Silakan unggah ulang berkas MIB Anda di MIB Manager untuk meresolusi OID ini.')
+      return
+    }
 
     setQueryLoading(true)
     setQueryResult(null)
@@ -460,7 +464,9 @@ export default function SnmpTester() {
 
               {/* Custom OID Input Field */}
               <div className="form-group">
-                <label className="form-label">Object Identifier (OID) *</label>
+                <label className="form-label">
+                  Object Identifier (OID) * <span style={{ fontSize: '10.5px', color: 'var(--text-muted)', fontWeight: 'normal' }}>(Gunakan deretan angka yang dipisah titik)</span>
+                </label>
                 <input 
                   className="form-control font-mono" 
                   placeholder="Misal: 1.3.6.1.2.1.1.1.0" 
