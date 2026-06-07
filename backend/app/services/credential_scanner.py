@@ -94,16 +94,29 @@ async def scan_single_device(device, db_templates, sem):
                 assigned_user = matching[0]["username"]
                 assigned_pass = matching[0]["password"]
 
-        # 1. Base check with assigned credential
-        success, reason = await test_credential_login(device, assigned_user, assigned_pass)
+        # 1. Base check with assigned credential (or fallback dummy test to verify reachability)
+        if assigned_user:
+            success, reason = await test_credential_login(device, assigned_user, assigned_pass)
+        else:
+            success, reason = await test_credential_login(device, "admin", "admin")
+            if success:
+                reason = "success"
+                success = False
+            elif reason == "auth_failed":
+                success = False
+            else:
+                success = False
+                reason = "unreachable"
+
         if not success and reason == "unreachable":
             results["status"] = "unreachable"
             results["error_message"] = "Perangkat tidak merespons (unreachable/port tertutup)."
             return results
 
         tested_pairs = set()
-        # Add assigned to tested pairs to avoid scanning it again
-        tested_pairs.add((assigned_user, assigned_pass))
+        # Add assigned to tested pairs to avoid scanning it again if it exists
+        if assigned_user:
+            tested_pairs.add((assigned_user, assigned_pass))
 
         # 2. Test other templates in db
         templates_succeeded = []
@@ -237,3 +250,36 @@ def get_compliance_records():
         })
     conn.close()
     return records
+
+
+async def scan_custom_target(ip: str, protocol: str, port: int | None, device_type: str):
+    """Scan a custom target (not registered in database devices)."""
+    # 1. Fetch credentials templates
+    conn = get_db_conn()
+    c = conn.cursor()
+    c.execute("SELECT id, name, username, password FROM device_credentials")
+    db_templates = []
+    for row in c.fetchall():
+        db_templates.append({
+            "id": row["id"],
+            "name": row["name"],
+            "username": row["username"],
+            "password": decrypt_password(row["password"])
+        })
+    conn.close()
+    
+    # 2. Build temporary device dictionary
+    device = {
+        "id": 0,
+        "name": f"Custom Target ({ip})",
+        "ip": ip,
+        "protocol": protocol,
+        "port": port,
+        "device_type": device_type
+    }
+    
+    # 3. Scan without semaphore restrictions
+    sem = asyncio.Semaphore(1)
+    result = await scan_single_device(device, db_templates, sem)
+    return result
+

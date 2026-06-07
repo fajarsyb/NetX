@@ -5,7 +5,7 @@ from typing import List, Optional
 from app.database import get_db_conn, encrypt_password, decrypt_password
 from app.services.auth import get_current_user, require_admin
 from app.services.audit import log_audit
-from app.services.credential_scanner import run_credential_scan, get_compliance_records
+from app.services.credential_scanner import run_credential_scan, get_compliance_records, scan_custom_target
 
 router = APIRouter(prefix="/api/credentials", tags=["credentials"])
 
@@ -85,5 +85,25 @@ async def trigger_scan(req: Optional[ScanRequest] = None, admin: dict = Depends(
         results = await run_credential_scan(device_ids)
         log_audit(admin["id"], admin["username"], "SCAN_CREDENTIALS", "credentials/compliance", f"Triggered credential compliance scan on {len(results)} devices.")
         return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+class QuickScanRequest(BaseModel):
+    ip: str
+    protocol: str = "ssh"
+    port: Optional[int] = None
+    device_type: str = "cisco_ios"
+
+@router.post("/scan-target")
+async def trigger_quick_scan(req: QuickScanRequest, admin: dict = Depends(require_admin)):
+    try:
+        result = await scan_custom_target(
+            ip=req.ip,
+            protocol=req.protocol,
+            port=req.port,
+            device_type=req.device_type
+        )
+        log_audit(admin["id"], admin["username"], "QUICK_SCAN_CREDENTIALS", "credentials/scan-target", f"Triggered quick credential scan on custom target: {req.ip} ({req.protocol})")
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
