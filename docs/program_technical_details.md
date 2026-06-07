@@ -72,6 +72,10 @@ Berikut adalah relasi utama tabel-tabel di dalam `netx.db`:
 * **`device_config_backups`**: Menyimpan riwayat revisi konfigurasi startup/running config yang ditarik dari perangkat.
 * **`device_backup_schedules`**: Menyimpan jadwal penarikan backup otomatis (harian, mingguan, dll.) dengan perhitungan waktu eksekusi berikutnya (`next_run`).
 
+### E. Manajemen SNMP MIB
+* **`snmp_mibs`**: Menyimpan metadata dari berkas MIB SNMP yang diimpor oleh pengguna (nama MIB, deskripsi, asosiasi vendor perangkat, status aktif).
+* **`snmp_mib_objects`**: Menyimpan data objek OID yang berhasil diparsing dari berkas MIB (nama objek, OID absolut bertitik, tipe sintaks, dan deskripsi).
+
 ---
 
 ## 3. Detail Backend & Modul Layanan (Services)
@@ -109,6 +113,9 @@ Sistem backup—baik yang dieksekusi secara otomatis oleh scheduler maupun yang 
 1. Sistem membandingkan output konfigurasi saat ini dengan versi pencadangan sukses terakhir di tabel `device_config_backups`.
 2. Jika tidak terdeteksi adanya perbedaan baris konfigurasi, sistem akan melewati (*skip*) proses penyimpanan versi baru, sehingga nomor versi tidak bertambah. Kejadian ini dicatat dalam log audit dengan status `DEVICE_BACKUP_SKIPPED`.
 3. Jika terdapat perubahan, versi baru disimpan dan dicatat dalam log audit sebagai `DEVICE_BACKUP_SUCCESS` dengan referensi nama pengguna yang memicunya (untuk backup manual) atau nama pengguna `"system"` (untuk backup terjadwal).
+
+### E. MIB Parser & Resolver (mib_parser.py)
+NetX menyediakan parser asinkron khusus yang bertugas membersihkan komentar berkas MIB (sintaks `--`) dan mem-parsing blok definisi `OBJECT-TYPE` serta `OBJECT IDENTIFIER` menjadi representasi data terstruktur (nama, syntax, parent, subid, description). OID relatif yang diperoleh (misal: `{ enterprises 9 }`) kemudian dirunut secara rekursif hingga membentuk absolute dotted OID menggunakan daftar standard root OID bawaan dan referensi antar-MIB dari database untuk mendukung dependensi antar berkas MIB.
 
 ---
 
@@ -156,6 +163,8 @@ Frontend dibangun menggunakan **Vite** + **React** (Javascript SPA) dengan CSS m
    - Sesi terminal SSH interaktif di web browser.
 3. **`Topology`**: Memetakan hubungan fisik antar switch menggunakan visualisasi grafis SVG. Node dapat digeser dan koordinat posisi disimpan ke backend SQLite agar layout tidak berubah saat dimuat kembali.
 4. **`MacInvestigation`**: Memungkinkan administrator melacak jejak MAC address tertentu; mendeteksi di switch mana dan port mana MAC tersebut aktif dari waktu ke waktu.
+5. **`MibManagement`**: Dashboard pengunggahan berkas MIB (serta parsing otomatis), pengelolaan aktivasi, dan pemetaan vendor perangkat. Menampilkan list objek hasil parsing dalam drawer interaktif.
+6. **`SnmpTester`**: Menyediakan panel pengetesan SNMP dasar (sysDescr / sysUpTime) dan tab kueri kustom OID. Tab kueri kustom ini memuat variabel OID aktif yang dicocokkan otomatis berdasarkan vendor dari perangkat terdaftar yang dipilih.
 
 ### B. Komponen Visualisasi Port Switch (PortMapper.jsx)
 Komponen ini bertanggung jawab untuk merender visual panel port fisik switch.

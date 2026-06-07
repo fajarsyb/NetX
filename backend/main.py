@@ -5,7 +5,7 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from app.routers import devices, arp, lldp, auth, groups, cdp, routing, terminal, topology, snmp, credentials, audit_logs, backup, mac, device_backup
+from app.routers import devices, arp, lldp, auth, groups, cdp, routing, terminal, topology, snmp, credentials, audit_logs, backup, mac, device_backup, mibs
 from app.services.auth import get_current_user
 from app.services.device_backup_service import start_device_backup_scheduler
 from app.services.network_history_service import start_network_history_scheduler
@@ -55,6 +55,7 @@ app.include_router(audit_logs.router, dependencies=[Depends(get_current_user)])
 app.include_router(backup.router, dependencies=[Depends(get_current_user)])
 app.include_router(mac.router, dependencies=[Depends(get_current_user)])
 app.include_router(device_backup.router, dependencies=[Depends(get_current_user)])
+app.include_router(mibs.router, dependencies=[Depends(get_current_user)])
 app.include_router(terminal.router)
 
 

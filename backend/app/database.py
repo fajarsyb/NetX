@@ -383,6 +383,32 @@ def init_db():
     );
     """)
 
+    # SNMP MIBs
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS snmp_mibs (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        name            TEXT NOT NULL UNIQUE,
+        description     TEXT DEFAULT '',
+        vendor          TEXT DEFAULT 'all', -- matches device_type or 'all'
+        is_active       INTEGER DEFAULT 1,
+        created_at      TEXT NOT NULL
+    );
+    """)
+
+    # SNMP MIB Objects
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS snmp_mib_objects (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        mib_id          INTEGER NOT NULL,
+        name            TEXT NOT NULL,
+        oid             TEXT NOT NULL,
+        syntax          TEXT DEFAULT '',
+        description     TEXT DEFAULT '',
+        FOREIGN KEY (mib_id) REFERENCES snmp_mibs(id) ON DELETE CASCADE
+    );
+    """)
+    c.execute("CREATE INDEX IF NOT EXISTS idx_snmp_mib_objects_mib ON snmp_mib_objects(mib_id);")
+
     conn.commit()
     conn.close()
 

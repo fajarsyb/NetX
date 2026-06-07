@@ -11,6 +11,7 @@ import BackupManagement from './pages/BackupManagement'
 import DeviceBackup from './pages/DeviceBackup'
 import DeviceManagement from './pages/DeviceManagement'
 import SnmpTester from './pages/SnmpTester'
+import MibManagement from './pages/MibManagement'
 import Topology from './pages/Topology'
 import MacInvestigation from './pages/MacInvestigation'
 import ToastProvider from './components/shared/ToastProvider'
@@ -40,6 +41,7 @@ export default function App() {
                       <Route path="/device-backup" element={<DeviceBackup />} />
                       <Route path="/devices" element={<DeviceManagement />} />
                       <Route path="/snmp-tester" element={<SnmpTester />} />
+                      <Route path="/mibs" element={<MibManagement />} />
                       <Route path="/topology" element={<Topology />} />
                       <Route path="/mac-investigation" element={<Navigate to="/investigation" replace />} />
                       <Route path="/investigation" element={<MacInvestigation />} />

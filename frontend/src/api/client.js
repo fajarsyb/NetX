@@ -73,6 +73,7 @@ export const snmpApi = {
   detectInfo:    (deviceId, method = 'auto') => api.post(`/snmp/detect-info/${deviceId}`, null, { params: { method } }),
   testRaw:       (data)     => api.post('/snmp/test-raw', data),
   getInterfaces: (deviceId) => api.get(`/snmp/interfaces/${deviceId}`),
+  queryCustom:   (data)     => api.post('/snmp/query-custom', data),
 }
 
 export const macApi = {
@@ -108,6 +109,15 @@ export const deviceBackupApi = {
   updateSchedule: (id, data) => api.put(`/device-backups/schedules/${id}`, data),
   removeSchedule: (id) => api.delete(`/device-backups/schedules/${id}`),
   runSchedule:    (id) => api.post(`/device-backups/schedules/${id}/run`),
+}
+
+export const mibsApi = {
+  list:             ()         => api.get('/mibs'),
+  import:           (formData) => api.post('/mibs/import', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  update:           (id, data) => api.put(`/mibs/${id}`, data),
+  remove:           (id)       => api.delete(`/mibs/${id}`),
+  listObjects:      (id)       => api.get(`/mibs/${id}/objects`),
+  getActiveObjects: (params)   => api.get('/mibs/objects/active', { params }),
 }
 
 export default api

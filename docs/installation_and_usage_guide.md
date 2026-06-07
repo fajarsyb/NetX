@@ -285,6 +285,24 @@ NetX dapat menarik konfigurasi perangkat (*running-config*) secara berkala untuk
 > [!TIP]
 > **Deteksi Perubahan Konfigurasi**: Pencadangan terjadwal maupun manual dilengkapi dengan fitur deteksi perubahan konfigurasi. Jika konfigurasi saat ini sama persis dengan versi pencadangan sukses sebelumnya, sistem tidak akan menyimpan versi baru ke database dan nomor versi tidak akan bertambah. Pada backup manual, pengguna akan menerima pesan informasi bahwa backup dilewati karena tidak ada perubahan.
 
+### 9. Manajemen MIB SNMP & Kueri Kustom (SNMP OID Query)
+NetX mendukung penambahan berkas MIB secara dinamis untuk memperluas kapabilitas kueri SNMP sesuai tipe vendor perangkat.
+1. **Impor MIB**:
+   - Masuk ke menu **Settings** -> **SNMP MIB Manager**.
+   - Seret atau pilih berkas MIB (`.mib`, `.my`, `.txt`) pada area pengunggahan.
+   - Isi deskripsi singkat dan tentukan asosiasi vendor perangkat (misal: `Cisco IOS` jika MIB khusus Cisco, atau `Semua Vendor (Global)` jika MIB bersifat standar industri).
+   - Klik **Unggah & Parse**. Sistem akan membaca berkas, mengekstrak variabel OID, dan meresolusi pohon OID secara otomatis.
+2. **Pengelolaan MIB**:
+   - Anda dapat menonaktifkan (*toggle off*) MIB agar tidak digunakan sementara waktu tanpa menghapusnya.
+   - Klik tombol **Objek** untuk membuka laci samping yang menampilkan daftar variabel OID hasil parsing lengkap dengan tipe syntax data dan deskripsinya.
+3. **Kueri OID Kustom**:
+   - Masuk ke menu **Settings** -> **SNMP Tester**.
+   - Pilih tab **Kueri OID MIB Kustom**.
+   - Pilih perangkat target Anda. Sistem secara otomatis mendeteksi vendor perangkat dan menyaring variabel OID aktif yang cocok untuk perangkat tersebut.
+   - Pilih nama variabel OID dari dropdown (atau ketik OID manual). Rincian deskripsi OID terpilih akan tampil di bawahnya.
+   - Pilih metode kueri **SNMP GET** (mengambil satu nilai) atau **SNMP WALK** (memindai seluruh sub-tree).
+   - Klik **Jalankan Query OID** untuk menampilkan tabel hasil kueri SNMP dari perangkat secara real-time.
+
 ---
 
 ## 7. Troubleshooting & FAQ

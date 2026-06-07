@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import {
   Server, LayoutDashboard, Plus, Network, ChevronRight, ChevronDown,
-  Radio, Wifi, RefreshCw, LogOut, Users, FolderGit2, ShieldCheck, Map, Key, Search, Settings
+  Radio, Wifi, RefreshCw, LogOut, Users, FolderGit2, ShieldCheck, Map, Key, Search, Settings, FileCode
 } from 'lucide-react'
 import { arpApi } from '../../api/client'
 import AddDeviceModal from '../Device/AddDeviceModal'
@@ -17,7 +17,7 @@ export default function Sidebar() {
   const { user, logout } = useAuth()
   const location = useLocation()
   const [openSettings, setOpenSettings] = useState(() => {
-    return ['/users', '/credentials', '/backup', '/device-backup', '/snmp-tester'].includes(location.pathname)
+    return ['/users', '/credentials', '/backup', '/device-backup', '/snmp-tester', '/mibs'].includes(location.pathname)
   })
 
   // Resizable Sidebar logic
@@ -149,7 +149,7 @@ export default function Sidebar() {
           {/* Settings Sub-menu */}
           <button
             type="button"
-            className={`nav-link ${['/users', '/credentials', '/backup', '/device-backup', '/snmp-tester'].includes(location.pathname) ? 'active' : ''}`}
+            className={`nav-link ${['/users', '/credentials', '/backup', '/device-backup', '/snmp-tester', '/mibs'].includes(location.pathname) ? 'active' : ''}`}
             onClick={() => setOpenSettings(prev => !prev)}
             style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
           >
@@ -200,6 +200,13 @@ export default function Sidebar() {
               >
                 <Radio className="nav-icon" />
                 SNMP Tester
+              </NavLink>
+              <NavLink
+                to="/mibs"
+                className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+              >
+                <FileCode className="nav-icon" />
+                SNMP MIB Manager
               </NavLink>
             </div>
           )}

@@ -912,3 +912,118 @@ async def get_snmp_interfaces(device_id: int):
         list_ifs.sort(key=lambda x: x["name"])
 
     return list_ifs
+
+
+class SNMPQueryCustom(BaseModel):
+    device_id: int
+    oid: str
+    method: str = "get" # "get" or "walk"
+
+@router.post("/query-custom")
+async def query_snmp_custom(body: SNMPQueryCustom):
+    """
+    Execute a custom SNMP GET or WALK query on a device.
+    """
+    conn = get_db_conn()
+    c = conn.cursor()
+    c.execute("SELECT ip, snmp_version, snmp_community FROM devices WHERE id = ?", (body.device_id,))
+    row = c.fetchone()
+    conn.close()
+    
+    if not row:
+        raise HTTPException(status_code=404, detail="Device tidak ditemukan.")
+        
+    ip = row["ip"]
+    version = row["snmp_version"] or "v2c"
+    community = row["snmp_community"]
+    
+    if not community:
+        raise HTTPException(status_code=400, detail="SNMP Community belum dikonfigurasi untuk perangkat ini.")
+        
+    mp_model = 1 if version == "v2c" else 0
+    oid_str = body.oid.strip()
+    
+    if not re.match(r"^[0-9\.]+$", oid_str):
+        raise HTTPException(status_code=400, detail="Format OID tidak valid. Harus berupa deretan angka yang dipisahkan titik.")
+
+    try:
+        transport = await UdpTransportTarget.create((ip, 161), timeout=3.0, retries=1)
+        snmpEngine = SnmpEngine()
+        authData = CommunityData(community, mpModel=mp_model)
+        contextData = ContextData()
+        
+        if body.method.lower() == "get":
+            errorIndication, errorStatus, errorIndex, varBinds = await get_cmd(
+                snmpEngine,
+                authData,
+                transport,
+                contextData,
+                ObjectType(ObjectIdentity(oid_str))
+            )
+            
+            if errorIndication:
+                raise HTTPException(status_code=500, detail=f"SNMP GET Error: {errorIndication}")
+            elif errorStatus:
+                raise HTTPException(status_code=500, detail=f"SNMP GET Error: {errorStatus.prettyPrint()} at {errorIndex}")
+            else:
+                results = []
+                for varBind in varBinds:
+                    oid = varBind[0].prettyPrint()
+                    val = varBind[1]
+                    val_str = val.prettyPrint()
+                    syntax = val.__class__.__name__
+                    results.append({
+                        "oid": oid,
+                        "value": val_str,
+                        "syntax": syntax
+                    })
+                return {"success": True, "results": results}
+                
+        else: # walk
+            start_oid_clean = oid_str.strip('.')
+            prefix_tuple = tuple(int(x) for x in start_oid_clean.split('.'))
+            
+            varBinds = [ObjectType(ObjectIdentity(oid_str))]
+            results = []
+            max_iterations = 200
+            count = 0
+            
+            while count < max_iterations:
+                res = await next_cmd(snmpEngine, authData, transport, contextData, *varBinds)
+                errorIndication, errorStatus, errorIndex, varBindTable = res
+                
+                if errorIndication or errorStatus or not varBindTable:
+                    break
+                    
+                firstVarBinds = varBindTable[0] if isinstance(varBindTable[0], list) else varBindTable
+                if not firstVarBinds:
+                    break
+                    
+                current_var_bind = firstVarBinds[0]
+                current_oid_tuple = current_var_bind[0].asTuple()
+                
+                if len(current_oid_tuple) < len(prefix_tuple) or current_oid_tuple[:len(prefix_tuple)] != prefix_tuple:
+                    break
+                    
+                oid = current_var_bind[0].prettyPrint()
+                val = current_var_bind[1]
+                val_str = val.prettyPrint()
+                syntax = val.__class__.__name__
+                
+                results.append({
+                    "oid": oid,
+                    "value": val_str,
+                    "syntax": syntax
+                })
+                
+                varBinds = firstVarBinds
+                count += 1
+                
+            return {"success": True, "results": results}
+            
+    except Exception as e:
+        err_msg = str(e)
+        clean_msg = f"SNMP Query Error: {err_msg}"
+        if "No SNMP response" in err_msg or "timeout" in err_msg.lower():
+            clean_msg = "SNMP Timeout: Perangkat tidak merespons di port 161."
+        raise HTTPException(status_code=400, detail=clean_msg)
