@@ -21,6 +21,7 @@ class CredentialUpdate(BaseModel):
 
 class ScanRequest(BaseModel):
     device_ids: Optional[List[int]] = None
+    credential_ids: Optional[List[int]] = None
 
 @router.get("")
 async def list_credentials():
@@ -82,7 +83,8 @@ async def get_compliance(admin: dict = Depends(require_admin)):
 async def trigger_scan(req: Optional[ScanRequest] = None, admin: dict = Depends(require_admin)):
     try:
         device_ids = req.device_ids if req else None
-        results = await run_credential_scan(device_ids)
+        credential_ids = req.credential_ids if req else None
+        results = await run_credential_scan(device_ids, credential_ids)
         log_audit(admin["id"], admin["username"], "SCAN_CREDENTIALS", "credentials/compliance", f"Triggered credential compliance scan on {len(results)} devices.")
         return results
     except Exception as e:
@@ -93,6 +95,9 @@ class QuickScanRequest(BaseModel):
     protocol: str = "ssh"
     port: Optional[int] = None
     device_type: str = "cisco_ios"
+    username: Optional[str] = None
+    password: Optional[str] = None
+    credential_id: Optional[int] = None
 
 @router.post("/scan-target")
 async def trigger_quick_scan(req: QuickScanRequest, admin: dict = Depends(require_admin)):
@@ -101,7 +106,10 @@ async def trigger_quick_scan(req: QuickScanRequest, admin: dict = Depends(requir
             ip=req.ip,
             protocol=req.protocol,
             port=req.port,
-            device_type=req.device_type
+            device_type=req.device_type,
+            username=req.username,
+            password=req.password,
+            credential_id=req.credential_id
         )
         log_audit(admin["id"], admin["username"], "QUICK_SCAN_CREDENTIALS", "credentials/scan-target", f"Triggered quick credential scan on custom target: {req.ip} ({req.protocol})")
         return result

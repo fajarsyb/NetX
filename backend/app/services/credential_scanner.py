@@ -24,7 +24,7 @@ DEFAULT_CREDENTIALS = [
     {"username": "root", "password": "", "label": "Linux/Generic Default (root/)"},
 ]
 
-async def _try_login_sync(device, username, password) -> tuple[bool, str]:
+def _try_login_sync(device, username, password) -> tuple[bool, str]:
     try:
         from netmiko import ConnectHandler
         from netmiko.exceptions import NetmikoTimeoutException, NetmikoAuthenticationException
@@ -154,7 +154,7 @@ async def scan_single_device(device, db_templates, sem):
         elif len(templates_succeeded) > 0:
             results["status"] = "weak"
             results["working_db_templates"] = templates_succeeded
-        elif not success and reason == "auth_failed":
+        elif not success and reason == "auth_failed" and assigned_user:
             results["status"] = "unreachable"
             results["error_message"] = "Gagal autentikasi menggunakan kredensial terdaftar."
         else:
@@ -162,13 +162,18 @@ async def scan_single_device(device, db_templates, sem):
 
         return results
 
-async def run_credential_scan(device_ids=None):
+async def run_credential_scan(device_ids=None, credential_ids=None):
     """Run credential security scan on devices and save to DB."""
     conn = get_db_conn()
     c = conn.cursor()
     
     # 1. Fetch credentials templates
-    c.execute("SELECT id, name, username, password FROM device_credentials")
+    if credential_ids:
+        placeholders = ",".join(["?"] * len(credential_ids))
+        c.execute(f"SELECT id, name, username, password FROM device_credentials WHERE id IN ({placeholders})", tuple(credential_ids))
+    else:
+        c.execute("SELECT id, name, username, password FROM device_credentials")
+        
     db_templates = []
     for row in c.fetchall():
         db_templates.append({
@@ -252,7 +257,7 @@ def get_compliance_records():
     return records
 
 
-async def scan_custom_target(ip: str, protocol: str, port: int | None, device_type: str):
+async def scan_custom_target(ip: str, protocol: str, port: int | None, device_type: str, username: str | None = None, password: str | None = None, credential_id: int | None = None):
     """Scan a custom target (not registered in database devices)."""
     # 1. Fetch credentials templates
     conn = get_db_conn()
@@ -266,19 +271,34 @@ async def scan_custom_target(ip: str, protocol: str, port: int | None, device_ty
             "username": row["username"],
             "password": decrypt_password(row["password"])
         })
+    
+    # 2. Determine if a specific credential is selected
+    assigned_user = ""
+    assigned_pass = ""
+    if username is not None:
+        assigned_user = username
+        assigned_pass = password or ""
+    elif credential_id is not None:
+        matching = [t for t in db_templates if t["id"] == credential_id]
+        if matching:
+            assigned_user = matching[0]["username"]
+            assigned_pass = matching[0]["password"]
+            
     conn.close()
     
-    # 2. Build temporary device dictionary
+    # 3. Build temporary device dictionary
     device = {
         "id": 0,
         "name": f"Custom Target ({ip})",
         "ip": ip,
         "protocol": protocol,
         "port": port,
-        "device_type": device_type
+        "device_type": device_type,
+        "username": assigned_user,
+        "password": encrypt_password(assigned_pass) if assigned_pass else ""
     }
     
-    # 3. Scan without semaphore restrictions
+    # 4. Scan without semaphore restrictions
     sem = asyncio.Semaphore(1)
     result = await scan_single_device(device, db_templates, sem)
     return result

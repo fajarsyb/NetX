@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Shield, ShieldAlert, ShieldCheck, ShieldAlert as ShieldWarning, RefreshCw, Search, AlertOctagon, Terminal, Play, HelpCircle } from 'lucide-react'
+import { Shield, ShieldAlert, ShieldCheck, ShieldAlert as ShieldWarning, RefreshCw, Search, AlertOctagon, Terminal, Play, HelpCircle, Key } from 'lucide-react'
 import { credentialsApi } from '../api/client'
 import { useToast } from '../components/shared/ToastProvider'
 
@@ -39,9 +39,19 @@ export default function CredentialScan() {
   const [customProtocol, setCustomProtocol] = useState('ssh')
   const [customPort, setCustomPort] = useState('')
   const [customDeviceType, setCustomDeviceType] = useState('ruijie_os')
+  const [credMode, setCredMode] = useState('none') // 'none' | 'custom' | 'template'
+  const [customUser, setCustomUser] = useState('')
+  const [customPass, setCustomPass] = useState('')
+  const [selectedCredId, setSelectedCredId] = useState('')
+  
+  const [credTemplates, setCredTemplates] = useState([])
   const [customScanning, setCustomScanning] = useState(false)
   const [customScanLogs, setCustomScanLogs] = useState([])
   const [customResult, setCustomResult] = useState(null)
+  
+  // Compliance scan credential filter states
+  const [inventoryCredMode, setInventoryCredMode] = useState('all') // 'all' | 'select'
+  const [selectedInventoryCredIds, setSelectedInventoryCredIds] = useState([])
   
   const toast = useToast()
   const logEndRef = useRef(null)
@@ -58,6 +68,19 @@ export default function CredentialScan() {
       setLoading(false)
     }
   }
+
+  const fetchTemplates = async () => {
+    try {
+      const res = await credentialsApi.list()
+      setCredTemplates(res.data)
+    } catch (_) {
+      toast.error('Gagal mengambil daftar template kredensial.')
+    }
+  }
+
+  useEffect(() => {
+    fetchTemplates()
+  }, [])
 
   useEffect(() => {
     if (activeTab === 'inventory') {
@@ -88,7 +111,16 @@ export default function CredentialScan() {
     setProgress(0)
     
     try {
-      const res = await credentialsApi.runScan()
+      const payload = {}
+      if (inventoryCredMode === 'select') {
+        if (selectedInventoryCredIds.length === 0) {
+          toast.error('Silakan pilih minimal satu template kredensial dari inventory.')
+          setScanning(false)
+          return
+        }
+        payload.credential_ids = selectedInventoryCredIds
+      }
+      const res = await credentialsApi.runScan(payload)
       const results = res.data
 
       let logs = ['[*] Menemukan ' + results.length + ' perangkat untuk dipindai.', '[*] Memulai penelusuran SSH/Telnet dengan Semaphore (maks 5 paralel)...']
@@ -136,15 +168,30 @@ export default function CredentialScan() {
       return
     }
 
+    if (credMode === 'template' && !selectedCredId) {
+      toast.error('Silakan pilih template kredensial dari list.')
+      return
+    }
+
     setCustomScanning(true)
     setCustomResult(null)
     
     let logs = [
       `[*] Memulai scan kustom untuk ${customIp}...`,
       `[*] Protokol: ${customProtocol.toUpperCase()} | Port: ${customPort}`,
-      `[*] Tipe Perangkat: ${customDeviceType}`,
-      `[*] Memeriksa reachability perangkat...`
+      `[*] Tipe Perangkat: ${customDeviceType}`
     ]
+
+    if (credMode === 'custom') {
+      logs.push(`[*] Baseline: Kredensial kustom terpilih (${customUser})`)
+    } else if (credMode === 'template') {
+      const t = credTemplates.find(x => x.id === parseInt(selectedCredId))
+      logs.push(`[*] Baseline: Template kredensial terdaftar (${t?.name || 'ID: ' + selectedCredId})`)
+    } else {
+      logs.push(`[*] Baseline: Tanpa kredensial baseline (Hanya memindai sandi default)`)
+    }
+
+    logs.push(`[*] Memeriksa reachability perangkat...`)
     setCustomScanLogs([...logs])
 
     try {
@@ -154,11 +201,18 @@ export default function CredentialScan() {
         port: customPort ? parseInt(customPort, 10) : null,
         device_type: customDeviceType
       }
+
+      if (credMode === 'custom') {
+        payload.username = customUser
+        payload.password = customPass
+      } else if (credMode === 'template') {
+        payload.credential_id = parseInt(selectedCredId, 10)
+      }
       
       const res = await credentialsApi.scanTarget(payload)
       const r = res.data
       
-      await new Promise(resolve => setTimeout(resolve, 800)) // visual drift
+      await new Promise(resolve => setTimeout(resolve, 800))
 
       if (r.status === 'unreachable') {
         logs.push(`[ERROR] Perangkat tidak merespons: ${r.error_message || 'Port tertutup atau IP mati.'}`)
@@ -295,7 +349,7 @@ export default function CredentialScan() {
           className={`tab-btn ${activeTab === 'custom' ? 'active' : ''}`}
           onClick={() => setActiveTab('custom')}
         >
-          Scan Target Kustom (IP & Protokol)
+          Scan Target Kustom (IP & Kredensial)
         </button>
       </div>
 
@@ -327,6 +381,69 @@ export default function CredentialScan() {
               <div className="stat-label">Unreachable</div>
               <div className="stat-value" style={{ color: 'var(--text-muted)' }}>{unreachableCount}</div>
               <div className="stat-sub">Mati / port tertutup</div>
+            </div>
+          </div>
+
+          {/* Config Card for Inventory Scan Credentials */}
+          <div className="card" style={{ padding: '20px', background: 'var(--bg-card-2)' }}>
+            <h3 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid var(--border)', paddingBottom: '10px' }}>
+              <Key size={16} style={{ color: 'var(--primary)' }} /> Pengaturan Kredensial untuk Scan Inventory
+            </h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '24px', alignItems: 'start' }}>
+              <div>
+                <label className="form-label" style={{ fontWeight: 600 }}>Mode Pengujian Template Kredensial</label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '8px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13.5px' }}>
+                    <input 
+                      type="radio" 
+                      name="inventoryCredMode" 
+                      checked={inventoryCredMode === 'all'} 
+                      onChange={() => setInventoryCredMode('all')} 
+                      disabled={scanning}
+                    />
+                    <span>Uji Semua Template Kredensial di Inventory (Default)</span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13.5px' }}>
+                    <input 
+                      type="radio" 
+                      name="inventoryCredMode" 
+                      checked={inventoryCredMode === 'select'} 
+                      onChange={() => setInventoryCredMode('select')} 
+                      disabled={scanning}
+                    />
+                    <span>Pilih Template Kredensial Jaringan Tertentu dari Inventory</span>
+                  </label>
+                </div>
+              </div>
+              
+              {inventoryCredMode === 'select' && (
+                <div>
+                  <label className="form-label" style={{ fontWeight: 600, marginBottom: '6px' }}>Template Kredensial Terpilih:</label>
+                  <div style={{ maxHeight: '140px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px', background: 'var(--bg-base)' }}>
+                    {credTemplates.length === 0 ? (
+                      <div style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>Tidak ada template kredensial tersimpan di sistem.</div>
+                    ) : (
+                      credTemplates.map(t => (
+                        <label key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12.5px', marginBottom: '6px' }}>
+                          <input 
+                            type="checkbox" 
+                            checked={selectedInventoryCredIds.includes(t.id)} 
+                            onChange={e => {
+                              if (e.target.checked) {
+                                setSelectedInventoryCredIds(prev => [...prev, t.id])
+                              } else {
+                                setSelectedInventoryCredIds(prev => prev.filter(id => id !== t.id))
+                              }
+                            }}
+                            disabled={scanning}
+                          />
+                          <span style={{ color: 'var(--text-primary)' }}>{t.name} <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>({t.username})</span></span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -519,14 +636,14 @@ export default function CredentialScan() {
       )}
 
       {activeTab === 'custom' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: '24px', alignItems: 'start' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: '24px', alignItems: 'start' }}>
           {/* Form Card */}
           <div className="card">
             <h3 style={{ fontSize: '15px', fontWeight: 700, marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Play size={16} className="text-primary" /> Target Baru
             </h3>
             
-            <form onSubmit={triggerCustomScan} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <form onSubmit={triggerCustomScan} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div className="form-group" style={{ margin: 0 }}>
                 <label className="form-label">IP Address Perangkat</label>
                 <input 
@@ -580,6 +697,72 @@ export default function CredentialScan() {
                 </select>
               </div>
 
+              <div className="divider" style={{ margin: '8px 0' }} />
+
+              {/* Credential Selection Mode */}
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label">Kredensial Baseline</label>
+                <select 
+                  className="form-control"
+                  value={credMode}
+                  onChange={e => setCredMode(e.target.value)}
+                  disabled={customScanning}
+                >
+                  <option value="none">Tanpa Kredensial (Hanya Sandi Default)</option>
+                  <option value="template">Gunakan Template dari Inventory</option>
+                  <option value="custom">Input Kredensial Baru (Custom)</option>
+                </select>
+              </div>
+
+              {/* Conditional Credential inputs */}
+              {credMode === 'custom' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', background: 'var(--bg-card-2)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label" style={{ fontSize: '10px' }}>Username Kustom</label>
+                    <input 
+                      type="text" 
+                      className="form-control" 
+                      placeholder="admin" 
+                      value={customUser}
+                      onChange={e => setCustomUser(e.target.value)}
+                      required={credMode === 'custom'}
+                      disabled={customScanning}
+                    />
+                  </div>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label" style={{ fontSize: '10px' }}>Password Kustom</label>
+                    <input 
+                      type="password" 
+                      className="form-control" 
+                      placeholder="sandi kustom" 
+                      value={customPass}
+                      onChange={e => setCustomPass(e.target.value)}
+                      disabled={customScanning}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {credMode === 'template' && (
+                <div style={{ background: 'var(--bg-card-2)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label" style={{ fontSize: '10px' }}>Pilih Template Kredensial</label>
+                    <select 
+                      className="form-control"
+                      value={selectedCredId}
+                      onChange={e => setSelectedCredId(e.target.value)}
+                      required={credMode === 'template'}
+                      disabled={customScanning}
+                    >
+                      <option value="">-- Pilih Template --</option>
+                      {credTemplates.map(t => (
+                        <option key={t.id} value={t.id}>{t.name} ({t.username})</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
               <button 
                 type="submit" 
                 className="btn btn-primary" 
@@ -612,7 +795,7 @@ export default function CredentialScan() {
 
               <div 
                 style={{ 
-                  height: '240px', 
+                  height: '270px', 
                   background: 'var(--bg-base)', 
                   borderRadius: '8px', 
                   padding: '16px', 
