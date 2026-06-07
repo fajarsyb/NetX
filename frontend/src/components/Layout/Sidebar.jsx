@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import {
   Server, LayoutDashboard, Plus, Network, ChevronRight, ChevronDown,
-  Radio, Wifi, RefreshCw, LogOut, Users, FolderGit2, ShieldCheck, Map, Key, Search, Settings, FileCode, AlertTriangle
+  Radio, Wifi, RefreshCw, LogOut, Users, FolderGit2, ShieldCheck, Map, Key, Search, Settings, FileCode, AlertTriangle, FileText, Database, Activity
 } from 'lucide-react'
 import { arpApi } from '../../api/client'
 import AddDeviceModal from '../Device/AddDeviceModal'
@@ -17,7 +17,7 @@ export default function Sidebar() {
   const { user, logout } = useAuth()
   const location = useLocation()
   const [openSettings, setOpenSettings] = useState(() => {
-    return ['/users', '/credentials', '/backup', '/device-backup', '/snmp-tester', '/mibs'].includes(location.pathname)
+    return ['/users', '/credentials', '/backup', '/db-settings', '/system-health', '/device-backup', '/snmp-tester', '/mibs'].includes(location.pathname)
   })
 
   // Resizable Sidebar logic
@@ -165,7 +165,7 @@ export default function Sidebar() {
           {/* Settings Sub-menu */}
           <button
             type="button"
-            className={`nav-link ${['/users', '/credentials', '/backup', '/device-backup', '/snmp-tester', '/mibs'].includes(location.pathname) ? 'active' : ''}`}
+            className={`nav-link ${['/users', '/credentials', '/backup', '/db-settings', '/system-health', '/device-backup', '/snmp-tester', '/mibs'].includes(location.pathname) ? 'active' : ''}`}
             onClick={() => setOpenSettings(prev => !prev)}
             style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
           >
@@ -200,6 +200,20 @@ export default function Sidebar() {
                   >
                     <Server className="nav-icon" />
                     Backup DB Sistem
+                  </NavLink>
+                  <NavLink
+                    to="/db-settings"
+                    className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                  >
+                    <Database className="nav-icon" />
+                    Integrasi PostgreSQL
+                  </NavLink>
+                  <NavLink
+                    to="/system-health"
+                    className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                  >
+                    <Activity className="nav-icon" />
+                    Kesehatan Sistem
                   </NavLink>
                 </>
               )}

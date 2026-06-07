@@ -322,3 +322,64 @@ NetX mendukung penambahan berkas MIB secara dinamis untuk memperluas kapabilitas
 
 #### Q: Aplikasi menampilkan error "Database is locked" pada SQLite.
 * NetX telah dioptimalkan dengan mode **Write-Ahead Logging (WAL)** untuk mendukung konkurensi pembacaan tinggi. Namun, jika terjadi operasi penulisan yang sangat padat secara bersamaan, database bisa terkunci sesaat. Hal ini normal dan sistem akan mencoba kembali dalam beberapa milidetik. Pastikan folder `backend/data/` memiliki hak akses tulis (write permissions) penuh bagi user yang menjalankan server web NetX.
+
+---
+
+## 8. Integrasi & Migrasi PostgreSQL
+
+NetX mendukung migrasi database dari SQLite bawaan ke **PostgreSQL** untuk performa yang lebih andal dan terdistribusi.
+
+### Langkah 1: Persiapan Server PostgreSQL
+1. Siapkan sebuah instance database PostgreSQL aktif (lokal atau cloud).
+2. Buat database baru khusus untuk NetX, misalnya bernama `netx`.
+3. Pastikan port PostgreSQL (biasanya `5432`) dapat diakses dari server backend NetX.
+
+### Langkah 2: Konfigurasi Koneksi di UI NetX
+1. Masuk ke aplikasi NetX menggunakan akun **Administrator**.
+2. Buka menu **Settings** -> **Integrasi PostgreSQL**.
+3. Isi detail koneksi Anda:
+   - **Host / IP**: Alamat IP server PostgreSQL Anda (misal: `localhost`).
+   - **Port**: Port PostgreSQL (default: `5432`).
+   - **Nama Database**: Nama database yang dibuat (misal: `netx`).
+   - **Username**: Nama pengguna PostgreSQL (misal: `postgres`).
+   - **Password**: Kata sandi pengguna PostgreSQL Anda.
+   - **SSL Mode**: Pilih mode SSL yang sesuai (default: `prefer`).
+4. Klik tombol **Uji Koneksi DB** untuk memastikan parameter koneksi yang dimasukkan sudah benar.
+5. Klik **Simpan ke .env** untuk menulis konfigurasi tersebut ke berkas `.env` backend.
+
+### Langkah 3: Melakukan Migrasi Data
+Sebelum mengaktifkan engine PostgreSQL, jalankan script migrasi mandiri untuk mentransfer seluruh rekaman data (devices, users, credentials, logs, dll.) dari SQLite lokal ke PostgreSQL baru:
+1. Jalankan CMD / Terminal, masuk ke folder `backend`.
+2. Jalankan perintah migrasi berikut:
+   ```cmd
+   venv\Scripts\python migrate_data.py
+   ```
+3. Pastikan proses migrasi selesai dengan output `[+] Migrasi data berhasil diselesaikan!`.
+
+### Langkah 4: Mengaktifkan PostgreSQL
+1. Kembali ke halaman **Integrasi PostgreSQL** di UI NetX.
+2. Klik tombol **Aktifkan PostgreSQL di .env**.
+3. **Restart Server Backend NetX** (hentikan proses `run.bat` / `run_production.bat` dan jalankan kembali).
+4. Aplikasi kini aktif berjalan menggunakan PostgreSQL!
+
+---
+
+## 9. Pemantauan Kesehatan Mandiri (Self-Health Monitoring)
+
+NetX dilengkapi dengan dashboard **Kesehatan Sistem (Self-Health Monitoring)** untuk mengawasi kondisi kesehatan internal tool demi mencegah gangguan operasional.
+
+### Cara Mengakses Dashboard Diagnosa
+1. Masuk ke platform NetX sebagai **Administrator**.
+2. Masuk ke menu **Settings** -> **Kesehatan Sistem**.
+
+### Metrik yang Dipantau secara Real-time
+*   **DB Query Latency (ms)**: Mengukur rata-rata kecepatan pembacaan dan penulisan query ke basis data (SQLite/PostgreSQL).
+*   **Event Loop Lag (ms)**: Memantau delay pemrosesan event loop asinkron. Lag yang tinggi menunjukkan beban kerja CPU server yang padat.
+*   **Scan Throughput**: Menghitung rata-rata jumlah pemindaian perangkat switch per menit.
+*   **Disk Space**: Menampilkan kapasitas media penyimpanan server, sisa ruang kosong (dalam GB), dan ukuran berkas database lokal.
+
+### Sistem Log Alert & Degradasi Performa
+Dashboard ini dilengkapi dengan log alert otomatis yang akan mencantumkan komponen yang mengalami masalah apabila terjadi penurunan performa melewati batas threshold aman:
+-   **Peringatan Latensi DB**: Muncul jika latensi query rata-rata > 100 ms (Warning) atau > 300 ms (Critical/Degraded).
+-   **Peringatan Event Loop**: Muncul jika lag loop asinkron > 150 ms (Warning) atau > 500 ms (Critical/Degraded).
+-   **Peringatan Disk Space**: Muncul jika kapasitas ruang penyimpanan kosong < 15% (Warning) atau < 5% (Critical/Degraded).

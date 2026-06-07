@@ -197,30 +197,49 @@ class SyslogProtocol(asyncio.DatagramProtocol):
         if not raw_msg:
             return
             
-        ip = addr[0]
-        device_id = resolve_device_id_by_ip(ip)
-        
-        # Parse log
-        facility, severity, program, message, timestamp = parse_syslog_message(raw_msg)
-        
-        # Save to database
-        conn = get_db_conn()
-        c = conn.cursor()
+        asyncio.create_task(self.process_datagram(raw_msg, addr[0]))
+
+    async def process_datagram(self, raw_msg: str, ip: str):
         try:
-            c.execute("""
-                INSERT INTO device_syslogs (device_id, facility, severity, program, message, timestamp, raw_message)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (device_id, facility, severity, program, message, timestamp, raw_msg))
-            conn.commit()
-        except Exception as e:
-            logger.error(f"Failed to save syslog to database: {e}")
-            conn.rollback()
-        finally:
-            conn.close()
+            loop = asyncio.get_running_loop()
             
-        # Trigger real-time anomaly checks
-        if device_id:
-            analyze_syslog_for_anomalies(device_id, severity, program, message, timestamp)
+            # Resolve device_id by IP in a background thread to avoid blocking the event loop
+            device_id = await loop.run_in_executor(None, resolve_device_id_by_ip, ip)
+            
+            # Parse log
+            facility, severity, program, message, timestamp = parse_syslog_message(raw_msg)
+            
+            # Save to database in a background thread
+            def save_to_db():
+                conn = get_db_conn()
+                c = conn.cursor()
+                try:
+                    c.execute("""
+                        INSERT INTO device_syslogs (device_id, sender_ip, facility, severity, program, message, timestamp, raw_message)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (device_id, ip, facility, severity, program, message, timestamp, raw_msg))
+                    conn.commit()
+                except Exception as e:
+                    logger.error(f"Failed to save syslog to database: {e}")
+                    conn.rollback()
+                finally:
+                    conn.close()
+            
+            await loop.run_in_executor(None, save_to_db)
+            
+            # Trigger real-time anomaly checks in a background thread
+            if device_id:
+                await loop.run_in_executor(
+                    None, 
+                    analyze_syslog_for_anomalies, 
+                    device_id, 
+                    severity, 
+                    program, 
+                    message, 
+                    timestamp
+                )
+        except Exception as e:
+            logger.error(f"Error processing syslog datagram asynchronously: {e}")
 
 async def clear_expired_syslogs():
     """Daily job that deletes logs older than 30 days."""

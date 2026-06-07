@@ -31,6 +31,9 @@ if not exist venv (
     venv\Scripts\pip install -r requirements.txt
 )
 
+echo [*] Menjalankan NetX Background Worker di jendela baru...
+start "NetX Background Worker" cmd /c venv\Scripts\python worker.py
+
 echo.
 echo =========================================
 echo   NetX berjalan di:
@@ -40,5 +43,6 @@ echo   http://%FOUND_IP%:8000/api/docs  (API Docs)
 echo =========================================
 echo.
 
+set NETX_MODE=api
 venv\Scripts\uvicorn main:app --host 0.0.0.0 --port 8000
 pause

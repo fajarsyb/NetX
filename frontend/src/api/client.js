@@ -74,6 +74,7 @@ export const snmpApi = {
   testRaw:       (data)     => api.post('/snmp/test-raw', data),
   getInterfaces: (deviceId) => api.get(`/snmp/interfaces/${deviceId}`),
   queryCustom:   (data)     => api.post('/snmp/query-custom', data),
+  getL2Status:   (deviceId) => api.get(`/snmp/l2-status/${deviceId}`),
 }
 
 export const macApi = {
@@ -131,6 +132,16 @@ export const anomaliesApi = {
 export const syslogApi = {
   list:  (params) => api.get('/syslog', { params }),
   clear: ()       => api.delete('/syslog/clear'),
+  getSenders: ()  => api.get('/syslog/senders'),
+}
+
+export const dbSettingsApi = {
+  getCurrent:       () => api.get('/db-settings/current'),
+  save:             (data) => api.post('/db-settings/save', data),
+  testConnection:   (data) => api.post('/db-settings/test-connection', data),
+  activatePostgres: (data) => api.post('/db-settings/activate-postgresql', data),
+  revertSqlite:     () => api.post('/db-settings/revert-sqlite'),
+  getSqliteTables:  () => api.get('/db-settings/sqlite-tables'),
 }
 
 export default api

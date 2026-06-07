@@ -170,7 +170,7 @@ def check_mac_flapping(device_id: int, mac_entries: list, conn) -> list:
             
     return detected_flaps
 
-async def scan_device_anomalies(device: dict, conn):
+async def scan_device_anomalies(device: dict):
     """Polls SNMP data for a single device and computes anomaly metrics."""
     device_id = device["id"]
     ip = device["ip"]
@@ -180,7 +180,6 @@ async def scan_device_anomalies(device: dict, conn):
     
     now = datetime.now()
     now_iso = now.isoformat()
-    c = conn.cursor()
     
     logger.info(f"Scanning anomalies for device {device['name']} ({ip})...")
     
@@ -209,229 +208,244 @@ async def scan_device_anomalies(device: dict, conn):
         logger.warning(f"Device {device['name']} did not return any interface descriptors via SNMP.")
         return
         
-    # Get active/previous stats from DB
-    c.execute("SELECT * FROM interface_stats_latest WHERE device_id = ?", (device_id,))
-    prev_stats_rows = c.fetchall()
-    prev_stats = {r["interface_name"]: dict(r) for r in prev_stats_rows}
-    
-    # 2. Parse STP Topology Changes (TCN)
+    # Open local connection for this device's updates
+    conn = get_db_conn()
+    c = conn.cursor()
     try:
-        current_stp_tc = int(stp_tc) if stp_tc else 0
-    except ValueError:
-        current_stp_tc = 0
+        # Get active/previous stats from DB
+        c.execute("SELECT * FROM interface_stats_latest WHERE device_id = ?", (device_id,))
+        prev_stats_rows = c.fetchall()
+        prev_stats = {r["interface_name"]: dict(r) for r in prev_stats_rows}
         
-    # Get previous STP TCN from first available interface row or 0
-    prev_stp_tc = 0
-    if prev_stats_rows:
-        prev_stp_tc = prev_stats_rows[0].get("stp_top_changes") or 0
-        
-    if current_stp_tc > prev_stp_tc:
-        delta_tc = current_stp_tc - prev_stp_tc
-        details = f"Deteksi perubahan topologi Layer 2 (STP Topology Change). Counter naik dari {prev_stp_tc} ke {current_stp_tc}."
-        
-        # Insert L2 topology change anomaly if not already active
-        c.execute("""
-            SELECT id FROM network_anomalies 
-            WHERE device_id = ? AND anomaly_type = 'stp_tcn' AND is_active = 1
-        """, (device_id,))
-        if not c.fetchone():
+        # 2. Parse STP Topology Changes (TCN)
+        try:
+            current_stp_tc = int(stp_tc) if stp_tc else 0
+        except ValueError:
+            current_stp_tc = 0
+            
+        # Get previous STP TCN from first available interface row or 0
+        prev_stp_tc = 0
+        if prev_stats_rows:
+            prev_stp_tc = dict(prev_stats_rows[0]).get("stp_top_changes") or 0
+            
+        if current_stp_tc > prev_stp_tc:
+            delta_tc = current_stp_tc - prev_stp_tc
+            details = f"Deteksi perubahan topologi Layer 2 (STP Topology Change). Counter naik dari {prev_stp_tc} ke {current_stp_tc}."
+            
+            # Insert L2 topology change anomaly if not already active
             c.execute("""
-                INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
-                VALUES (?, 'stp_tcn', 'warning', 'Global', ?, 1, ?)
-            """, (device_id, details, now_iso))
-            logger.warning(f"L2 topology change detected on {device['name']}!")
+                SELECT id FROM network_anomalies 
+                WHERE device_id = ? AND anomaly_type = 'stp_tcn' AND is_active = 1
+            """, (device_id,))
+            if not c.fetchone():
+                c.execute("""
+                    INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
+                    VALUES (?, 'stp_tcn', 'warning', 'Global', ?, 1, ?)
+                """, (device_id, details, now_iso))
+                logger.warning(f"L2 topology change detected on {device['name']}!")
 
-    # 3. Looping for each physical interface
-    for idx, descr in descrs.items():
-        if descr.startswith('0x'):
-            try:
-                if_name = bytes.fromhex(descr[2:]).decode('utf-8', errors='ignore')
-            except Exception:
-                if_name = descr
-        else:
-            if_name = descr
-            
-        # Skip Null / Loopback / Virtual
-        if not if_name or if_name.lower().startswith('null') or if_name.lower().startswith('loopback') or if_name.lower().startswith('vlan'):
-            continue
-            
-        # Extract operational status
-        raw_status = statuses.get(idx, 'unknown')
-        status_map = {'1': 'up', '2': 'down'}
-        oper_status = status_map.get(raw_status, 'unknown')
-        
-        # Get SNMP counter values
-        ib = int(in_broad.get(idx, 0))
-        ob = int(out_broad.get(idx, 0))
-        im = int(in_multi.get(idx, 0))
-        om = int(out_multi.get(idx, 0))
-        iu = int(in_uni.get(idx, 0))
-        ou = int(out_uni.get(idx, 0))
-        
-        prev = prev_stats.get(if_name)
-        
-        # Initial status changes history
-        changes_hist = []
-        
-        if prev:
-            # Calculate delta time
-            try:
-                prev_time = datetime.fromisoformat(prev["updated_at"])
-                delta_t = (now - prev_time).total_seconds()
-            except Exception:
-                delta_t = 60.0
-                
-            if delta_t <= 0:
-                delta_t = 1.0
-                
-            # Compute rates
-            rate_in_broad = max(0, (ib - prev["in_broadcast"])) / delta_t
-            rate_out_broad = max(0, (ob - prev["out_broadcast"])) / delta_t
-            rate_in_multi = max(0, (im - prev["in_multicast"])) / delta_t
-            rate_out_multi = max(0, (om - prev["out_multicast"])) / delta_t
-            rate_in_uni = max(0, (iu - prev["in_unicast"])) / delta_t
-            rate_out_uni = max(0, (ou - prev["out_unicast"])) / delta_t
-            
-            # --- Storm Detection ---
-            # Broadcast Storm
-            rate_broad = max(rate_in_broad, rate_out_broad)
-            if rate_broad >= BROADCAST_STORM_WARNING:
-                sev = 'critical' if rate_broad >= BROADCAST_STORM_CRITICAL else 'warning'
-                details = f"Trafik Broadcast tinggi pada interface {if_name}: {int(rate_broad)} pps (Batas: {BROADCAST_STORM_WARNING} pps)."
-                
-                # Check if already active
-                c.execute("""
-                    SELECT id, severity FROM network_anomalies 
-                    WHERE device_id = ? AND anomaly_type = 'broadcast_storm' AND interface_name = ? AND is_active = 1
-                """, (device_id, if_name))
-                act = c.fetchone()
-                if act:
-                    if act["severity"] != sev:
-                        c.execute("UPDATE network_anomalies SET severity = ?, details = ? WHERE id = ?", (sev, details, act["id"]))
-                else:
-                    c.execute("""
-                        INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
-                        VALUES (?, 'broadcast_storm', ?, ?, ?, 1, ?)
-                    """, (device_id, sev, if_name, details, now_iso))
-            else:
-                # Resolve broadcast storm
-                c.execute("""
-                    UPDATE network_anomalies 
-                    SET is_active = 0, resolved_at = ? 
-                    WHERE device_id = ? AND anomaly_type = 'broadcast_storm' AND interface_name = ? AND is_active = 1
-                """, (now_iso, device_id, if_name))
-                
-            # Multicast Storm
-            rate_mult = max(rate_in_multi, rate_out_multi)
-            if rate_mult >= MULTICAST_STORM_WARNING:
-                sev = 'critical' if rate_mult >= MULTICAST_STORM_CRITICAL else 'warning'
-                details = f"Trafik Multicast tinggi pada interface {if_name}: {int(rate_mult)} pps (Batas: {MULTICAST_STORM_WARNING} pps)."
-                
-                c.execute("""
-                    SELECT id, severity FROM network_anomalies 
-                    WHERE device_id = ? AND anomaly_type = 'multicast_storm' AND interface_name = ? AND is_active = 1
-                """, (device_id, if_name))
-                act = c.fetchone()
-                if act:
-                    if act["severity"] != sev:
-                        c.execute("UPDATE network_anomalies SET severity = ?, details = ? WHERE id = ?", (sev, details, act["id"]))
-                else:
-                    c.execute("""
-                        INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
-                        VALUES (?, 'multicast_storm', ?, ?, ?, 1, ?)
-                    """, (device_id, sev, if_name, details, now_iso))
-            else:
-                c.execute("""
-                    UPDATE network_anomalies 
-                    SET is_active = 0, resolved_at = ? 
-                    WHERE device_id = ? AND anomaly_type = 'multicast_storm' AND interface_name = ? AND is_active = 1
-                """, (now_iso, device_id, if_name))
-
-            # Unicast Storm
-            rate_unic = max(rate_in_uni, rate_out_uni)
-            if rate_unic >= UNICAST_STORM_WARNING:
-                sev = 'critical' if rate_unic >= UNICAST_STORM_CRITICAL else 'warning'
-                details = f"Trafik Unicast tinggi pada interface {if_name}: {int(rate_unic)} pps (Batas: {UNICAST_STORM_WARNING} pps)."
-                
-                c.execute("""
-                    SELECT id, severity FROM network_anomalies 
-                    WHERE device_id = ? AND anomaly_type = 'unicast_storm' AND interface_name = ? AND is_active = 1
-                """, (device_id, if_name))
-                act = c.fetchone()
-                if act:
-                    if act["severity"] != sev:
-                        c.execute("UPDATE network_anomalies SET severity = ?, details = ? WHERE id = ?", (sev, details, act["id"]))
-                else:
-                    c.execute("""
-                        INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
-                        VALUES (?, 'unicast_storm', ?, ?, ?, 1, ?)
-                    """, (device_id, sev, if_name, details, now_iso))
-            else:
-                c.execute("""
-                    UPDATE network_anomalies 
-                    SET is_active = 0, resolved_at = ? 
-                    WHERE device_id = ? AND anomaly_type = 'unicast_storm' AND interface_name = ? AND is_active = 1
-                """, (now_iso, device_id, if_name))
-                
-            # --- Flapping Detection ---
-            try:
-                changes_hist = json.loads(prev["status_changes_history"])
-            except Exception:
-                changes_hist = []
-                
-            # If oper status changed
-            if oper_status != prev["oper_status"] and oper_status in ('up', 'down') and prev["oper_status"] in ('up', 'down'):
-                changes_hist.append(now_iso)
-                
-            # Filter changes older than 5 minutes
-            cutoff = now - timedelta(seconds=PORT_FLAP_WINDOW_SECONDS)
-            valid_changes = []
-            for t_str in changes_hist:
+        # 3. Looping for each physical interface
+        for idx, descr in descrs.items():
+            if descr.startswith('0x'):
                 try:
-                    t = datetime.fromisoformat(t_str)
-                    if t > cutoff:
-                        valid_changes.append(t_str)
+                    if_name = bytes.fromhex(descr[2:]).decode('utf-8', errors='ignore')
                 except Exception:
-                    pass
-            changes_hist = valid_changes
-            
-            changes_count = len(changes_hist)
-            if changes_count >= PORT_FLAP_WARNING_COUNT:
-                sev = 'critical' if changes_count >= PORT_FLAP_CRITICAL_COUNT else 'warning'
-                details = f"Port Flapping terdeteksi pada interface {if_name}: status berubah {changes_count} kali dalam 5 menit terakhir."
+                    if_name = descr
+            else:
+                if_name = descr
                 
-                c.execute("""
-                    SELECT id, severity FROM network_anomalies 
-                    WHERE device_id = ? AND anomaly_type = 'port_flapping' AND interface_name = ? AND is_active = 1
-                """, (device_id, if_name))
-                act = c.fetchone()
-                if act:
-                    if act["severity"] != sev:
-                        c.execute("UPDATE network_anomalies SET severity = ?, details = ? WHERE id = ?", (sev, details, act["id"]))
+            # Skip Null / Loopback / Virtual
+            if not if_name or if_name.lower().startswith('null') or if_name.lower().startswith('loopback') or if_name.lower().startswith('vlan'):
+                continue
+                
+            # Extract operational status
+            raw_status = statuses.get(idx, 'unknown')
+            status_map = {'1': 'up', '2': 'down'}
+            oper_status = status_map.get(raw_status, 'unknown')
+            
+            # Get SNMP counter values
+            ib = int(in_broad.get(idx, 0))
+            ob = int(out_broad.get(idx, 0))
+            im = int(in_multi.get(idx, 0))
+            om = int(out_multi.get(idx, 0))
+            iu = int(in_uni.get(idx, 0))
+            ou = int(out_uni.get(idx, 0))
+            
+            prev = prev_stats.get(if_name)
+            
+            # Initial status changes history
+            changes_hist = []
+            
+            if prev:
+                # Calculate delta time
+                try:
+                    prev_time = datetime.fromisoformat(prev["updated_at"])
+                    delta_t = (now - prev_time).total_seconds()
+                except Exception:
+                    delta_t = 60.0
+                    
+                if delta_t <= 0:
+                    delta_t = 1.0
+                    
+                # Compute rates
+                rate_in_broad = max(0, (ib - prev["in_broadcast"])) / delta_t
+                rate_out_broad = max(0, (ob - prev["out_broadcast"])) / delta_t
+                rate_in_multi = max(0, (im - prev["in_multicast"])) / delta_t
+                rate_out_multi = max(0, (om - prev["out_multicast"])) / delta_t
+                rate_in_uni = max(0, (iu - prev["in_unicast"])) / delta_t
+                rate_out_uni = max(0, (ou - prev["out_unicast"])) / delta_t
+                
+                # --- Storm Detection ---
+                # Broadcast Storm
+                rate_broad = max(rate_in_broad, rate_out_broad)
+                if rate_broad >= BROADCAST_STORM_WARNING:
+                    sev = 'critical' if rate_broad >= BROADCAST_STORM_CRITICAL else 'warning'
+                    details = f"Trafik Broadcast tinggi pada interface {if_name}: {int(rate_broad)} pps (Batas: {BROADCAST_STORM_WARNING} pps)."
+                    
+                    # Check if already active
+                    c.execute("""
+                        SELECT id, severity FROM network_anomalies 
+                        WHERE device_id = ? AND anomaly_type = 'broadcast_storm' AND interface_name = ? AND is_active = 1
+                    """, (device_id, if_name))
+                    act = c.fetchone()
+                    if act:
+                        if act["severity"] != sev:
+                            c.execute("UPDATE network_anomalies SET severity = ?, details = ? WHERE id = ?", (sev, details, act["id"]))
+                    else:
+                        c.execute("""
+                            INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
+                            VALUES (?, 'broadcast_storm', ?, ?, ?, 1, ?)
+                        """, (device_id, sev, if_name, details, now_iso))
+                else:
+                    # Resolve broadcast storm
+                    c.execute("""
+                        UPDATE network_anomalies 
+                        SET is_active = 0, resolved_at = ? 
+                        WHERE device_id = ? AND anomaly_type = 'broadcast_storm' AND interface_name = ? AND is_active = 1
+                    """, (now_iso, device_id, if_name))
+                    
+                # Multicast Storm
+                rate_mult = max(rate_in_multi, rate_out_multi)
+                if rate_mult >= MULTICAST_STORM_WARNING:
+                    sev = 'critical' if rate_mult >= MULTICAST_STORM_CRITICAL else 'warning'
+                    details = f"Trafik Multicast tinggi pada interface {if_name}: {int(rate_mult)} pps (Batas: {MULTICAST_STORM_WARNING} pps)."
+                    
+                    c.execute("""
+                        SELECT id, severity FROM network_anomalies 
+                        WHERE device_id = ? AND anomaly_type = 'multicast_storm' AND interface_name = ? AND is_active = 1
+                    """, (device_id, if_name))
+                    act = c.fetchone()
+                    if act:
+                        if act["severity"] != sev:
+                            c.execute("UPDATE network_anomalies SET severity = ?, details = ? WHERE id = ?", (sev, details, act["id"]))
+                    else:
+                        c.execute("""
+                            INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
+                            VALUES (?, 'multicast_storm', ?, ?, ?, 1, ?)
+                        """, (device_id, sev, if_name, details, now_iso))
                 else:
                     c.execute("""
-                        INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
-                        VALUES (?, 'port_flapping', ?, ?, ?, 1, ?)
-                    """, (device_id, sev, if_name, details, now_iso))
-            else:
-                # Resolve port flapping
-                c.execute("""
-                    UPDATE network_anomalies 
-                    SET is_active = 0, resolved_at = ? 
-                    WHERE device_id = ? AND anomaly_type = 'port_flapping' AND interface_name = ? AND is_active = 1
-                """, (now_iso, device_id, if_name))
-        
-        # Save current stats to DB (using upsert/replace)
-        c.execute("""
-            INSERT OR REPLACE INTO interface_stats_latest (
-                device_id, interface_name, in_broadcast, out_broadcast,
-                in_multicast, out_multicast, in_unicast, out_unicast,
-                oper_status, stp_top_changes, status_changes_history, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            device_id, if_name, ib, ob, im, om, iu, ou,
-            oper_status, current_stp_tc, json.dumps(changes_hist), now_iso
-        ))
+                        UPDATE network_anomalies 
+                        SET is_active = 0, resolved_at = ? 
+                        WHERE device_id = ? AND anomaly_type = 'multicast_storm' AND interface_name = ? AND is_active = 1
+                    """, (now_iso, device_id, if_name))
+
+                # Unicast Storm
+                rate_unic = max(rate_in_uni, rate_out_uni)
+                if rate_unic >= UNICAST_STORM_WARNING:
+                    sev = 'critical' if rate_unic >= UNICAST_STORM_CRITICAL else 'warning'
+                    details = f"Trafik Unicast tinggi pada interface {if_name}: {int(rate_unic)} pps (Batas: {UNICAST_STORM_WARNING} pps)."
+                    
+                    c.execute("""
+                        SELECT id, severity FROM network_anomalies 
+                        WHERE device_id = ? AND anomaly_type = 'unicast_storm' AND interface_name = ? AND is_active = 1
+                    """, (device_id, if_name))
+                    act = c.fetchone()
+                    if act:
+                        if act["severity"] != sev:
+                            c.execute("UPDATE network_anomalies SET severity = ?, details = ? WHERE id = ?", (sev, details, act["id"]))
+                    else:
+                        c.execute("""
+                            INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
+                            VALUES (?, 'unicast_storm', ?, ?, ?, 1, ?)
+                        """, (device_id, sev, if_name, details, now_iso))
+                else:
+                    c.execute("""
+                        UPDATE network_anomalies 
+                        SET is_active = 0, resolved_at = ? 
+                        WHERE device_id = ? AND anomaly_type = 'unicast_storm' AND interface_name = ? AND is_active = 1
+                    """, (now_iso, device_id, if_name))
+                    
+                # --- Flapping Detection ---
+                try:
+                    changes_hist = json.loads(prev["status_changes_history"])
+                except Exception:
+                    changes_hist = []
+                    
+                # If oper status changed
+                if oper_status != prev["oper_status"] and oper_status in ('up', 'down') and prev["oper_status"] in ('up', 'down'):
+                    changes_hist.append(now_iso)
+                    
+                # Filter changes older than 5 minutes
+                cutoff = now - timedelta(seconds=PORT_FLAP_WINDOW_SECONDS)
+                valid_changes = []
+                for t_str in changes_hist:
+                    try:
+                        t = datetime.fromisoformat(t_str)
+                        if t > cutoff:
+                            valid_changes.append(t_str)
+                    except Exception:
+                        pass
+                changes_hist = valid_changes
+                
+                changes_count = len(changes_hist)
+                if changes_count >= PORT_FLAP_WARNING_COUNT:
+                    sev = 'critical' if changes_count >= PORT_FLAP_CRITICAL_COUNT else 'warning'
+                    details = f"Port Flapping terdeteksi pada interface {if_name}: status berubah {changes_count} kali dalam 5 menit terakhir."
+                    
+                    c.execute("""
+                        SELECT id, severity FROM network_anomalies 
+                        WHERE device_id = ? AND anomaly_type = 'port_flapping' AND interface_name = ? AND is_active = 1
+                    """, (device_id, if_name))
+                    act = c.fetchone()
+                    if act:
+                        if act["severity"] != sev:
+                            c.execute("UPDATE network_anomalies SET severity = ?, details = ? WHERE id = ?", (sev, details, act["id"]))
+                    else:
+                        c.execute("""
+                            INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
+                            VALUES (?, 'port_flapping', ?, ?, ?, 1, ?)
+                        """, (device_id, sev, if_name, details, now_iso))
+                else:
+                    # Resolve port flapping
+                    c.execute("""
+                        UPDATE network_anomalies 
+                        SET is_active = 0, resolved_at = ? 
+                        WHERE device_id = ? AND anomaly_type = 'port_flapping' AND interface_name = ? AND is_active = 1
+                    """, (now_iso, device_id, if_name))
+            
+            # Save current stats to DB (using upsert/replace)
+            c.execute("""
+                INSERT OR REPLACE INTO interface_stats_latest (
+                    device_id, interface_name, in_broadcast, out_broadcast,
+                    in_multicast, out_multicast, in_unicast, out_unicast,
+                    oper_status, stp_top_changes, status_changes_history, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                device_id, if_name, ib, ob, im, om, iu, ou,
+                oper_status, current_stp_tc, json.dumps(changes_hist), now_iso
+            ))
+        conn.commit()
+    except Exception as e:
+        logger.error(f"Database error in anomaly scanning for {device['name']}: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
+        try:
+            from app.services.health_monitor import monitor
+            monitor.record_scan_completed()
+        except Exception:
+            pass
 
 def auto_resolve_transient_anomalies(conn):
     """Automatically resolves transient anomalies (like stp_tcn) after a timeout."""
@@ -459,40 +473,64 @@ async def run_anomaly_detection():
     """Runs a single round of scanning for all devices."""
     conn = get_db_conn()
     c = conn.cursor()
-    
-    c.execute("SELECT id, name, ip, snmp_version, snmp_community FROM devices")
-    devices = [dict(r) for r in c.fetchall()]
-    
+    try:
+        # Avoid scanning devices that are offline
+        c.execute("SELECT id, name, ip, snmp_version, snmp_community FROM devices WHERE status != 'offline'")
+        devices = [dict(r) for r in c.fetchall()]
+    except Exception as e:
+        logger.error(f"Error querying devices for anomaly detection: {e}")
+        return
+    finally:
+        conn.close()
+        
     snmp_devices = [d for d in devices if d["snmp_community"]]
     
-    # Run scanning for all SNMP-enabled devices in parallel
-    tasks = []
-    for d in snmp_devices:
-        tasks.append(scan_device_anomalies(d, conn))
+    # Use a Semaphore to limit parallel SNMP requests to at most 3 devices at a time
+    sem = asyncio.Semaphore(3)
+    
+    async def sem_scan(device):
+        async with sem:
+            try:
+                await scan_device_anomalies(device)
+            except Exception as e:
+                logger.error(f"Exception during scanning anomalies for {device['name']}: {e}")
+                
+    tasks = [sem_scan(d) for d in snmp_devices]
+    
+    if not tasks:
+        logger.debug("No active SNMP-enabled devices to scan for anomalies.")
+        return
         
     try:
         await asyncio.gather(*tasks)
-        # Apply auto-resolves
-        auto_resolve_transient_anomalies(conn)
-        conn.commit()
+        
+        # Apply auto-resolves with a dedicated transaction/connection
+        conn_resolve = get_db_conn()
+        try:
+            auto_resolve_transient_anomalies(conn_resolve)
+            conn_resolve.commit()
+        except Exception as ex:
+            logger.error(f"Error auto-resolving anomalies: {ex}")
+            conn_resolve.rollback()
+        finally:
+            conn_resolve.close()
     except Exception as e:
         logger.error(f"Error in anomaly detection scan iteration: {e}")
-        conn.rollback()
-    finally:
-        conn.close()
 
 async def start_anomaly_detection_scheduler():
-    """Background loop that ticks every 60 seconds to scan for anomalies."""
+    """Background loop that ticks every 300 seconds to scan for anomalies."""
     logger.info("Initializing Network Anomaly Detection Scheduler...")
     
-    # Immediate scan on startup
+    # Delay the initial scan by 30 seconds to allow the web server to start up smoothly
+    await asyncio.sleep(30)
+    logger.info("Running initial network anomaly detection scan...")
     try:
         await run_anomaly_detection()
     except Exception as e:
         logger.error(f"Initial anomaly detection run failed: {e}")
         
     while True:
-        await asyncio.sleep(60)
+        await asyncio.sleep(300)  # Scan every 5 minutes (300 seconds) instead of 60 seconds
         try:
             await run_anomaly_detection()
         except Exception as e:

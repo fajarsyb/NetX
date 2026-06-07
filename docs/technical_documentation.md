@@ -212,3 +212,93 @@ Jika di masa mendatang terjadi perubahan versi firmware Allied Telesis yang meng
    Jalankan script test parser lokal yang ada di folder scratch untuk mencocokkan output mentah dengan regex yang ada di `mac_parser.py`, `arp_parser.py`, dan `lldp_parser.py`.
 3. **Modifikasi Pola Regex**:
    Sesuaikan pola ekspresi reguler pada modul parser terkait jika terdapat penambahan spasi atau pergantian kata kunci kolom oleh vendor.
+
+---
+
+## 6. Layer 2 Monitoring (STP & VLAN) via SNMP
+
+### A. Backend — SNMP L2 Status Endpoint (`/api/snmp/l2-status/{device_id}`)
+
+Endpoint ini mengambil informasi Layer 2 perangkat secara real-time melalui SNMP, meliputi:
+
+1. **STP Global Parameters**: Menggunakan `SNMP GET` pada OID `dot1dStp` (`.1.3.6.1.2.1.17.2`):
+   - Protocol Spec (`.2.1.0`), Priority (`.2.2.0`), Root Bridge (`.2.5.0`), Root Cost (`.2.6.0`), Root Port (`.2.7.0`), Time Since Change (`.2.3.0`), Topology Changes (`.2.4.0`).
+   - Root Bridge ID (8 oktet biner) diformat menjadi `priority / MAC`.
+
+2. **STP Port States**: Menggunakan `SNMP WALK` pada:
+   - `dot1dBasePortIfIndex` (`.1.3.6.1.2.1.17.1.4.1.2`) — pemetaan bridge port ke ifIndex.
+   - `dot1dStpPortState` (`.1.3.6.1.2.1.17.2.15.1.3`) — status STP per port (disabled/blocking/listening/learning/forwarding/broken).
+   - `dot1dStpPortPathCost` (`.1.3.6.1.2.1.17.2.15.1.5`) — path cost per port.
+   - Port resolusi: bridge_port → ifIndex → ifName/ifDescr (nama fisik).
+
+3. **VLAN Database**: Menggunakan `SNMP WALK` pada:
+   - `dot1qVlanStaticName` (`.1.3.6.1.2.1.17.7.1.4.3.1.2`) — nama VLAN yang dikonfigurasi.
+
+Semua query SNMP dijalankan secara paralel menggunakan `asyncio.gather()`.
+
+### B. Frontend — Tab Layer 2 di DeviceDetail
+
+Tab baru `⛓️ Layer 2 (STP/VLAN)` ditambahkan ke halaman detail perangkat, menampilkan:
+- **STP Global Stat Cards**: Protocol, Priority, Root Bridge, Root Cost, Root Port, dan jumlah Topology Changes.
+- **Tabel STP Port States**: Bridge Port, Interface Name, State (dengan badge warna: hijau=forwarding, merah=blocking, kuning=learning), dan Path Cost.
+- **Tabel VLANs**: VLAN ID dan nama VLAN.
+
+---
+
+## 7. Penyempurnaan Syslog Viewer
+
+### A. Backend — Senders Endpoint & Sender IP Tracking
+
+1. **Kolom `sender_ip`**: Ditambahkan ke tabel `device_syslogs` untuk menyimpan IP pengirim asli dari paket UDP.
+2. **Endpoint `/api/syslog/senders`**: Mengembalikan daftar perangkat yang pernah mengirim syslog, termasuk:
+   - Device ID, nama, IP, jumlah log, dan waktu terakhir menerima log.
+   - Mendukung pengelompokan perangkat yang belum terdaftar (`device_id IS NULL`).
+3. **Filter `unregistered`**: Parameter `device_id` pada endpoint GET syslog sekarang menerima string `"unregistered"` untuk memfilter log dari perangkat yang tidak terdaftar.
+4. **Pencarian diperluas**: Field `sender_ip` kini termasuk dalam pencarian full-text syslog.
+
+### B. Syslog Server — Async Processing
+
+Pemrosesan datagram syslog di-refaktor untuk menggunakan pola async:
+- `datagram_received()` membuat `asyncio.create_task()` agar tidak memblokir event loop UDP.
+- Operasi database dan anomaly analysis dijalankan melalui `loop.run_in_executor()`.
+
+### C. Frontend — Tab Perangkat Terhubung
+
+Tab baru `🔌 Perangkat Terhubung` ditambahkan ke SyslogViewer, menampilkan:
+- Tabel daftar perangkat pengirim syslog (terdaftar vs. tidak terdaftar).
+- Jumlah log dan waktu aktivitas terakhir per perangkat.
+- Tombol "Lihat Log" yang otomatis memfilter tab Log Stream ke perangkat tersebut.
+- Auto-refresh per tab (5 detik) mengikuti tab yang aktif.
+
+---
+
+## 8. Arsitektur Worker Process
+
+Sistem NetX kini mendukung mode operasi terpisah:
+
+- **Mode `unified`** (default): API dan background jobs berjalan dalam satu proses.
+- **Mode `api`**: API-only, background jobs dinonaktifkan. Diatur via environment variable `NETX_MODE=api`.
+- **Worker process** (`worker.py`): Menjalankan semua background jobs secara terpisah:
+  - Device Backup Scheduler
+  - Network History Tracker
+  - Anomaly Detection Scheduler
+  - Syslog UDP Server
+
+`run.bat` dan `run_production.bat` diupdate untuk menjalankan worker di jendela terpisah dan API dalam mode `api`, menghindari duplikasi background tasks.
+
+---
+
+## 9. Refaktor Anomaly Detection Engine
+
+Modul `anomaly_detector.py` di-refaktor secara menyeluruh:
+
+1. **Helper SNMP Terdedikasi**: Fungsi `walk_oid()` dan `get_scalar_oid()` terpisah dengan error handling dan logging.
+2. **Deteksi Storm**: Broadcast, Multicast, dan Unicast storm terdeteksi berdasarkan rate (pps) dengan threshold WARNING dan CRITICAL yang dikonfigurasi.
+3. **Port Flapping via SNMP**: Perubahan status operasional interface dilacak dengan sliding window 5 menit.
+4. **STP TCN via SNMP**: Perubahan counter `dot1dStpTopChanges` antar polling cycle memicu anomali.
+5. **MAC Flapping**: Perpindahan MAC address antar perangkat/interface dalam waktu < 15 menit terdeteksi.
+6. **Auto-Resolve**: Anomali transien (STP TCN, MAC Flapping) otomatis di-resolve setelah timeout.
+7. **Concurrency Control**: Semaphore membatasi polling SNMP menjadi maksimal 3 perangkat paralel.
+8. **Tabel Database Baru**:
+   - `interface_stats_latest`: Menyimpan counter SNMP terakhir per interface untuk kalkulasi delta.
+   - `mac_history_tracking`: Melacak lokasi terakhir setiap MAC address untuk deteksi perpindahan.

@@ -14,6 +14,9 @@ export default function SyslogViewer() {
   const [loading, setLoading] = useState(true)
   const [clearing, setClearing] = useState(false)
   const [showClearConfirm, setShowClearConfirm] = useState(false)
+  const [activeTab, setActiveTab] = useState('logs')
+  const [senders, setSenders] = useState([])
+  const [sendersLoading, setSendersLoading] = useState(false)
 
   // Filters & Pagination
   const [page, setPage] = useState(1)
@@ -80,8 +83,21 @@ export default function SyslogViewer() {
     }
   }
 
+  const fetchSenders = async (showSilently = false) => {
+    if (!showSilently) setSendersLoading(true)
+    try {
+      const res = await syslogApi.getSenders()
+      setSenders(res.data)
+    } catch (_) {
+      toast.error('Gagal mengambil daftar perangkat terhubung.')
+    } finally {
+      if (!showSilently) setSendersLoading(false)
+    }
+  }
+
   useEffect(() => {
     fetchDevices()
+    fetchSenders(true)
   }, [])
 
   // Refetch when page or filters change
@@ -98,7 +114,11 @@ export default function SyslogViewer() {
   useEffect(() => {
     if (autoRefresh) {
       autoRefreshTimerRef.current = setInterval(() => {
-        fetchLogs(true)
+        if (activeTab === 'logs') {
+          fetchLogs(true)
+        } else if (activeTab === 'senders') {
+          fetchSenders(true)
+        }
       }, 5000)
     } else {
       if (autoRefreshTimerRef.current) {
@@ -110,11 +130,27 @@ export default function SyslogViewer() {
         clearInterval(autoRefreshTimerRef.current)
       }
     }
-  }, [autoRefresh, page, filterDevice, filterSeverity, searchQuery])
+  }, [autoRefresh, activeTab, page, filterDevice, filterSeverity, searchQuery])
 
   const handleManualRefresh = () => {
-    fetchLogs()
-    toast.success('Log syslog berhasil disegarkan.')
+    if (activeTab === 'logs') {
+      fetchLogs()
+      toast.success('Log syslog berhasil disegarkan.')
+    } else {
+      fetchSenders()
+      toast.success('Daftar perangkat pengirim berhasil disegarkan.')
+    }
+  }
+
+  const handleViewSenderLogs = (sender) => {
+    if (sender.device_id) {
+      setFilterDevice(sender.device_id.toString())
+      setSearchQuery('')
+    } else {
+      setFilterDevice('unregistered')
+      setSearchQuery(sender.raw_sender_ip || sender.device_ip)
+    }
+    setActiveTab('logs')
   }
 
   const handleClearLogs = async () => {
@@ -271,161 +307,286 @@ export default function SyslogViewer() {
         </div>
       </div>
 
-      {/* Filters Bar */}
-      <div className="card mb-16" style={{ padding: '16px' }}>
-        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
-          
-          {/* Search Box */}
-          <div className="search-box" style={{ maxWidth: '300px', flex: 1 }}>
-            <Search className="search-icon" size={14} />
-            <input 
-              placeholder="Cari pesan log, program, atau IP..." 
-              value={searchQuery} 
-              onChange={e => setSearchQuery(e.target.value)} 
-              style={{ fontSize: '12.5px' }}
-            />
-          </div>
-
-          {/* Device Filter */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '160px' }}>
-            <select 
-              className="select-input"
-              value={filterDevice}
-              onChange={e => setFilterDevice(e.target.value)}
-              style={{ background: 'var(--bg-input)' }}
-            >
-              <option value="">Semua Perangkat</option>
-              {devices.map(d => (
-                <option key={d.id} value={d.id}>{d.name} ({d.ip})</option>
-              ))}
-              <option value="unregistered">Perangkat Tak Terdaftar</option>
-            </select>
-          </div>
-
-          {/* Severity Filter */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '160px' }}>
-            <select 
-              className="select-input"
-              value={filterSeverity}
-              onChange={e => setFilterSeverity(e.target.value)}
-              style={{ background: 'var(--bg-input)' }}
-            >
-              <option value="">Semua Tingkat Keparahan</option>
-              {SEVERITY_LEVELS.map(l => (
-                <option key={l.value} value={l.value}>{l.label}</option>
-              ))}
-            </select>
-          </div>
-        </div>
+      {/* Tabs Navigation */}
+      <div className="flex-center mb-16" style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border)', paddingBottom: '0px', justifyContent: 'flex-start' }}>
+        <button
+          type="button"
+          onClick={() => setActiveTab('logs')}
+          className={`btn ${activeTab === 'logs' ? 'btn-primary' : 'btn-ghost'}`}
+          style={{ 
+            borderBottomLeftRadius: 0, 
+            borderBottomRightRadius: 0, 
+            borderBottom: activeTab === 'logs' ? '2px solid var(--primary)' : 'none', 
+            fontWeight: 600,
+            padding: '10px 16px',
+            fontSize: '13.5px'
+          }}
+        >
+          📄 Log Stream
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setActiveTab('senders')
+            fetchSenders()
+          }}
+          className={`btn ${activeTab === 'senders' ? 'btn-primary' : 'btn-ghost'}`}
+          style={{ 
+            borderBottomLeftRadius: 0, 
+            borderBottomRightRadius: 0, 
+            borderBottom: activeTab === 'senders' ? '2px solid var(--primary)' : 'none', 
+            fontWeight: 600,
+            padding: '10px 16px',
+            fontSize: '13.5px'
+          }}
+        >
+          🔌 Perangkat Terhubung ({senders.length})
+        </button>
       </div>
 
-      {/* Log list */}
-      <div className="card">
-        {loading && logs.length === 0 ? (
-          <div className="loading-overlay" style={{ minHeight: '300px' }}>
-            <div className="loading-spinner" />
-            Memuat pesan syslog...
-          </div>
-        ) : logs.length === 0 ? (
-          <div className="empty-state" style={{ minHeight: '300px' }}>
-            <FileText size={36} className="text-muted" style={{ marginBottom: '12px' }} />
-            <div className="empty-title">Tidak ada syslog diterima</div>
-            <div className="empty-desc">
-              Pastikan perangkat switch/router Anda telah dikonfigurasi untuk mengirim syslog ke IP server NetX (port UDP 514).
+      {activeTab === 'logs' ? (
+        <>
+          {/* Filters Bar */}
+          <div className="card mb-16" style={{ padding: '16px' }}>
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+              
+              {/* Search Box */}
+              <div className="search-box" style={{ maxWidth: '300px', flex: 1 }}>
+                <Search className="search-icon" size={14} />
+                <input 
+                  placeholder="Cari pesan log, program, atau IP..." 
+                  value={searchQuery} 
+                  onChange={e => setSearchQuery(e.target.value)} 
+                  style={{ fontSize: '12.5px' }}
+                />
+              </div>
+
+              {/* Device Filter */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '160px' }}>
+                <select 
+                  className="select-input"
+                  value={filterDevice}
+                  onChange={e => setFilterDevice(e.target.value)}
+                  style={{ background: 'var(--bg-input)' }}
+                >
+                  <option value="">Semua Perangkat</option>
+                  {devices.map(d => (
+                    <option key={d.id} value={d.id}>{d.name} ({d.ip})</option>
+                  ))}
+                  <option value="unregistered">Perangkat Tak Terdaftar</option>
+                </select>
+              </div>
+
+              {/* Severity Filter */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '160px' }}>
+                <select 
+                  className="select-input"
+                  value={filterSeverity}
+                  onChange={e => setFilterSeverity(e.target.value)}
+                  style={{ background: 'var(--bg-input)' }}
+                >
+                  <option value="">Semua Tingkat Keparahan</option>
+                  {SEVERITY_LEVELS.map(l => (
+                    <option key={l.value} value={l.value}>{l.label}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
-        ) : (
-          <>
+
+          {/* Log list */}
+          <div className="card">
+            {loading && logs.length === 0 ? (
+              <div className="loading-overlay" style={{ minHeight: '300px' }}>
+                <div className="loading-spinner" />
+                Memuat pesan syslog...
+              </div>
+            ) : logs.length === 0 ? (
+              <div className="empty-state" style={{ minHeight: '300px' }}>
+                <FileText size={36} className="text-muted" style={{ marginBottom: '12px' }} />
+                <div className="empty-title">Tidak ada syslog diterima</div>
+                <div className="empty-desc">
+                  Pastikan perangkat switch/router Anda telah dikonfigurasi untuk mengirim syslog ke IP server NetX (port UDP 514).
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="table-wrapper" style={{ overflowX: 'auto' }}>
+                  <table style={{ minWidth: '1000px', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr>
+                        <th style={{ width: '160px' }}>Waktu Server</th>
+                        <th style={{ width: '150px' }}>Perangkat Pengirim</th>
+                        <th style={{ width: '130px' }}>Severity</th>
+                        <th style={{ width: '100px' }}>Program</th>
+                        <th>Pesan Log</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {logs.map(l => {
+                        const style = getSeverityStyle(l.severity)
+                        
+                        return (
+                          <tr 
+                            key={l.id} 
+                            style={{ 
+                              background: style.bg,
+                              transition: 'all 0.1s'
+                            }}
+                          >
+                            <td className="mono" style={{ fontSize: '11px', verticalAlign: 'top', padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
+                              {formatTime(l.timestamp)}
+                            </td>
+                            <td style={{ fontWeight: 600, verticalAlign: 'top', padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
+                              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                <span>{l.device_name || 'Tidak Terdaftar'}</span>
+                                <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 'normal' }}>{l.device_ip}</span>
+                              </div>
+                            </td>
+                            <td style={{ verticalAlign: 'top', padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
+                              <span 
+                                className="badge" 
+                                style={{ 
+                                  background: 'rgba(255,255,255,0.03)', 
+                                  color: style.color, 
+                                  borderColor: 'rgba(255,255,255,0.08)',
+                                  fontSize: '10.5px',
+                                  fontWeight: 700
+                                }}
+                              >
+                                <span className="severity-indicator" style={{ background: style.color }} />
+                                {SEVERITY_LEVELS[l.severity]?.label.split(' - ')[1] || `Level ${l.severity}`}
+                              </span>
+                            </td>
+                            <td className="mono" style={{ verticalAlign: 'top', padding: '8px 12px', borderBottom: '1px solid var(--border)', fontWeight: 600, color: 'var(--primary-bright)' }}>
+                              {l.program || 'syslog'}
+                            </td>
+                            <td className="log-row-mono" style={{ verticalAlign: 'top', padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
+                              {l.message}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Pagination Controls */}
+                <div className="flex-between mt-16" style={{ padding: '12px 16px', borderTop: '1px solid var(--border)' }}>
+                  <div className="text-muted" style={{ fontSize: '12.5px' }}>
+                    Menampilkan {logs.length === 0 ? 0 : (page - 1) * limit + 1} - {Math.min(page * limit, total)} dari {total} log
+                  </div>
+                  <div className="flex-center gap-12">
+                    <button 
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => setPage(p => Math.max(p - 1, 1))}
+                      disabled={page === 1 || loading}
+                    >
+                      <ChevronLeft size={14} style={{ marginRight: '4px' }} /> Sebelum
+                    </button>
+                    <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                      Halaman {page} dari {totalPages}
+                    </span>
+                    <button 
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => setPage(p => Math.min(p + 1, totalPages))}
+                      disabled={page === totalPages || loading}
+                    >
+                      Berikut <ChevronRight size={14} style={{ marginLeft: '4px' }} />
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </>
+      ) : (
+        /* Senders List Tab */
+        <div className="card">
+          {sendersLoading && senders.length === 0 ? (
+            <div className="loading-overlay" style={{ minHeight: '300px' }}>
+              <div className="loading-spinner" />
+              Memuat daftar perangkat terhubung...
+            </div>
+          ) : senders.length === 0 ? (
+            <div className="empty-state" style={{ minHeight: '300px' }}>
+              <FileText size={36} className="text-muted" style={{ marginBottom: '12px' }} />
+              <div className="empty-title">Tidak ada perangkat mengirim log</div>
+              <div className="empty-desc">
+                Belum ada aktivitas syslog yang terekam dari perangkat mana pun di jaringan Anda.
+              </div>
+            </div>
+          ) : (
             <div className="table-wrapper" style={{ overflowX: 'auto' }}>
-              <table style={{ minWidth: '1000px', borderCollapse: 'collapse' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr>
-                    <th style={{ width: '160px' }}>Waktu Server</th>
-                    <th style={{ width: '150px' }}>Perangkat Pengirim</th>
-                    <th style={{ width: '130px' }}>Severity</th>
-                    <th style={{ width: '100px' }}>Program</th>
-                    <th>Pesan Log</th>
+                    <th style={{ width: '150px' }}>Status</th>
+                    <th>Nama Perangkat</th>
+                    <th>IP Pengirim</th>
+                    <th>Jumlah Log</th>
+                    <th>Aktivitas Terakhir</th>
+                    <th style={{ width: '150px', textAlign: 'center' }}>Aksi</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {logs.map(l => {
-                    const style = getSeverityStyle(l.severity)
-                    const devName = l.device_name || l.device_ip || 'Tidak Terdaftar'
-                    const devIp = l.device_ip ? `(${l.device_ip})` : ''
-                    
+                  {senders.map((s, idx) => {
+                    const isRegistered = s.device_id !== null;
                     return (
-                      <tr 
-                        key={l.id} 
-                        style={{ 
-                          background: style.bg,
-                          transition: 'all 0.1s'
-                        }}
-                      >
-                        <td className="mono" style={{ fontSize: '11px', verticalAlign: 'top', padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
-                          {formatTime(l.timestamp)}
-                        </td>
-                        <td style={{ fontWeight: 600, verticalAlign: 'top', padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
-                          <div style={{ display: 'flex', flexDirection: 'column' }}>
-                            <span>{l.device_name || 'Tidak Terdaftar'}</span>
-                            <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 'normal' }}>{l.device_ip}</span>
-                          </div>
-                        </td>
-                        <td style={{ verticalAlign: 'top', padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
+                      <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '12px' }}>
                           <span 
-                            className="badge" 
+                            className={`badge badge-${isRegistered ? 'success' : 'warning'}`}
                             style={{ 
-                              background: 'rgba(255,255,255,0.03)', 
-                              color: style.color, 
-                              borderColor: 'rgba(255,255,255,0.08)',
-                              fontSize: '10.5px',
-                              fontWeight: 700
+                              padding: '2px 8px', 
+                              fontSize: '11px', 
+                              fontWeight: 700,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px'
                             }}
                           >
-                            <span className="severity-indicator" style={{ background: style.color }} />
-                            {SEVERITY_LEVELS[l.severity]?.label.split(' - ')[1] || `Level ${l.severity}`}
+                            <span 
+                              className="status-dot" 
+                              style={{ 
+                                background: isRegistered ? 'var(--success)' : 'var(--warning)',
+                                width: '6px', height: '6px'
+                              }} 
+                            />
+                            {isRegistered ? 'Terdaftar' : 'Tidak Terdaftar'}
                           </span>
                         </td>
-                        <td className="mono" style={{ verticalAlign: 'top', padding: '8px 12px', borderBottom: '1px solid var(--border)', fontWeight: 600, color: 'var(--primary-bright)' }}>
-                          {l.program || 'syslog'}
+                        <td style={{ fontWeight: 600, padding: '12px', color: 'var(--text-primary)' }}>
+                          {s.device_name}
                         </td>
-                        <td className="log-row-mono" style={{ verticalAlign: 'top', padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
-                          {l.message}
+                        <td className="mono" style={{ padding: '12px', color: 'var(--text-secondary)' }}>
+                          {s.device_ip}
+                        </td>
+                        <td style={{ fontWeight: 700, padding: '12px', color: 'var(--primary-bright)' }}>
+                          {s.log_count} log
+                        </td>
+                        <td style={{ padding: '12px', fontSize: '12.5px', color: 'var(--text-muted)' }}>
+                          {formatTime(s.last_seen)}
+                        </td>
+                        <td style={{ padding: '12px', textAlign: 'center' }}>
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-sm"
+                            onClick={() => handleViewSenderLogs(s)}
+                            style={{ padding: '4px 8px', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}
+                          >
+                            <Search size={12} /> Lihat Log
+                          </button>
                         </td>
                       </tr>
-                    )
+                    );
                   })}
                 </tbody>
               </table>
             </div>
-
-            {/* Pagination Controls */}
-            <div className="flex-between mt-16" style={{ padding: '12px 16px', borderTop: '1px solid var(--border)' }}>
-              <div className="text-muted" style={{ fontSize: '12.5px' }}>
-                Menampilkan {logs.length === 0 ? 0 : (page - 1) * limit + 1} - {Math.min(page * limit, total)} dari {total} log
-              </div>
-              <div className="flex-center gap-12">
-                <button 
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => setPage(p => Math.max(p - 1, 1))}
-                  disabled={page === 1 || loading}
-                >
-                  <ChevronLeft size={14} style={{ marginRight: '4px' }} /> Sebelum
-                </button>
-                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                  Halaman {page} dari {totalPages}
-                </span>
-                <button 
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => setPage(p => Math.min(p + 1, totalPages))}
-                  disabled={page === totalPages || loading}
-                >
-                  Berikut <ChevronRight size={14} style={{ marginLeft: '4px' }} />
-                </button>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
+          )}
+        </div>
+      )}
 
       {/* Clear Logs Confirmation Modal */}
       {showClearConfirm && (

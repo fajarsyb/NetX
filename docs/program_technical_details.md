@@ -24,8 +24,8 @@ graph LR
         H[Backup Scheduler]
     end
 
-    subgraph Database [SQLite Storage]
-        I[(netx.db)]
+    subgraph Database [Database Storage (SQLite / PostgreSQL)]
+        I[(netx.db / External Postgres)]
         J[secret.key - Fernet Key]
     end
 
@@ -46,9 +46,12 @@ graph LR
 
 ---
 
-## 2. Skema & Model Basis Data (SQLite)
+## 2. Skema & Model Basis Data (SQLite / PostgreSQL)
 
-NetX menggunakan SQLite yang dioptimalkan dengan mode **Write-Ahead Logging (WAL)** (`PRAGMA journal_mode=WAL;`) serta penegakan integritas kunci asing (`PRAGMA foreign_keys=ON;`).
+NetX mendukung arsitektur basis data ganda (**Multi-Engine Database**) yang dapat dikonfigurasi melalui berkas `.env` dengan opsi `DB_ENGINE=sqlite` atau `DB_ENGINE=postgresql`.
+
+*   **SQLite (Lokal)**: Konfigurasi bawaan untuk kemudahan deployment tanpa setup eksternal. Dioptimalkan dengan mode **Write-Ahead Logging (WAL)** (`PRAGMA journal_mode=WAL;`) serta penegakan integritas kunci asing (`PRAGMA foreign_keys=ON;`).
+*   **PostgreSQL (Eksternal)**: Opsi performa tinggi terdistribusi yang direkomendasikan untuk instalasi produksi dengan konkurensi penulisan tinggi (seperti syslog server). Menggunakan pooling koneksi thread-safe (`ThreadedConnectionPool`).
 
 Berikut adalah relasi utama tabel-tabel di dalam `netx.db`:
 
@@ -197,3 +200,37 @@ Komponen ini bertanggung jawab untuk merender visual panel port fisik switch.
   - **Ungu**: Port terdeteksi memiliki tetangga LLDP/CDP (Uplink utama switch-to-switch).
   - **Hijau**: Port aktif dan dihuni oleh minimal 1 host/klien.
   - **Biru**: Port aktif (`up`) namun belum mempelajari MAC address klien.
+
+---
+
+## 6. Integrasi PostgreSQL & Translasi Query Dinamis (database.py)
+
+NetX menyematkan modul **Database Driver Wrapping** di dalam [database.py](file:///c:/Code/Auto/NetX/backend/app/database.py) agar aplikasi tetap berbasis kode tunggal (Single-Codebase) namun mampu melayani dua database engine yang berbeda:
+
+*   **`PostgreSQLConnectionWrapper` & `PostgreSQLCursorWrapper`**:
+    Ketika menggunakan driver `psycopg2` untuk PostgreSQL, cursor wrapper akan mencegat (*intercept*) pemanggilan query SQL secara transparan sebelum dikirim ke database:
+    1.  **Konversi Parameter**: Mengubah otomatis placeholder penanda parameter SQLite (`?`) menjadi format PostgreSQL (`%s`).
+    2.  **Modifikasi Kueri**: Menghapus opsi collation khusus SQLite (`COLLATE NOCASE`), mengubah operator `LIKE` menjadi `ILIKE` demi pencarian case-insensitive, serta mendeteksi query `INSERT OR REPLACE INTO interface_stats_latest` lalu menulis ulang ke klausul PostgreSQL native `ON CONFLICT (...) DO UPDATE SET...` (UPSERT).
+    3.  **Simulasi `lastrowid`**: Menjalankan query internal `SELECT lastval();` pada akhir eksekusi `INSERT` untuk mensimulasikan properti `lastrowid` SQLite.
+*   **`DictLikeRow`**:
+    Subclass `dict` kustom yang menyusun hasil baris query. Class ini dirancang agar mendukung pemanggilan data mirip dictionary (`row["ip"]`) dan pemanggilan berbasis index posisi kolom (`row[0]`) secara bersamaan. Hal ini memelihara kompatibilitas penuh dengan kode logic bawaan NetX.
+
+---
+
+## 7. Pipeline Diagnosa & Kesehatan Mandiri (Self-Health Monitor)
+
+Sistem **Self-Health Monitoring** berjalan secara real-time untuk menjamin operator tidak terganggu oleh degradasi performa server:
+
+*   **Pengumpul Diagnosa ([health_monitor.py](file:///c:/Code/Auto/NetX/backend/app/services/health_monitor.py))**:
+    Sebuah *singleton service* di backend yang memantau metrik berikut:
+    -   **DB Query Latency**: Diukur langsung di dalam decorator wrapper `SQLiteCursorWrapper` dan `PostgreSQLCursorWrapper` dengan menghitung selisih durasi `perf_counter()` sebelum dan sesudah eksekusi query.
+    -   **Event Loop Lag**: Sebuah tugas asinkron (`start_event_loop_monitor`) di event loop utama yang tidur setiap 2 detik dan mengukur selisih waktu bangun riil (sleep drift).
+    -   **Throughput Scan**: Analyzer mencatat scan yang selesai (`record_scan_completed`) untuk menghitung rata-rata laju scan per menit.
+    -   **Disk Usage**: Menggunakan modul python `shutil` untuk memantau kapasitas penyimpanan media disk dan ukuran file database SQLite.
+*   **Peta Alur Data Diagnosa**:
+    ```text
+    [Cursor Wrapper Latency] ──┐
+    [Loop Monitor Sleep]      ──┼─► [health_monitor.py] ─► [health.py API] ─► [SystemHealth.jsx UI]
+    [Scanner Completes]       ──┤
+    [shutil.disk_usage()]     ──┘
+    ```

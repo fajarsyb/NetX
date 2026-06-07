@@ -34,6 +34,7 @@ const TABS = [
   { id: 'cdp',     label: '🤝 CDP' },
   { id: 'routing', label: '🛣️ Routing' },
   { id: 'mac',     label: '📋 MAC Table' },
+  { id: 'l2',      label: '⛓️ Layer 2 (STP/VLAN)' },
   { id: 'snmp',    label: '⚡ SNMP' },
 ]
 
@@ -88,6 +89,10 @@ export default function DeviceDetail() {
   const [portMap,       setPortMap]       = useState([])
   const [portMapLoading,setPortMapLoading]= useState(false)
 
+  // Layer 2 state
+  const [l2Data,        setL2Data]        = useState(null)
+  const [l2Loading,     setL2Loading]     = useState(false)
+
   // Load device info
   useEffect(() => {
     devicesApi.get(id).then(r => setDevice(r.data)).catch(() => navigate('/'))
@@ -129,6 +134,8 @@ export default function DeviceDetail() {
   useEffect(() => {
     if (tab === 'snmp') {
       handleFetchInterfaces()
+    } else if (tab === 'l2') {
+      handleFetchL2Status()
     }
   }, [tab])
 
@@ -227,6 +234,18 @@ export default function DeviceDetail() {
       // Silently fail on auto-load
     } finally {
       setIfLoading(false)
+    }
+  }
+
+  const handleFetchL2Status = async () => {
+    setL2Loading(true)
+    try {
+      const res = await snmpApi.getL2Status(id)
+      setL2Data(res.data)
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Gagal memuat status Layer 2.')
+    } finally {
+      setL2Loading(false)
     }
   }
 
@@ -480,6 +499,7 @@ export default function DeviceDetail() {
                t.id === 'routing' ? routingStats.total :
                t.id === 'mac' ? macEntries.length :
                t.id === 'snmp' ? interfaces.length :
+               t.id === 'l2' ? (l2Data?.stp_ports?.length || 0) :
                '0'}
             </span>
           </button>
@@ -849,6 +869,200 @@ export default function DeviceDetail() {
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── LAYER 2 TAB ──────────────────────────────────────────────────── */}
+      {tab === 'l2' && (
+        <div className="animate-slide">
+          {/* Header Controls */}
+          <div className="flex-between mb-16" style={{ flexWrap: 'wrap', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <h3 style={{ margin: 0, fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                ⛓️ Layer 2 Spanning Tree & VLANs
+              </h3>
+              {l2Data && (
+                <span className={`badge badge-${l2Data.stp_enabled ? 'online' : 'offline'}`} style={{ textTransform: 'uppercase' }}>
+                  {l2Data.stp_enabled ? 'STP Enabled' : 'STP Disabled'}
+                </span>
+              )}
+            </div>
+            <button className="btn btn-ghost btn-sm" onClick={handleFetchL2Status} disabled={l2Loading}>
+              <RefreshCw size={14} style={{ width: 14, height: 14, animation: l2Loading ? 'spin 1s linear infinite' : 'none' }} />
+              {l2Loading ? 'Memuat...' : 'Refresh L2 Status'}
+            </button>
+          </div>
+
+          {l2Loading && !l2Data ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '64px', gap: '16px' }}>
+              <div className="loading-spinner" style={{ width: 32, height: 32 }} />
+              <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Membaca status Layer 2 via SNMP...</span>
+            </div>
+          ) : !l2Data ? (
+            <div className="card" style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+              Gagal memuat atau tidak ada data Layer 2. Pastikan SNMP terkonfigurasi dengan benar untuk perangkat ini.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+              
+              {/* STP Global Stats Grid */}
+              {l2Data.stp_enabled && l2Data.stp_global && Object.keys(l2Data.stp_global).length > 0 && (
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                    Spanning Tree Global Parameters
+                  </div>
+                  <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+                    <StatCard 
+                      label="STP Protocol" 
+                      value={l2Data.stp_global.protocol} 
+                      color="blue" 
+                      icon="⚙️" 
+                    />
+                    <StatCard 
+                      label="Bridge Priority" 
+                      value={l2Data.stp_global.priority} 
+                      color="cyan" 
+                      icon="👑" 
+                    />
+                    <StatCard 
+                      label="Root Bridge (Priority/MAC)" 
+                      value={l2Data.stp_global.root_bridge} 
+                      color="purple" 
+                      icon="🌴" 
+                    />
+                    <StatCard 
+                      label="Root Path Cost" 
+                      value={l2Data.stp_global.root_cost} 
+                      color="green" 
+                      icon="📈" 
+                    />
+                    <StatCard 
+                      label="Root Port" 
+                      value={l2Data.stp_global.root_port !== "0" ? `Port ${l2Data.stp_global.root_port}` : 'This is Root Bridge'} 
+                      color="indigo" 
+                      icon="🔌" 
+                    />
+                    <StatCard 
+                      label="Topology Changes" 
+                      value={l2Data.stp_global.top_changes} 
+                      color="red" 
+                      icon="⚠️" 
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Two columns layout: STP Ports & VLANs */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(450px, 1fr))', gap: '24px' }}>
+                
+                {/* STP Ports Card */}
+                <div className="card p-24" style={{ minWidth: 0 }}>
+                  <h3 className="font-bold text-lg mb-16 flex items-center gap-8" style={{ margin: 0, fontSize: '16px' }}>
+                    🌿 STP Port States & Costs
+                  </h3>
+                  
+                  {!l2Data.stp_ports || l2Data.stp_ports.length === 0 ? (
+                    <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                      Tidak ada informasi port STP.
+                    </div>
+                  ) : (
+                    <div className="table-wrapper" style={{ maxHeight: '450px', overflowY: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr>
+                            <th>Bridge Port</th>
+                            <th>Interface Name</th>
+                            <th>STP State</th>
+                            <th>Path Cost</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {l2Data.stp_ports.map((port, idx) => {
+                            const isBlocking = port.state === 'blocking' || port.state === 'broken';
+                            const isForwarding = port.state === 'forwarding';
+                            const stateBadgeColor = isForwarding ? 'success' : isBlocking ? 'danger' : 'warning';
+                            
+                            return (
+                              <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
+                                <td style={{ fontFamily: 'monospace', fontSize: '12px', color: 'var(--text-muted)' }}>
+                                  #{port.bridge_port}
+                                </td>
+                                <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                                  {port.interface_name}
+                                </td>
+                                <td>
+                                  <span 
+                                    className={`badge badge-${stateBadgeColor}`} 
+                                    style={{ 
+                                      padding: '2px 8px', 
+                                      fontSize: '11px', 
+                                      display: 'inline-flex', 
+                                      alignItems: 'center', 
+                                      gap: '4px'
+                                    }}
+                                  >
+                                    <span 
+                                      className="status-dot" 
+                                      style={{ 
+                                        background: isForwarding ? 'var(--success)' : isBlocking ? 'var(--danger)' : 'var(--warning)',
+                                        boxShadow: isForwarding ? '0 0 6px var(--success)' : isBlocking ? '0 0 6px var(--danger)' : 'none',
+                                        width: '6px', height: '6px'
+                                      }} 
+                                    />
+                                    {port.state}
+                                  </span>
+                                </td>
+                                <td style={{ fontFamily: 'monospace', fontSize: '12px' }}>
+                                  {port.path_cost}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* VLANs Database Card */}
+                <div className="card p-24" style={{ minWidth: 0 }}>
+                  <h3 className="font-bold text-lg mb-16 flex items-center gap-8" style={{ margin: 0, fontSize: '16px' }}>
+                    🏷️ Configured VLANs
+                  </h3>
+                  
+                  {!l2Data.vlans || l2Data.vlans.length === 0 ? (
+                    <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                      Tidak ada informasi VLAN static terdeteksi.
+                    </div>
+                  ) : (
+                    <div className="table-wrapper" style={{ maxHeight: '450px', overflowY: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr>
+                            <th style={{ width: '100px' }}>VLAN ID</th>
+                            <th>VLAN Name</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {l2Data.vlans.map((vlan, idx) => (
+                            <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
+                              <td style={{ fontWeight: 700, color: 'var(--primary)', fontFamily: 'monospace' }}>
+                                VLAN {vlan.vlan_id}
+                              </td>
+                              <td style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
+                                {vlan.name}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+              </div>
+            </div>
+          )}
         </div>
       )}
 

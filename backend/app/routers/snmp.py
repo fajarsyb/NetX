@@ -1171,3 +1171,195 @@ async def query_snmp_custom(body: SNMPQueryCustom):
         raise HTTPException(status_code=400, detail=clean_msg)
     finally:
         conn.close()
+
+
+@router.get("/l2-status/{device_id}")
+async def get_snmp_l2_status(device_id: int):
+    """
+    Retrieve Layer 2 monitoring status (STP global, STP ports, and VLAN list) via SNMP.
+    """
+    conn = get_db_conn()
+    c = conn.cursor()
+    c.execute("SELECT ip, snmp_version, snmp_community FROM devices WHERE id = ?", (device_id,))
+    row = c.fetchone()
+    conn.close()
+    
+    if not row:
+        raise HTTPException(status_code=404, detail="Device tidak ditemukan.")
+        
+    ip = row["ip"]
+    version = row["snmp_version"] or "v2c"
+    community = row["snmp_community"]
+    
+    if not community:
+        raise HTTPException(status_code=400, detail="SNMP Community belum dikonfigurasi untuk perangkat ini.")
+        
+    mp_model = 1 if version == "v2c" else 0
+    
+    # 1. Fetch STP Global stats in parallel
+    async def get_global_stp():
+        try:
+            transport = await UdpTransportTarget.create((ip, 161), timeout=2.0, retries=1)
+            errorIndication, errorStatus, errorIndex, varBinds = await get_cmd(
+                SnmpEngine(),
+                CommunityData(community, mpModel=mp_model),
+                transport,
+                ContextData(),
+                ObjectType(ObjectIdentity('1.3.6.1.2.1.17.2.1.0')), # spec
+                ObjectType(ObjectIdentity('1.3.6.1.2.1.17.2.2.0')), # priority
+                ObjectType(ObjectIdentity('1.3.6.1.2.1.17.2.5.0')), # root bridge
+                ObjectType(ObjectIdentity('1.3.6.1.2.1.17.2.6.0')), # root cost
+                ObjectType(ObjectIdentity('1.3.6.1.2.1.17.2.7.0')), # root port
+                ObjectType(ObjectIdentity('1.3.6.1.2.1.17.2.3.0')), # time since change
+                ObjectType(ObjectIdentity('1.3.6.1.2.1.17.2.4.0'))  # top changes
+            )
+            if not errorIndication and not errorStatus and varBinds:
+                vals = [v[1].prettyPrint() for v in varBinds]
+                
+                # Format Root Bridge ID nicely if binary hex
+                raw_root = varBinds[2][1]
+                root_bridge_str = vals[2]
+                if raw_root and hasattr(raw_root, 'asOctets'):
+                    octs = raw_root.asOctets()
+                    if len(octs) == 8:
+                        priority = int.from_bytes(octs[0:2], byteorder='big')
+                        mac = ":".join(f"{x:02x}" for x in octs[2:]).upper()
+                        root_bridge_str = f"{priority} / {mac}"
+                
+                return {
+                    "protocol": vals[0],
+                    "priority": vals[1],
+                    "root_bridge": root_bridge_str,
+                    "root_cost": vals[3],
+                    "root_port": vals[4],
+                    "time_since_change": vals[5],
+                    "top_changes": vals[6]
+                }
+        except Exception:
+            pass
+        return None
+
+    # Helper walk function
+    async def walk_oid(oid_str):
+        results = {}
+        try:
+            transport = await UdpTransportTarget.create((ip, 161), timeout=2.0, retries=1)
+            snmpEngine = SnmpEngine()
+            authData = CommunityData(community, mpModel=mp_model)
+            contextData = ContextData()
+            
+            start_oid_clean = oid_str.strip('.')
+            prefix_tuple = tuple(int(x) for x in start_oid_clean.split('.'))
+            varBinds = [ObjectType(ObjectIdentity(oid_str))]
+            
+            while True:
+                res = await next_cmd(snmpEngine, authData, transport, contextData, *varBinds)
+                errorIndication, errorStatus, errorIndex, varBindTable = res
+                if errorIndication or errorStatus or not varBindTable:
+                    break
+                    
+                firstVarBinds = varBindTable[0] if isinstance(varBindTable[0], list) else varBindTable
+                if not firstVarBinds:
+                    break
+                
+                current_var_bind = firstVarBinds[0]
+                current_oid_tuple = current_var_bind[0].asTuple()
+                
+                if len(current_oid_tuple) < len(prefix_tuple) or current_oid_tuple[:len(prefix_tuple)] != prefix_tuple:
+                    break
+                    
+                idx = current_oid_tuple[-1]
+                val = current_var_bind[1]
+                results[idx] = val.prettyPrint()
+                
+                varBinds = firstVarBinds
+        except Exception:
+            pass
+        return results
+
+    # Run everything concurrently
+    import asyncio
+    res = await asyncio.gather(
+        get_global_stp(),
+        walk_oid('1.3.6.1.2.1.17.1.4.1.2'),    # bridgePortToIfIndex
+        walk_oid('1.3.6.1.2.1.31.1.1.1.1'),   # ifName
+        walk_oid('1.3.6.1.2.1.2.2.1.2'),      # ifDescr (fallback)
+        walk_oid('1.3.6.1.2.1.17.2.15.1.3'),  # dot1dStpPortState
+        walk_oid('1.3.6.1.2.1.17.2.15.1.5'),  # dot1dStpPortPathCost
+        walk_oid('1.3.6.1.2.1.17.7.1.4.3.1.2') # dot1qVlanStaticName
+    )
+    
+    stp_global, base_port_to_if, if_names, if_descrs, port_states, port_costs, vlan_names = res
+    
+    # Map STP Port state to string labels
+    stp_states_map = {
+        '1': 'disabled',
+        '2': 'blocking',
+        '3': 'listening',
+        '4': 'learning',
+        '5': 'forwarding',
+        '6': 'broken'
+    }
+    
+    stp_ports = []
+    
+    # Loop over all detected STP ports
+    for bridge_port, state_code in port_states.items():
+        # Get standard ifIndex
+        if_idx_str = base_port_to_if.get(bridge_port)
+        if_name = f"Port {bridge_port}"
+        
+        if if_idx_str:
+            try:
+                if_idx = int(if_idx_str)
+                # Map to physical name
+                raw_name = if_names.get(if_idx) or if_descrs.get(if_idx)
+                if raw_name:
+                    if raw_name.startswith('0x'):
+                        try:
+                            if_name = bytes.fromhex(raw_name[2:]).decode('utf-8', errors='ignore')
+                        except Exception:
+                            if_name = raw_name
+                    else:
+                        if_name = raw_name
+            except ValueError:
+                pass
+                
+        state_str = stp_states_map.get(state_code, f"unknown ({state_code})")
+        cost = port_costs.get(bridge_port, "—")
+        
+        stp_ports.append({
+            "bridge_port": bridge_port,
+            "if_index": if_idx_str or "—",
+            "interface_name": if_name,
+            "state": state_str,
+            "path_cost": cost
+        })
+        
+    # Sort ports naturally
+    stp_ports.sort(key=lambda x: x["interface_name"])
+    
+    # Map VLANs list
+    vlans = []
+    for vlan_id, name in vlan_names.items():
+        # Hex decode if necessary
+        vname = name
+        if name.startswith('0x'):
+            try:
+                vname = bytes.fromhex(name[2:]).decode('utf-8', errors='ignore')
+            except Exception:
+                pass
+        vlans.append({
+            "vlan_id": vlan_id,
+            "name": vname
+        })
+        
+    vlans.sort(key=lambda x: x["vlan_id"])
+    
+    return {
+        "stp_enabled": stp_global is not None or len(stp_ports) > 0,
+        "stp_global": stp_global or {},
+        "stp_ports": stp_ports,
+        "vlans": vlans
+    }
+

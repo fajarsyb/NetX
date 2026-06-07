@@ -16,6 +16,8 @@ import Topology from './pages/Topology'
 import MacInvestigation from './pages/MacInvestigation'
 import NetworkAnomalies from './pages/NetworkAnomalies'
 import SyslogViewer from './pages/SyslogViewer'
+import DatabaseSettings from './pages/DatabaseSettings'
+import SystemHealth from './pages/SystemHealth'
 import ToastProvider from './components/shared/ToastProvider'
 import { AuthProvider } from './context/AuthContext'
 import ProtectedRoute from './components/shared/ProtectedRoute'
@@ -40,6 +42,8 @@ export default function App() {
                       <Route path="/credentials" element={<CredentialManagement />} />
                       <Route path="/audit-logs" element={<AuditLogs />} />
                       <Route path="/backup" element={<BackupManagement />} />
+                      <Route path="/db-settings" element={<DatabaseSettings />} />
+                      <Route path="/system-health" element={<SystemHealth />} />
                       <Route path="/device-backup" element={<DeviceBackup />} />
                       <Route path="/devices" element={<DeviceManagement />} />
                       <Route path="/snmp-tester" element={<SnmpTester />} />
