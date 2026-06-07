@@ -18,6 +18,7 @@ import NetworkAnomalies from './pages/NetworkAnomalies'
 import SyslogViewer from './pages/SyslogViewer'
 import DatabaseSettings from './pages/DatabaseSettings'
 import SystemHealth from './pages/SystemHealth'
+import CredentialScan from './pages/CredentialScan'
 import ToastProvider from './components/shared/ToastProvider'
 import { AuthProvider } from './context/AuthContext'
 import { ThemeProvider } from './context/ThemeContext'
@@ -42,6 +43,7 @@ export default function App() {
                       <Route path="/users" element={<UserManagement />} />
                       <Route path="/groups" element={<GroupManagement />} />
                       <Route path="/credentials" element={<CredentialManagement />} />
+                      <Route path="/credential-scan" element={<CredentialScan />} />
                       <Route path="/audit-logs" element={<AuditLogs />} />
                       <Route path="/backup" element={<BackupManagement />} />
                       <Route path="/db-settings" element={<DatabaseSettings />} />

@@ -659,6 +659,19 @@ def init_db():
         c.execute("CREATE INDEX IF NOT EXISTS idx_device_syslogs_device ON device_syslogs(device_id);")
         c.execute("CREATE INDEX IF NOT EXISTS idx_device_syslogs_time ON device_syslogs(timestamp);")
 
+        # Device Credential Compliance
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS device_credential_compliance (
+            device_id       INTEGER PRIMARY KEY,
+            status          VARCHAR(50) NOT NULL,
+            working_defaults TEXT DEFAULT '[]',
+            working_db_templates TEXT DEFAULT '[]',
+            scanned_at      VARCHAR(100) NOT NULL,
+            error_message   TEXT DEFAULT '',
+            FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+        );
+        """)
+
         # Create default admin user if none exists in PostgreSQL
         c.execute("SELECT COUNT(*) as cnt FROM users")
         row = c.fetchone()
@@ -1133,6 +1146,19 @@ def init_db():
             c.execute("ALTER TABLE device_syslogs ADD COLUMN sender_ip TEXT DEFAULT '';")
         except sqlite3.OperationalError:
             pass
+
+        # Device Credential Compliance
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS device_credential_compliance (
+            device_id       INTEGER PRIMARY KEY,
+            status          TEXT NOT NULL,
+            working_defaults TEXT DEFAULT '[]',
+            working_db_templates TEXT DEFAULT '[]',
+            scanned_at      TEXT NOT NULL,
+            error_message   TEXT DEFAULT '',
+            FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+        );
+        """)
 
     conn.commit()
     conn.close()

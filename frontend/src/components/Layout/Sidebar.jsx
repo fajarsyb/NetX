@@ -20,7 +20,7 @@ export default function Sidebar() {
   const { theme, toggleTheme } = useTheme()
   const location = useLocation()
   const [openSettings, setOpenSettings] = useState(() => {
-    return ['/users', '/credentials', '/backup', '/db-settings', '/system-health', '/device-backup', '/snmp-tester', '/mibs'].includes(location.pathname)
+    return ['/users', '/credentials', '/credential-scan', '/backup', '/db-settings', '/system-health', '/device-backup', '/snmp-tester', '/mibs'].includes(location.pathname)
   })
 
   // Resizable Sidebar logic
@@ -168,7 +168,7 @@ export default function Sidebar() {
           {/* Settings Sub-menu */}
           <button
             type="button"
-            className={`nav-link ${['/users', '/credentials', '/backup', '/db-settings', '/system-health', '/device-backup', '/snmp-tester', '/mibs'].includes(location.pathname) ? 'active' : ''}`}
+            className={`nav-link ${['/users', '/credentials', '/credential-scan', '/backup', '/db-settings', '/system-health', '/device-backup', '/snmp-tester', '/mibs'].includes(location.pathname) ? 'active' : ''}`}
             onClick={() => setOpenSettings(prev => !prev)}
             style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
           >
@@ -196,6 +196,13 @@ export default function Sidebar() {
                   >
                     <Key className="nav-icon" />
                     Manajemen Kredensial
+                  </NavLink>
+                  <NavLink
+                    to="/credential-scan"
+                    className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                  >
+                    <ShieldCheck className="nav-icon" />
+                    Scan Kredensial
                   </NavLink>
                   <NavLink
                     to="/backup"

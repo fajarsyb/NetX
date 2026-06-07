@@ -34,6 +34,8 @@ export const credentialsApi = {
   list:             ()         => api.get('/credentials'),
   create:           (data)     => api.post('/credentials', data),
   remove:           (id)       => api.delete(`/credentials/${id}`),
+  getCompliance:    ()         => api.get('/credentials/compliance'),
+  runScan:          (data)     => api.post('/credentials/compliance/scan', data),
 }
 
 export const arpApi = {
