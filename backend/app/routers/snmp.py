@@ -702,9 +702,13 @@ async def get_snmp_interfaces(device_id: int):
         walk_oid('1.3.6.1.2.1.2.2.1.16'),    # out_octets_t1 (ifOutOctets)
         walk_oid('1.3.6.1.2.1.31.1.1.1.6'),  # hc_in_t1 (ifHCInOctets)
         walk_oid('1.3.6.1.2.1.31.1.1.1.10'), # hc_out_t1 (ifHCOutOctets)
+        walk_oid('1.3.6.1.2.1.2.2.1.14'),    # in_errors_t1 (ifInErrors)
+        walk_oid('1.3.6.1.2.1.2.2.1.20'),    # out_errors_t1 (ifOutErrors)
+        walk_oid('1.3.6.1.2.1.10.7.2.1.3'),  # crc_errors_t1 (dot3StatsFCSErrors)
+        walk_oid('1.3.6.1.2.1.10.7.2.1.2'),  # frame_errors_t1 (dot3StatsAlignmentErrors)
     )
     
-    descrs, statuses, speeds, high_speeds, macs, aliases, mtus, types, in_octets_t1, out_octets_t1, hc_in_t1, hc_out_t1 = res
+    descrs, statuses, speeds, high_speeds, macs, aliases, mtus, types, in_octets_t1, out_octets_t1, hc_in_t1, hc_out_t1, in_errors_t1, out_errors_t1, crc_errors_t1, frame_errors_t1 = res
 
     if not descrs:
         raise HTTPException(status_code=400, detail="Gagal mengambil tabel interface via SNMP (Timeout atau port 161 tertutup).")
@@ -718,13 +722,17 @@ async def get_snmp_interfaces(device_id: int):
         walk_oid('1.3.6.1.2.1.2.2.1.16'),    # out_octets_t2
         walk_oid('1.3.6.1.2.1.31.1.1.1.6'),  # hc_in_t2
         walk_oid('1.3.6.1.2.1.31.1.1.1.10'), # hc_out_t2
+        walk_oid('1.3.6.1.2.1.2.2.1.14'),    # in_errors_t2
+        walk_oid('1.3.6.1.2.1.2.2.1.20'),    # out_errors_t2
+        walk_oid('1.3.6.1.2.1.10.7.2.1.3'),  # crc_errors_t2
+        walk_oid('1.3.6.1.2.1.10.7.2.1.2'),  # frame_errors_t2
     )
     t2 = time.time()
     delta_t = t2 - t1
     if delta_t <= 0:
         delta_t = 1.0
 
-    in_octets_t2, out_octets_t2, hc_in_t2, hc_out_t2 = res_t2
+    in_octets_t2, out_octets_t2, hc_in_t2, hc_out_t2, in_errors_t2, out_errors_t2, crc_errors_t2, frame_errors_t2 = res_t2
 
     # Status mapping: 1=up, 2=down, etc.
     status_map = {
@@ -885,6 +893,66 @@ async def get_snmp_interfaces(device_id: int):
             if rx_util > 100.0: rx_util = 100.0
             if tx_util > 100.0: tx_util = 100.0
 
+        # Port diagnostics and health calculation
+        rx_err = 0
+        try: rx_err = int(in_errors_t1.get(idx, 0))
+        except: pass
+        
+        tx_err = 0
+        try: tx_err = int(out_errors_t1.get(idx, 0))
+        except: pass
+        
+        crc_err = 0
+        try: crc_err = int(crc_errors_t1.get(idx, 0))
+        except: pass
+        
+        frame_err = 0
+        try: frame_err = int(frame_errors_t1.get(idx, 0))
+        except: pass
+        
+        # Calculate rates
+        rx_err_t2 = 0
+        try: rx_err_t2 = int(in_errors_t2.get(idx, 0))
+        except: pass
+        
+        tx_err_t2 = 0
+        try: tx_err_t2 = int(out_errors_t2.get(idx, 0))
+        except: pass
+        
+        crc_err_t2 = 0
+        try: crc_err_t2 = int(crc_errors_t2.get(idx, 0))
+        except: pass
+        
+        frame_err_t2 = 0
+        try: frame_err_t2 = int(frame_errors_t2.get(idx, 0))
+        except: pass
+        
+        rx_err_rate = max(0.0, (rx_err_t2 - rx_err) / delta_t)
+        tx_err_rate = max(0.0, (tx_err_t2 - tx_err) / delta_t)
+        crc_err_rate = max(0.0, (crc_err_t2 - crc_err) / delta_t)
+        frame_err_rate = max(0.0, (frame_err_t2 - frame_err) / delta_t)
+        
+        speed_drop_warning = None
+        if status == 'up':
+            name_lower = descr_str.lower()
+            if any(x in name_lower for x in ('tengigabit', 'tengig', 'te', 'xg', 'xe', '10g')):
+                if speed_mbps > 0 and speed_mbps < 10000:
+                    speed_drop_warning = f"Port 10G sinkron pada {speed_str} (Kecepatan Turun!)."
+            elif any(x in name_lower for x in ('gigabit', 'gig', 'gi', 'ge', '1000base')):
+                if speed_mbps > 0 and speed_mbps < 1000:
+                    speed_drop_warning = f"Port Gigabit sinkron pada {speed_str} (Kecepatan Turun!)."
+            elif any(x in name_lower for x in ('fastethernet', 'fa', 'fe')):
+                if speed_mbps > 0 and speed_mbps < 100:
+                    speed_drop_warning = f"Port FastEthernet sinkron pada {speed_str} (Kecepatan Turun!)."
+                    
+        health_status = 'good'
+        if rx_err_rate > 0.0 or tx_err_rate > 0.0 or crc_err_rate > 0.0 or frame_err_rate > 0.0:
+            health_status = 'critical'
+        elif speed_drop_warning is not None:
+            health_status = 'warning'
+        elif rx_err > 50 or tx_err > 50 or crc_err > 50 or frame_err > 50:
+            health_status = 'warning'
+
         list_ifs.append({
             "index": idx,
             "name": descr_str,
@@ -899,7 +967,17 @@ async def get_snmp_interfaces(device_id: int):
             "rx_util": f"{rx_util:.2f}%",
             "tx_util": f"{tx_util:.2f}%",
             "rx_util_val": round(rx_util, 2),
-            "tx_util_val": round(tx_util, 2)
+            "tx_util_val": round(tx_util, 2),
+            "rx_err": rx_err,
+            "tx_err": tx_err,
+            "crc_err": crc_err,
+            "frame_err": frame_err,
+            "rx_err_rate": round(rx_err_rate, 2),
+            "tx_err_rate": round(tx_err_rate, 2),
+            "crc_err_rate": round(crc_err_rate, 2),
+            "frame_err_rate": round(frame_err_rate, 2),
+            "speed_drop_warning": speed_drop_warning,
+            "health_status": health_status
         })
 
     # Sort interfaces by name using simple natural sort

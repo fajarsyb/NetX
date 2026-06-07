@@ -783,6 +783,7 @@ export default function DeviceDetail() {
                         <th style={{ width: '140px' }}>MAC Address</th>
                         <th style={{ minWidth: '160px' }}>Throughput (Rx / Tx)</th>
                         <th style={{ minWidth: '160px' }}>Utilization (Rx / Tx)</th>
+                        <th style={{ minWidth: '180px' }}>Kesehatan Port & Kabel</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -859,6 +860,45 @@ export default function DeviceDetail() {
                                   }} 
                                 />
                               </div>
+                            </div>
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              {i.health_status === 'good' ? (
+                                <span className="badge badge-online" style={{ background: 'rgba(16,185,129,0.12)', color: 'var(--success)', width: 'fit-content', textTransform: 'none' }}>
+                                  ✓ Aman
+                                </span>
+                              ) : i.health_status === 'critical' ? (
+                                <span className="badge badge-offline" style={{ background: 'rgba(239,68,68,0.12)', color: 'var(--danger)', fontWeight: 700, width: 'fit-content', textTransform: 'none', animation: 'pulse 2s infinite' }}>
+                                  ⚠️ Critical
+                                </span>
+                              ) : (
+                                <span className="badge" style={{ background: 'rgba(245,158,11,0.12)', color: 'var(--warning)', width: 'fit-content', textTransform: 'none' }}>
+                                  ⚠️ Peringatan
+                                </span>
+                              )}
+                              
+                              {/* Error list */}
+                              {(i.rx_err > 0 || i.tx_err > 0) && (
+                                <div style={{ fontSize: '11px', color: 'var(--text-secondary)', lineHeight: '1.3' }}>
+                                  Rx/Tx-Err: {i.rx_err} {i.rx_err_rate > 0 && <span style={{ color: 'var(--danger)', fontWeight: 600 }}>({i.rx_err_rate}/s)</span>} / {i.tx_err} {i.tx_err_rate > 0 && <span style={{ color: 'var(--danger)', fontWeight: 600 }}>({i.tx_err_rate}/s)</span>}
+                                </div>
+                              )}
+                              {(i.crc_err > 0 || i.frame_err > 0) && (
+                                <div style={{ fontSize: '11px', color: i.crc_err_rate > 0 ? 'var(--danger)' : 'var(--text-secondary)', fontWeight: i.crc_err_rate > 0 ? 600 : 'normal', lineHeight: '1.3' }}>
+                                  CRC/Frame: {i.crc_err} {i.crc_err_rate > 0 && <span style={{ color: 'var(--danger)' }}>(+{i.crc_err_rate}/s)</span>} / {i.frame_err} {i.frame_err_rate > 0 && <span style={{ color: 'var(--danger)' }}>(+{i.frame_err_rate}/s)</span>}
+                                </div>
+                              )}
+                              {i.speed_drop_warning && (
+                                <div style={{ fontSize: '11.5px', color: 'var(--warning)', fontWeight: 600, maxWidth: '200px', lineHeight: '1.2' }}>
+                                  {i.speed_drop_warning}
+                                </div>
+                              )}
+                              {i.health_status === 'good' && (
+                                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                                  Kabel & Port normal.
+                                </div>
+                              )}
                             </div>
                           </td>
                         </tr>

@@ -1160,6 +1160,13 @@ def init_db():
         );
         """)
 
+        # Add new columns to interface_stats_latest table for port health diagnostics
+        for col in ["in_errors", "out_errors", "crc_errors", "frame_errors", "link_speed"]:
+            try:
+                c.execute(f"ALTER TABLE interface_stats_latest ADD COLUMN {col} BIGINT DEFAULT 0;")
+            except Exception:
+                pass
+
     conn.commit()
     conn.close()
 
