@@ -37,7 +37,7 @@ Melalui [database.py](file:///c:/Code/Auto/NetX/backend/app/database.py), NetX m
 
 ## 2. Skema & Model Basis Data Lengkap
 
-NetX mendukung SQLite (`netx.db` lokal) dan PostgreSQL (produksi terdistribusi). Berikut adalah detail lengkap dari **23 tabel** yang menyusun basis data NetX:
+NetX mendukung SQLite (`netx.db` lokal) dan PostgreSQL (produksi terdistribusi). Berikut adalah detail lengkap dari **25 tabel** yang menyusun basis data NetX:
 
 ### A. Tabel Autentikasi & Pengguna
 
@@ -323,6 +323,33 @@ Mencatat kepatuhan keamanan kredensial perangkat terhadap template password bawa
     *   `working_db_templates` (TEXT, DEFAULT '[]'): JSON list kredensial dari profile database lain yang bekerja pada perangkat ini (indeks kebocoran isolasi).
     *   `scanned_at` (VARCHAR(100) / TEXT, NOT NULL): Waktu pemindaian audit keamanan.
     *   `error_message` (TEXT, DEFAULT ''): Catatan kegagalan audit jika koneksi terputus.
+
+#### 22. `threshold_profiles`
+Menyimpan batas ambang (threshold) parameter performa SNMP untuk deteksi anomali (seperti broadcast storm, port flapping, dll.).
+*   **Primary Key**: `id` (SERIAL / INTEGER AUTOINCREMENT)
+*   **Kolom**:
+    *   `name` (VARCHAR(255) / TEXT, UNIQUE, NOT NULL): Nama profil ambang batas (misal: `Standard_Switch`).
+    *   `description` (TEXT, DEFAULT ''): Keterangan deskriptif profil.
+    *   `broadcast_storm_warning` / `broadcast_storm_critical` (INTEGER): Batasan paket broadcast masuk (pps).
+    *   `multicast_storm_warning` / `multicast_storm_critical` (INTEGER): Batasan paket multicast masuk (pps).
+    *   `unicast_storm_warning` / `unicast_storm_critical` (INTEGER): Batasan paket unicast masuk (pps).
+    *   `port_flap_warning` / `port_flap_critical` (INTEGER): Batasan jumlah transisi port link down-up.
+    *   `port_flap_window` (INTEGER, DEFAULT 300): Window waktu evaluasi port flapping dalam detik (default 5 menit).
+    *   `crc_error_rate` (REAL) & `crc_error_delta` (INTEGER): Batas rasio & selisih kesalahan CRC paket.
+    *   `frame_error_rate` (REAL) & `frame_error_delta` (INTEGER): Batas rasio & selisih kesalahan alignment frame ethernet.
+    *   `transmission_error_rate` (REAL) & `transmission_error_delta` (INTEGER): Batas rasio & selisih drop paket transmisi interface.
+    *   `created_at` (VARCHAR(100) / TEXT, NOT NULL): Waktu pembuatan profil.
+
+#### 23. `syslog_patterns`
+Menyimpan template regex hasil klastering pesan syslog secara otomatis untuk identifikasi kebisingan dan deteksi anomali syslog terstruktur.
+*   **Primary Key**: `pattern_hash` (VARCHAR(64) / TEXT, hash dari template log)
+*   **Kolom**:
+    *   `template` (TEXT, NOT NULL): Struktur pola pesan log dengan nilai variabel dinormalisasi.
+    *   `program` (VARCHAR(255) / TEXT, DEFAULT ''): Program/modul yang mengeluarkan log.
+    *   `severity` (INTEGER, DEFAULT 5): Tingkat keparahan standar dari modul syslog.
+    *   `is_blocked` (INTEGER, DEFAULT 0): Flag untuk mengabaikan log dari pencatatan history (1=Block/Ignore, 0=Allow).
+    *   `is_anomaly` (INTEGER, DEFAULT 0): Flag untuk menandai log sebagai anomali pemicu alarm (1=Anomali, 0=Normal).
+    *   `created_at` (VARCHAR(100) / TEXT, NOT NULL): Waktu pola terdeteksi pertama kali.
 
 ---
 

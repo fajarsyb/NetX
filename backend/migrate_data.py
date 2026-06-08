@@ -31,6 +31,7 @@ TABLES_ORDER = [
     "device_credentials",
     "threshold_profiles",
     "users",
+    "audit_logs",
     "devices",
     "arp_cache",
     "arp_history",
@@ -113,6 +114,14 @@ def migrate():
                 print(f"[-] Gagal inisialisasi pool PostgreSQL dinamis: {e}")
         app.database.init_db()
 
+        # Cache valid IDs for Foreign Key sanitization
+        valid_user_ids = {r["id"] for r in sqlite_cursor.execute("SELECT id FROM users").fetchall()}
+        valid_group_ids = {r["id"] for r in sqlite_cursor.execute("SELECT id FROM device_groups").fetchall()}
+        valid_credential_ids = {r["id"] for r in sqlite_cursor.execute("SELECT id FROM device_credentials").fetchall()}
+        valid_device_ids = {r["id"] for r in sqlite_cursor.execute("SELECT id FROM devices").fetchall()}
+        valid_pattern_hashes = {r["pattern_hash"] for r in sqlite_cursor.execute("SELECT pattern_hash FROM syslog_patterns").fetchall()}
+        valid_mib_ids = {r["id"] for r in sqlite_cursor.execute("SELECT id FROM snmp_mibs").fetchall()}
+
         # Run migration table by table
         for table in TABLES_ORDER:
             print(f"[*] Memproses tabel: {table}...")
@@ -144,13 +153,41 @@ def migrate():
             # Execute batch insert in PostgreSQL
             # We can use execute_batch or execute loop
             # RealDictRow is converted to tuple in column order
-            data_to_insert = []
+            inserted_count = 0
             for row in rows:
-                row_data = tuple(row[c] for c in columns)
-                data_to_insert = row_data
+                row_dict = dict(row)
+                
+                # Sanitize Foreign Keys to prevent Postgres violations on orphaned SQLite records
+                if table == "audit_logs":
+                    if row_dict.get("user_id") not in valid_user_ids:
+                        row_dict["user_id"] = None
+                elif table == "devices":
+                    if row_dict.get("group_id") not in valid_group_ids:
+                        row_dict["group_id"] = None
+                    if row_dict.get("credential_id") not in valid_credential_ids:
+                        row_dict["credential_id"] = None
+                elif table in [
+                    "arp_cache", "arp_history", "lldp_neighbors", "cdp_neighbors", 
+                    "routing_table", "mac_addresses", "device_config_backups", 
+                    "device_snmp_objects", "network_anomalies", "interface_stats_latest", 
+                    "mac_history_tracking", "device_credential_compliance"
+                ]:
+                    if row_dict.get("device_id") not in valid_device_ids:
+                        continue
+                elif table == "device_syslogs":
+                    if row_dict.get("device_id") not in valid_device_ids:
+                        row_dict["device_id"] = None
+                    if row_dict.get("pattern_hash") not in valid_pattern_hashes:
+                        row_dict["pattern_hash"] = None
+                elif table == "snmp_mib_objects":
+                    if row_dict.get("mib_id") not in valid_mib_ids:
+                        continue
+                
+                row_data = tuple(row_dict[c] for c in columns)
                 pg_cursor.execute(insert_query, row_data)
+                inserted_count += 1
 
-            print(f"    [+] Berhasil menyalin {len(rows)} baris ke tabel {table}.")
+            print(f"    [+] Berhasil menyalin {inserted_count} baris ke tabel {table}.")
 
             # Update serial sequence value in PostgreSQL so it starts after the migrated IDs
             if has_id:
