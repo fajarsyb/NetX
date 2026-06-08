@@ -75,8 +75,46 @@ def decode_token(token: str) -> dict:
 security = HTTPBearer()
 
 
+import json
+
+def get_user_permissions(user: dict) -> dict:
+    """Resolve permissions for a user, using custom permissions JSON or falling back to role defaults."""
+    perms_str = user.get("permissions")
+    if perms_str:
+        try:
+            perms = json.loads(perms_str)
+            if isinstance(perms, dict):
+                return perms
+        except Exception:
+            pass
+
+    # Fallback default permissions based on role
+    role = user.get("role", "viewer")
+    if role == "admin":
+        return {
+            "menus": ["dashboard", "topology", "investigation", "anomalies", "syslog", "groups", "devices", "audit_logs", "settings", "terminal"],
+            "features": ["add_device", "edit_device", "delete_device", "manage_groups", "manage_credentials", "backup_db", "postgresql_config", "threshold_profiles", "snmp_tester", "mibs", "device_backup"],
+            "groups": ["*"],
+            "allow_ssh": True
+        }
+    elif role == "operator":
+        return {
+            "menus": ["dashboard", "topology", "investigation", "anomalies", "syslog", "groups", "devices", "settings", "terminal"],
+            "features": ["add_device", "edit_device", "threshold_profiles", "snmp_tester", "mibs", "device_backup"],
+            "groups": ["*"],
+            "allow_ssh": True
+        }
+    else: # viewer / fallback
+        return {
+            "menus": ["dashboard", "topology", "anomalies", "syslog"],
+            "features": [],
+            "groups": ["*"],
+            "allow_ssh": False
+        }
+
+
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
-    """Dependency: validate token and return user dict."""
+    """Dependency: validate token and return user dict with resolved permissions."""
     payload = decode_token(credentials.credentials)
     user_id = payload.get("sub")
     if not user_id:
@@ -85,7 +123,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     conn = get_db_conn()
     c = conn.cursor()
     c.execute(
-        "SELECT id, username, full_name, role, is_active FROM users WHERE id = ?",
+        "SELECT id, username, full_name, role, is_active, permissions FROM users WHERE id = ?",
         (int(user_id),),
     )
     row = c.fetchone()
@@ -96,6 +134,9 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     user = dict(row)
     if not user["is_active"]:
         raise HTTPException(status_code=403, detail="Akun dinonaktifkan.")
+    
+    # Enrich user dict with parsed permissions
+    user["permissions"] = get_user_permissions(user)
     return user
 
 
@@ -114,3 +155,28 @@ def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
     if current_user["role"] != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Hanya admin yang diizinkan.")
     return current_user
+
+
+def require_permission(menu: Optional[str] = None, feature: Optional[str] = None):
+    """Dependency factory: check if current user has the specified menu or feature permission."""
+    def dependency(current_user: dict = Depends(get_current_user)) -> dict:
+        perms = current_user.get("permissions") or {}
+        
+        # If user is admin (role-wise), bypass check for ease of admin operations
+        if current_user.get("role") == "admin":
+            return current_user
+            
+        if menu and menu not in perms.get("menus", []):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Akses Ditolak: Anda tidak memiliki akses ke menu '{menu}'."
+            )
+            
+        if feature and feature not in perms.get("features", []):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Akses Ditolak: Anda tidak memiliki izin untuk tindakan '{feature}'."
+            )
+            
+        return current_user
+    return dependency

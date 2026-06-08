@@ -714,7 +714,22 @@ export default function DeviceDetail() {
 
       {/* ── TERMINAL TAB ─────────────────────────────────────────────────── */}
       {tab === 'terminal' && (
-        <div className="animate-slide">
+        <div className="animate-slide" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div className="card p-16" style={{ background: 'var(--bg-card-2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+            <div>
+              <h4 style={{ margin: 0, fontWeight: 700, fontSize: '14px' }}>Konsol Terminal Web CLI</h4>
+              <p className="text-muted" style={{ margin: '4px 0 0', fontSize: '12px' }}>
+                Hubungkan perangkat ini ke konsol multitab global untuk mengelola banyak perangkat sekaligus dalam tab.
+              </p>
+            </div>
+            <button 
+              className="btn btn-primary btn-sm"
+              onClick={() => navigate(`/terminal?device_id=${id}&device_name=${encodeURIComponent(device?.name || 'Device')}`)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+            >
+              Buka di Console (Multitab)
+            </button>
+          </div>
           <WebCli deviceId={id} />
         </div>
       )}

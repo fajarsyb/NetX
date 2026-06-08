@@ -17,6 +17,8 @@ frontend/dist/
 frontend/.env
 frontend/.env.local
 frontend/.env.production
+.env
+backend/.env
 
 # System and IDE configuration
 .idea/

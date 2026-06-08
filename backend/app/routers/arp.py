@@ -21,9 +21,14 @@ def _require_device(device_id: int) -> dict:
 
 
 @router.get("/devices/{device_id}/arp")
-async def get_arp_cache(device_id: int):
+async def get_arp_cache(device_id: int, current_user: dict = Depends(get_current_user)):
     """Return ARP entries from local DB cache (no device connection)."""
-    _require_device(device_id)
+    device = _require_device(device_id)
+    
+    from app.routers.devices import check_user_device_access
+    if not check_user_device_access(device, current_user):
+        raise HTTPException(status_code=403, detail="Akses Ditolak: Anda tidak memiliki akses ke perangkat di grup ini.")
+
     conn = get_db_conn()
     c = conn.cursor()
     c.execute(
@@ -50,6 +55,10 @@ async def get_arp_cache(device_id: int):
 async def refresh_arp(device_id: int, user: dict = Depends(require_operator_or_admin)):
     """Connect to device, fetch ARP table, enrich with OUI, save to DB."""
     device = _require_device(device_id)
+    
+    from app.routers.devices import check_user_device_access
+    if not check_user_device_access(device, user):
+        raise HTTPException(status_code=403, detail="Akses Ditolak: Anda tidak memiliki akses ke perangkat di grup ini.")
     username, password = get_device_credentials(device)
     device["username"] = username
     raw = await get_arp_raw(device, password)
@@ -124,20 +133,41 @@ async def refresh_arp(device_id: int, user: dict = Depends(require_operator_or_a
 
 
 @router.get("/arp/summary")
-async def arp_summary():
+async def arp_summary(current_user: dict = Depends(get_current_user)):
     """ARP summary per device, including unique MAC addresses for dashboard deduplication."""
+    perms = current_user.get("permissions") or {}
+    allowed_groups = perms.get("groups", ["*"])
+
+    where_clause = ""
+    params = []
+    if "*" not in allowed_groups:
+        include_ungrouped = "Ungrouped" in allowed_groups
+        filtered_groups = [g for g in allowed_groups if g != "Ungrouped"]
+        where_clauses = []
+        if filtered_groups:
+            placeholders = ", ".join("?" for _ in filtered_groups)
+            where_clauses.append(f"dg.name IN ({placeholders})")
+            params.extend(filtered_groups)
+        if include_ungrouped:
+            where_clauses.append("d.group_id IS NULL")
+            
+        if not where_clauses:
+            return []
+        where_clause = "WHERE " + " OR ".join(where_clauses)
+
     conn = get_db_conn()
     c = conn.cursor()
-    c.execute("""
+    c.execute(f"""
         SELECT d.id, d.name, d.ip, d.device_type, d.protocol, d.status,
                d.group_id, dg.name AS group_name,
                MAX(a.fetched_at) AS last_fetched
         FROM   devices d
         LEFT JOIN arp_cache a ON d.id = a.device_id
         LEFT JOIN device_groups dg ON d.group_id = dg.id
+        {where_clause}
         GROUP BY d.id
         ORDER BY d.name COLLATE NOCASE
-    """)
+    """, params)
     devices = [dict(r) for r in c.fetchall()]
     
     # Get all mac_addresses from arp_cache to group them
@@ -183,17 +213,38 @@ async def arp_history(device_id: int):
 
 
 @router.get("/arp/all")
-async def get_all_arp_entries():
+async def get_all_arp_entries(current_user: dict = Depends(get_current_user)):
     """Retrieve all ARP cache entries from all devices, enriched with device name and group."""
+    perms = current_user.get("permissions") or {}
+    allowed_groups = perms.get("groups", ["*"])
+
+    where_clause = ""
+    params = []
+    if "*" not in allowed_groups:
+        include_ungrouped = "Ungrouped" in allowed_groups
+        filtered_groups = [g for g in allowed_groups if g != "Ungrouped"]
+        where_clauses = []
+        if filtered_groups:
+            placeholders = ", ".join("?" for _ in filtered_groups)
+            where_clauses.append(f"dg.name IN ({placeholders})")
+            params.extend(filtered_groups)
+        if include_ungrouped:
+            where_clauses.append("d.group_id IS NULL")
+            
+        if not where_clauses:
+            return []
+        where_clause = "WHERE " + " OR ".join(where_clauses)
+
     conn = get_db_conn()
     c = conn.cursor()
-    c.execute("""
+    c.execute(f"""
         SELECT a.*, d.name AS device_name, d.ip AS device_ip, d.group_id, dg.name AS group_name
         FROM arp_cache a
         JOIN devices d ON a.device_id = d.id
         LEFT JOIN device_groups dg ON d.group_id = dg.id
+        {where_clause}
         ORDER BY a.ip_address
-    """)
+    """, params)
     entries = [dict(r) for r in c.fetchall()]
     conn.close()
     return entries

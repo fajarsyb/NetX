@@ -29,6 +29,7 @@ except ImportError:
 TABLES_ORDER = [
     "device_groups",
     "device_credentials",
+    "threshold_profiles",
     "users",
     "devices",
     "arp_cache",
@@ -47,6 +48,8 @@ TABLES_ORDER = [
     "network_anomalies",
     "interface_stats_latest",
     "mac_history_tracking",
+    "device_credential_compliance",
+    "syslog_patterns",
     "device_syslogs"
 ]
 
@@ -90,10 +93,25 @@ def migrate():
     try:
         # Initialize PostgreSQL tables schema first
         print("[*] Menginisialisasi skema tabel di PostgreSQL...")
-        from app.database import init_db
-        # We temporarily force DB_ENGINE to postgresql for init_db to create PostgreSQL tables
         os.environ["DB_ENGINE"] = "postgresql"
-        init_db()
+        import app.database
+        app.database.DB_ENGINE = "postgresql"
+        if app.database.PG_POOL is None:
+            try:
+                from psycopg2.pool import ThreadedConnectionPool
+                app.database.PG_POOL = ThreadedConnectionPool(
+                    minconn=1,
+                    maxconn=30,
+                    host=os.environ.get("DB_HOST", "localhost"),
+                    port=int(os.environ.get("DB_PORT", "5432")),
+                    database=os.environ.get("DB_NAME", "netx"),
+                    user=os.environ.get("DB_USER", "postgres"),
+                    password=os.environ.get("DB_PASSWORD", ""),
+                    sslmode=os.environ.get("DB_SSL_MODE", "prefer"),
+                )
+            except Exception as e:
+                print(f"[-] Gagal inisialisasi pool PostgreSQL dinamis: {e}")
+        app.database.init_db()
 
         # Run migration table by table
         for table in TABLES_ORDER:

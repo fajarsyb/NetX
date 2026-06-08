@@ -6,9 +6,28 @@ import io
 from app.database import get_db_conn, encrypt_password, decrypt_password, get_device_credentials
 from app.models import DeviceCreate, DeviceUpdate
 from app.services.connector import test_connection
-from app.services.auth import get_current_user, require_operator_or_admin
+from app.services.auth import get_current_user, require_operator_or_admin, require_permission, get_user_permissions
 from app.services.audit import log_audit
 from app.routers.snmp import detect_snmp_info
+
+def check_user_device_access(device_row: dict, user: dict) -> bool:
+    """Check if the user is allowed to access the device based on allowed groups."""
+    if not isinstance(user, dict):
+        return True
+    if user.get("role") == "admin":
+        return True
+    perms = user.get("permissions") or {}
+    allowed_groups = perms.get("groups", ["*"])
+    if "*" in allowed_groups:
+        return True
+    # Resolve the device group
+    conn = get_db_conn()
+    c = conn.cursor()
+    c.execute("SELECT name FROM device_groups WHERE id = ?", (device_row.get("group_id"),))
+    grow = c.fetchone()
+    conn.close()
+    gname = (grow["name"] or "Ungrouped") if grow else "Ungrouped"
+    return gname in allowed_groups
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
 
@@ -24,7 +43,11 @@ SUPPORTED_DEVICE_TYPES = [
 
 
 @router.get("/export/csv")
-async def export_devices_csv(columns: Optional[str] = None):
+async def export_devices_csv(columns: Optional[str] = None, current_user: dict = Depends(get_current_user)):
+    # Check permissions
+    perms = current_user.get("permissions") or {}
+    allowed_groups = perms.get("groups", ["*"])
+
     FIELD_MAP = {
         "id":             ("d.id", "ID"),
         "name":           ("d.name", "Device Name"),
@@ -55,14 +78,32 @@ async def export_devices_csv(columns: Optional[str] = None):
     select_exprs = [FIELD_MAP[k][0] + f" AS {k}" for k in selected_keys]
     select_clause = ", ".join(select_exprs)
 
+    where_clause = ""
+    params = []
+    if "*" not in allowed_groups:
+        include_ungrouped = "Ungrouped" in allowed_groups
+        filtered_groups = [g for g in allowed_groups if g != "Ungrouped"]
+        where_clauses = []
+        if filtered_groups:
+            placeholders = ", ".join("?" for _ in filtered_groups)
+            where_clauses.append(f"g.name IN ({placeholders})")
+            params.extend(filtered_groups)
+        if include_ungrouped:
+            where_clauses.append("d.group_id IS NULL")
+            
+        if not where_clauses:
+            return Response(content="Akses Ditolak: Anda tidak diizinkan mengekspor perangkat apa pun.", media_type="text/plain")
+        where_clause = "WHERE " + " OR ".join(where_clauses)
+
     conn = get_db_conn()
     c = conn.cursor()
     c.execute(f"""
         SELECT {select_clause}
         FROM devices d
         LEFT JOIN device_groups g ON d.group_id = g.id
+        {where_clause}
         ORDER BY d.name COLLATE NOCASE
-    """)
+    """, params)
     rows = c.fetchall()
     conn.close()
 
@@ -85,30 +126,84 @@ async def export_devices_csv(columns: Optional[str] = None):
 
 
 @router.get("")
-async def list_devices():
+async def list_devices(current_user: dict = Depends(get_current_user)):
+    perms = current_user.get("permissions") or {}
+    allowed_groups = perms.get("groups", ["*"])
+
     conn = get_db_conn()
     c = conn.cursor()
-    c.execute("""
-        SELECT d.id, d.name, d.ip, d.protocol, d.port, d.username, d.device_type,
-               d.description, d.status, d.last_seen, d.group_id, d.created_at,
-               d.custom_arp_cmd, d.custom_lldp_cmd, d.custom_cdp_cmd, d.custom_routing_cmd,
-               d.snmp_version, d.snmp_community,
-               d.os_version, d.serial_number, d.mac_address, d.hardware_model,
-               d.credential_id, d.custom_info_cmd, d.raw_info, d.device_role,
-               d.threshold_profile_id, g.name as group_name
-        FROM devices d
-        LEFT JOIN device_groups g ON d.group_id = g.id
-        ORDER BY d.name COLLATE NOCASE
-    """)
+
+    if "*" in allowed_groups:
+        c.execute("""
+            SELECT d.id, d.name, d.ip, d.protocol, d.port, d.username, d.device_type,
+                   d.description, d.status, d.last_seen, d.group_id, d.created_at,
+                   d.custom_arp_cmd, d.custom_lldp_cmd, d.custom_cdp_cmd, d.custom_routing_cmd,
+                   d.snmp_version, d.snmp_community,
+                   d.os_version, d.serial_number, d.mac_address, d.hardware_model,
+                   d.credential_id, d.custom_info_cmd, d.raw_info, d.device_role,
+                   d.threshold_profile_id, g.name as group_name
+            FROM devices d
+            LEFT JOIN device_groups g ON d.group_id = g.id
+            ORDER BY d.name COLLATE NOCASE
+        """)
+    else:
+        include_ungrouped = "Ungrouped" in allowed_groups
+        filtered_groups = [g for g in allowed_groups if g != "Ungrouped"]
+        
+        where_clauses = []
+        params = []
+        if filtered_groups:
+            placeholders = ", ".join("?" for _ in filtered_groups)
+            where_clauses.append(f"g.name IN ({placeholders})")
+            params.extend(filtered_groups)
+        if include_ungrouped:
+            where_clauses.append("d.group_id IS NULL")
+            
+        if not where_clauses:
+            conn.close()
+            return []
+            
+        where_str = " OR ".join(where_clauses)
+        c.execute(f"""
+            SELECT d.id, d.name, d.ip, d.protocol, d.port, d.username, d.device_type,
+                   d.description, d.status, d.last_seen, d.group_id, d.created_at,
+                   d.custom_arp_cmd, d.custom_lldp_cmd, d.custom_cdp_cmd, d.custom_routing_cmd,
+                   d.snmp_version, d.snmp_community,
+                   d.os_version, d.serial_number, d.mac_address, d.hardware_model,
+                   d.credential_id, d.custom_info_cmd, d.raw_info, d.device_role,
+                   d.threshold_profile_id, g.name as group_name
+            FROM devices d
+            LEFT JOIN device_groups g ON d.group_id = g.id
+            WHERE {where_str}
+            ORDER BY d.name COLLATE NOCASE
+        """, params)
+
     rows = [dict(r) for r in c.fetchall()]
     conn.close()
     return rows
 
 
 @router.post("")
-async def create_device(dev: DeviceCreate, background_tasks: BackgroundTasks, user: dict = Depends(require_operator_or_admin)):
+async def create_device(dev: DeviceCreate, background_tasks: BackgroundTasks, user: dict = Depends(require_permission(feature="add_device"))):
     if dev.device_type not in SUPPORTED_DEVICE_TYPES:
         raise HTTPException(status_code=400, detail=f"device_type '{dev.device_type}' tidak didukung.")
+
+    # Check if they can access the group they are adding the device to!
+    if user.get("role") != "admin":
+        perms = user.get("permissions") or {}
+        allowed_groups = perms.get("groups", ["*"])
+        if "*" not in allowed_groups:
+            group_name = "Ungrouped"
+            if dev.group_id:
+                conn = get_db_conn()
+                c = conn.cursor()
+                c.execute("SELECT name FROM device_groups WHERE id = ?", (dev.group_id,))
+                grow = c.fetchone()
+                conn.close()
+                if grow:
+                    group_name = grow["name"]
+            if group_name not in allowed_groups:
+                raise HTTPException(status_code=403, detail="Akses Ditolak: Anda tidak diizinkan menambahkan perangkat ke grup ini.")
 
     conn = get_db_conn()
     c = conn.cursor()
@@ -147,7 +242,7 @@ async def create_device(dev: DeviceCreate, background_tasks: BackgroundTasks, us
 async def import_devices_csv(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    user: dict = Depends(require_operator_or_admin)
+    user: dict = Depends(require_permission(feature="add_device"))
 ):
     contents = await file.read()
     try:
@@ -322,7 +417,7 @@ async def get_device_types():
 
 
 @router.get("/{device_id}")
-async def get_device(device_id: int):
+async def get_device(device_id: int, current_user: dict = Depends(get_current_user)):
     conn = get_db_conn()
     c = conn.cursor()
     c.execute("""
@@ -341,24 +436,52 @@ async def get_device(device_id: int):
     conn.close()
     if not row:
         raise HTTPException(status_code=404, detail="Device tidak ditemukan.")
-    return dict(row)
+    
+    device = dict(row)
+    if not check_user_device_access(device, current_user):
+        raise HTTPException(status_code=403, detail="Akses Ditolak: Anda tidak memiliki akses ke perangkat di grup ini.")
+        
+    return device
 
 
 @router.put("/{device_id}")
-async def update_device(device_id: int, dev: DeviceUpdate, user: dict = Depends(require_operator_or_admin)):
+async def update_device(device_id: int, dev: DeviceUpdate, user: dict = Depends(require_permission(feature="edit_device"))):
     conn = get_db_conn()
     c = conn.cursor()
-    c.execute("SELECT id, name FROM devices WHERE id = ?", (device_id,))
+    c.execute("SELECT id, name, group_id FROM devices WHERE id = ?", (device_id,))
     row = c.fetchone()
     if not row:
         conn.close()
         raise HTTPException(status_code=404, detail="Device tidak ditemukan.")
     dev_name = row["name"]
+    old_group_id = row["group_id"]
+
+    # Verify access to the current device (group check)
+    device_mock = {"group_id": old_group_id}
+    if not check_user_device_access(device_mock, user):
+        conn.close()
+        raise HTTPException(status_code=403, detail="Akses Ditolak: Anda tidak memiliki akses ke perangkat di grup ini.")
 
     updates = dev.dict(exclude_none=True)
     if not updates:
         conn.close()
         return {"success": True, "message": "Tidak ada perubahan."}
+
+    # Verify access to the new group if it is changing
+    if "group_id" in updates and updates["group_id"] != old_group_id:
+        if user.get("role") != "admin":
+            perms = user.get("permissions") or {}
+            allowed_groups = perms.get("groups", ["*"])
+            if "*" not in allowed_groups:
+                new_group_name = "Ungrouped"
+                if updates["group_id"]:
+                    c.execute("SELECT name FROM device_groups WHERE id = ?", (updates["group_id"],))
+                    grow = c.fetchone()
+                    if grow:
+                        new_group_name = grow["name"]
+                if new_group_name not in allowed_groups:
+                    conn.close()
+                    raise HTTPException(status_code=403, detail="Akses Ditolak: Anda tidak diizinkan memindahkan perangkat ke grup ini.")
 
     if "password" in updates:
         if updates["password"] == "":
@@ -382,15 +505,21 @@ async def update_device(device_id: int, dev: DeviceUpdate, user: dict = Depends(
 
 
 @router.delete("/{device_id}")
-async def delete_device(device_id: int, user: dict = Depends(require_operator_or_admin)):
+async def delete_device(device_id: int, user: dict = Depends(require_permission(feature="delete_device"))):
     conn = get_db_conn()
     c = conn.cursor()
-    c.execute("SELECT name FROM devices WHERE id = ?", (device_id,))
+    c.execute("SELECT name, group_id FROM devices WHERE id = ?", (device_id,))
     row = c.fetchone()
     if not row:
         conn.close()
         raise HTTPException(status_code=404, detail="Device tidak ditemukan.")
     dev_name = row["name"]
+    group_id = row["group_id"]
+    
+    device_mock = {"group_id": group_id}
+    if not check_user_device_access(device_mock, user):
+        conn.close()
+        raise HTTPException(status_code=403, detail="Akses Ditolak: Anda tidak memiliki akses ke perangkat di grup ini.")
     
     c.execute("DELETE FROM devices WHERE id = ?", (device_id,))
     conn.commit()
@@ -400,7 +529,7 @@ async def delete_device(device_id: int, user: dict = Depends(require_operator_or
 
 
 @router.post("/{device_id}/test-connection")
-async def test_device_connection(device_id: int, background_tasks: BackgroundTasks, user: dict = Depends(require_operator_or_admin)):
+async def test_device_connection(device_id: int, background_tasks: BackgroundTasks, user: dict = Depends(get_current_user)):
     conn = get_db_conn()
     c = conn.cursor()
     c.execute("SELECT * FROM devices WHERE id = ?", (device_id,))
@@ -410,6 +539,9 @@ async def test_device_connection(device_id: int, background_tasks: BackgroundTas
         raise HTTPException(status_code=404, detail="Device tidak ditemukan.")
 
     device = dict(row)
+    if not check_user_device_access(device, user):
+        raise HTTPException(status_code=403, detail="Akses Ditolak: Anda tidak memiliki akses ke perangkat di grup ini.")
+
     username, password = get_device_credentials(device)
     device["username"] = username
     result = await test_connection(device, password)

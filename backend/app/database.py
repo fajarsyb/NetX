@@ -3,6 +3,22 @@ import sqlite3
 from datetime import datetime
 from cryptography.fernet import Fernet
 
+# ─── MONKEYPATCH PYSNMP ENGINE FOR FD LEAK PREVENTION ───────────────────────
+try:
+    from pysnmp.entity.engine import SnmpEngine as PySnmpEngine
+    def _snmp_engine_del(self):
+        try:
+            if hasattr(self, "close_dispatcher"):
+                self.close_dispatcher()
+            elif hasattr(self, "closeDispatcher"):
+                self.closeDispatcher()
+        except Exception:
+            pass
+
+    PySnmpEngine.__del__ = _snmp_engine_del
+except ImportError:
+    pass
+
 DB_DIR = "data"
 DB_PATH = os.path.join(DB_DIR, "netx.db")
 KEY_PATH = os.path.join(DB_DIR, "secret.key")
@@ -180,6 +196,7 @@ class PostgreSQLCursorWrapper:
 class PostgreSQLConnectionWrapper:
     def __init__(self, real_conn):
         self.real_conn = real_conn
+        self._closed = False
 
     def cursor(self, *args, **kwargs):
         import psycopg2.extras
@@ -195,8 +212,21 @@ class PostgreSQLConnectionWrapper:
         return self.real_conn.rollback()
 
     def close(self):
-        if PG_POOL is not None:
-            PG_POOL.putconn(self.real_conn)
+        if not self._closed:
+            if PG_POOL is not None:
+                try:
+                    PG_POOL.putconn(self.real_conn)
+                except Exception:
+                    pass
+            else:
+                try:
+                    self.real_conn.close()
+                except Exception:
+                    pass
+            self._closed = True
+
+    def __del__(self):
+        self.close()
 
     def execute(self, query, vars=None):
         cur = self.cursor()
@@ -241,6 +271,7 @@ class SQLiteCursorWrapper:
 class SQLiteConnectionWrapper:
     def __init__(self, real_conn):
         self.real_conn = real_conn
+        self._closed = False
 
     def cursor(self, *args, **kwargs):
         real_cur = self.real_conn.cursor(*args, **kwargs)
@@ -253,7 +284,15 @@ class SQLiteConnectionWrapper:
         return self.real_conn.rollback()
 
     def close(self):
-        return self.real_conn.close()
+        if not self._closed:
+            try:
+                self.real_conn.close()
+            except Exception:
+                pass
+            self._closed = True
+
+    def __del__(self):
+        self.close()
 
     def execute(self, query, vars=None):
         cur = self.cursor()
@@ -298,9 +337,10 @@ def get_db_conn():
             logging.getLogger("netx.database").error(f"Gagal mengambil koneksi PostgreSQL: {e}")
             raise e
     else:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, timeout=30.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA synchronous=NORMAL;")
         conn.execute("PRAGMA foreign_keys=ON;")
         return SQLiteConnectionWrapper(conn)
 
@@ -345,6 +385,7 @@ def init_db():
             full_name   VARCHAR(255) DEFAULT '',
             role        VARCHAR(50) NOT NULL DEFAULT 'user',
             is_active   INTEGER NOT NULL DEFAULT 1,
+            permissions TEXT DEFAULT NULL,
             created_at  VARCHAR(100) NOT NULL
         );
         """)
@@ -630,6 +671,11 @@ def init_db():
             stp_top_changes INTEGER DEFAULT 0,
             status_changes_history TEXT DEFAULT '[]',
             updated_at      VARCHAR(100) NOT NULL,
+            in_errors       BIGINT DEFAULT 0,
+            out_errors      BIGINT DEFAULT 0,
+            crc_errors      BIGINT DEFAULT 0,
+            frame_errors    BIGINT DEFAULT 0,
+            link_speed      BIGINT DEFAULT 0,
             PRIMARY KEY (device_id, interface_name),
             FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
         );
@@ -727,6 +773,10 @@ def init_db():
             pass
         try:
             c.execute("ALTER TABLE network_anomalies ADD COLUMN IF NOT EXISTS parent_anomaly_id INTEGER REFERENCES network_anomalies(id) ON DELETE SET NULL;")
+        except Exception:
+            pass
+        try:
+            c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS permissions TEXT DEFAULT NULL;")
         except Exception:
             pass
 
@@ -1010,6 +1060,7 @@ def init_db():
             full_name   TEXT DEFAULT '',
             role        TEXT NOT NULL DEFAULT 'user',
             is_active   INTEGER NOT NULL DEFAULT 1,
+            permissions TEXT DEFAULT NULL,
             created_at  TEXT NOT NULL
         );
         """)
@@ -1275,6 +1326,10 @@ def init_db():
             pass
         try:
             c.execute("ALTER TABLE network_anomalies ADD COLUMN parent_anomaly_id INTEGER REFERENCES network_anomalies(id) ON DELETE SET NULL;")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            c.execute("ALTER TABLE users ADD COLUMN permissions TEXT DEFAULT NULL;")
         except sqlite3.OperationalError:
             pass
 

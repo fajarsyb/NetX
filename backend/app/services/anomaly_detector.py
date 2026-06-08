@@ -111,12 +111,13 @@ def get_expected_speed_mbps(if_name: str) -> int:
         
     return 0
 
-async def walk_oid(ip: str, community: str, mp_model: int, oid_str: str) -> dict:
+async def walk_oid(ip: str, community: str, mp_model: int, oid_str: str, snmp_engine=None) -> dict:
     """Walks an OID and returns a dict mapping index (int) to value string."""
     results = {}
+    local_engine = snmp_engine is None
+    engine = snmp_engine if snmp_engine else SnmpEngine()
     try:
         transport = await UdpTransportTarget.create((ip, 161), timeout=2.0, retries=1)
-        snmpEngine = SnmpEngine()
         authData = CommunityData(community, mpModel=mp_model)
         contextData = ContextData()
         
@@ -125,7 +126,7 @@ async def walk_oid(ip: str, community: str, mp_model: int, oid_str: str) -> dict
         varBinds = [ObjectType(ObjectIdentity(oid_str))]
         
         while True:
-            res = await next_cmd(snmpEngine, authData, transport, contextData, *varBinds)
+            res = await next_cmd(engine, authData, transport, contextData, *varBinds)
             errorIndication, errorStatus, errorIndex, varBindTable = res
             if errorIndication or errorStatus or not varBindTable:
                 break
@@ -142,20 +143,27 @@ async def walk_oid(ip: str, community: str, mp_model: int, oid_str: str) -> dict
                 
             idx = current_oid_tuple[-1]
             val = current_var_bind[1]
-            # Convert values to clean string
             results[idx] = val.prettyPrint()
             
             varBinds = firstVarBinds
     except Exception as e:
         logger.debug(f"SNMP walk error on {ip} for {oid_str}: {e}")
+    finally:
+        if local_engine:
+            try:
+                engine.close_dispatcher()
+            except Exception:
+                pass
     return results
 
-async def get_scalar_oid(ip: str, community: str, mp_model: int, oid_str: str) -> str:
+async def get_scalar_oid(ip: str, community: str, mp_model: int, oid_str: str, snmp_engine=None) -> str:
     """Gets a single scalar OID value (e.g. dot1dStpTopChanges.0)."""
+    local_engine = snmp_engine is None
+    engine = snmp_engine if snmp_engine else SnmpEngine()
     try:
         transport = await UdpTransportTarget.create((ip, 161), timeout=2.0, retries=1)
         res = await get_cmd(
-            SnmpEngine(),
+            engine,
             CommunityData(community, mpModel=mp_model),
             transport,
             ContextData(),
@@ -166,6 +174,12 @@ async def get_scalar_oid(ip: str, community: str, mp_model: int, oid_str: str) -
             return varBinds[0][1].prettyPrint()
     except Exception as e:
         logger.debug(f"SNMP get error on {ip} for {oid_str}: {e}")
+    finally:
+        if local_engine:
+            try:
+                engine.close_dispatcher()
+            except Exception:
+                pass
     return ""
 
 def check_mac_flapping(device_id: int, mac_entries: list, conn) -> list:
@@ -269,30 +283,35 @@ async def scan_device_anomalies(device: dict):
     
     logger.info(f"Scanning anomalies for device {device['name']} ({ip})...")
     
-    # 1. Fetch Interface details in parallel
-    tasks = [
-        walk_oid(ip, community, mp_model, '1.3.6.1.2.1.2.2.1.2'),     # descrs (ifDescr)
-        walk_oid(ip, community, mp_model, '1.3.6.1.2.1.2.2.1.8'),     # statuses (ifOperStatus)
-        walk_oid(ip, community, mp_model, '1.3.6.1.2.1.31.1.1.1.3'), # in_broadcast (ifInBroadcastPkts)
-        walk_oid(ip, community, mp_model, '1.3.6.1.2.1.31.1.1.1.5'), # out_broadcast (ifOutBroadcastPkts)
-        walk_oid(ip, community, mp_model, '1.3.6.1.2.1.31.1.1.1.2'), # in_multicast (ifInMulticastPkts)
-        walk_oid(ip, community, mp_model, '1.3.6.1.2.1.31.1.1.1.4'), # out_multicast (ifOutMulticastPkts)
-        walk_oid(ip, community, mp_model, '1.3.6.1.2.1.2.2.1.11'),    # in_unicast (ifInUcastPkts)
-        walk_oid(ip, community, mp_model, '1.3.6.1.2.1.2.2.1.17'),    # out_unicast (ifOutUcastPkts)
-        get_scalar_oid(ip, community, mp_model, '1.3.6.1.2.1.17.2.4.0'), # dot1dStpTopChanges.0
-        walk_oid(ip, community, mp_model, '1.3.6.1.2.1.2.2.1.5'),     # speeds (ifSpeed)
-        walk_oid(ip, community, mp_model, '1.3.6.1.2.1.31.1.1.1.15'), # high_speeds (ifHighSpeed)
-        walk_oid(ip, community, mp_model, '1.3.6.1.2.1.2.2.1.14'),    # in_errors (ifInErrors)
-        walk_oid(ip, community, mp_model, '1.3.6.1.2.1.2.2.1.20'),    # out_errors (ifOutErrors)
-        walk_oid(ip, community, mp_model, '1.3.6.1.2.1.10.7.2.1.3'),  # crc_errors (dot3StatsFCSErrors)
-        walk_oid(ip, community, mp_model, '1.3.6.1.2.1.10.7.2.1.2'),  # frame_errors (dot3StatsAlignmentErrors)
-    ]
-    
+    # 1. Fetch Interface details in parallel using a single SnmpEngine
+    snmp_engine = SnmpEngine()
     try:
+        tasks = [
+            walk_oid(ip, community, mp_model, '1.3.6.1.2.1.2.2.1.2', snmp_engine=snmp_engine),     # descrs (ifDescr)
+            walk_oid(ip, community, mp_model, '1.3.6.1.2.1.2.2.1.8', snmp_engine=snmp_engine),     # statuses (ifOperStatus)
+            walk_oid(ip, community, mp_model, '1.3.6.1.2.1.31.1.1.1.3', snmp_engine=snmp_engine), # in_broadcast (ifInBroadcastPkts)
+            walk_oid(ip, community, mp_model, '1.3.6.1.2.1.31.1.1.1.5', snmp_engine=snmp_engine), # out_broadcast (ifOutBroadcastPkts)
+            walk_oid(ip, community, mp_model, '1.3.6.1.2.1.31.1.1.1.2', snmp_engine=snmp_engine), # in_multicast (ifInMulticastPkts)
+            walk_oid(ip, community, mp_model, '1.3.6.1.2.1.31.1.1.1.4', snmp_engine=snmp_engine), # out_multicast (ifOutMulticastPkts)
+            walk_oid(ip, community, mp_model, '1.3.6.1.2.1.2.2.1.11', snmp_engine=snmp_engine),    # in_unicast (ifInUcastPkts)
+            walk_oid(ip, community, mp_model, '1.3.6.1.2.1.2.2.1.17', snmp_engine=snmp_engine),    # out_unicast (ifOutUcastPkts)
+            get_scalar_oid(ip, community, mp_model, '1.3.6.1.2.1.17.2.4.0', snmp_engine=snmp_engine), # dot1dStpTopChanges.0
+            walk_oid(ip, community, mp_model, '1.3.6.1.2.1.2.2.1.5', snmp_engine=snmp_engine),     # speeds (ifSpeed)
+            walk_oid(ip, community, mp_model, '1.3.6.1.2.1.31.1.1.1.15', snmp_engine=snmp_engine), # high_speeds (ifHighSpeed)
+            walk_oid(ip, community, mp_model, '1.3.6.1.2.1.2.2.1.14', snmp_engine=snmp_engine),    # in_errors (ifInErrors)
+            walk_oid(ip, community, mp_model, '1.3.6.1.2.1.2.2.1.20', snmp_engine=snmp_engine),    # out_errors (ifOutErrors)
+            walk_oid(ip, community, mp_model, '1.3.6.1.2.1.10.7.2.1.3', snmp_engine=snmp_engine),  # crc_errors (dot3StatsFCSErrors)
+            walk_oid(ip, community, mp_model, '1.3.6.1.2.1.10.7.2.1.2', snmp_engine=snmp_engine),  # frame_errors (dot3StatsAlignmentErrors)
+        ]
         res = await asyncio.gather(*tasks)
     except Exception as e:
         logger.error(f"Error gathering SNMP data for {device['name']}: {e}")
         return
+    finally:
+        try:
+            snmp_engine.close_dispatcher()
+        except Exception:
+            pass
         
     descrs, statuses, in_broad, out_broad, in_multi, out_multi, in_uni, out_uni, stp_tc, speeds, high_speeds, in_errors, out_errors, crc_errors, frame_errors = res
     
@@ -302,9 +321,9 @@ async def scan_device_anomalies(device: dict):
         
     # Open local connection for this device's updates
     conn = get_db_conn()
-    th = load_device_thresholds(device_id, conn)
-    c = conn.cursor()
     try:
+        th = load_device_thresholds(device_id, conn)
+        c = conn.cursor()
         # Get active/previous stats from DB
         c.execute("SELECT * FROM interface_stats_latest WHERE device_id = ?", (device_id,))
         prev_stats_rows = c.fetchall()

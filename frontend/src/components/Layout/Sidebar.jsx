@@ -3,7 +3,7 @@ import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import {
   Server, LayoutDashboard, Plus, Network, ChevronRight, ChevronDown,
   Radio, Wifi, RefreshCw, LogOut, Users, FolderGit2, ShieldCheck, Map, Key, Search, Settings, FileCode, AlertTriangle, FileText, Database, Activity,
-  Sun, Moon, GripVertical, Sliders
+  Sun, Moon, GripVertical, Sliders, Terminal
 } from 'lucide-react'
 import { arpApi } from '../../api/client'
 import AddDeviceModal from '../Device/AddDeviceModal'
@@ -22,6 +22,18 @@ export default function Sidebar() {
   const [openSettings, setOpenSettings] = useState(() => {
     return ['/users', '/credentials', '/credential-scan', '/backup', '/db-settings', '/system-health', '/device-backup', '/snmp-tester', '/mibs', '/thresholds'].includes(location.pathname)
   })
+
+  const hasMenu = (mKey) => {
+    if (!user) return false
+    if (user.role === 'admin') return true
+    return user.permissions?.menus?.includes(mKey)
+  }
+
+  const hasFeature = (fKey) => {
+    if (!user) return false
+    if (user.role === 'admin') return true
+    return user.permissions?.features?.includes(fKey)
+  }
 
   // Resizable Sidebar logic
   const [sidebarWidth, setSidebarWidth] = useState(() => {
@@ -99,64 +111,88 @@ export default function Sidebar() {
         <nav className="sidebar-nav">
           <div className="sidebar-section-label">Menu</div>
 
-          <NavLink
-            to="/"
-            className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-            end
-          >
-            <LayoutDashboard className="nav-icon" />
-            Dashboard
-          </NavLink>
+          {hasMenu('dashboard') && (
+            <NavLink
+              to="/"
+              className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+              end
+            >
+              <LayoutDashboard className="nav-icon" />
+              Dashboard
+            </NavLink>
+          )}
 
-          <NavLink
-            to="/topology"
-            className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-          >
-            <Map className="nav-icon" />
-            Network Topology
-          </NavLink>
+          {hasMenu('topology') && (
+            <NavLink
+              to="/topology"
+              className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+            >
+              <Map className="nav-icon" />
+              Network Topology
+            </NavLink>
+          )}
 
-          <NavLink
-            to="/investigation"
-            className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-          >
-            <Search className="nav-icon" />
-            Investigasi
-          </NavLink>
+          {hasMenu('investigation') && (
+            <NavLink
+              to="/investigation"
+              className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+            >
+              <Search className="nav-icon" />
+              Investigasi
+            </NavLink>
+          )}
 
-          <NavLink
-            to="/anomalies"
-            className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-          >
-            <AlertTriangle className="nav-icon" />
-            Network Anomalies
-          </NavLink>
+          {hasMenu('anomalies') && (
+            <NavLink
+              to="/anomalies"
+              className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+            >
+              <AlertTriangle className="nav-icon" />
+              Network Anomalies
+            </NavLink>
+          )}
 
-          <NavLink
-            to="/syslog"
-            className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-          >
-            <FileText className="nav-icon" />
-            Syslog Viewer
-          </NavLink>
+          {hasMenu('syslog') && (
+            <NavLink
+              to="/syslog"
+              className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+            >
+              <FileText className="nav-icon" />
+              Syslog Viewer
+            </NavLink>
+          )}
 
-          <NavLink
-            to="/groups"
-            className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-          >
-            <FolderGit2 className="nav-icon" />
-            Manajemen Group
-          </NavLink>
+          {hasMenu('terminal') && (
+            <NavLink
+              to="/terminal"
+              className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+            >
+              <Terminal className="nav-icon" />
+              Web CLI Terminal
+            </NavLink>
+          )}
 
-          <NavLink
-            to="/devices"
-            className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-          >
-            <Server className="nav-icon" />
-            Manajemen Device
-          </NavLink>
+          {hasMenu('groups') && (
+            <NavLink
+              to="/groups"
+              className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+            >
+              <FolderGit2 className="nav-icon" />
+              Manajemen Group
+            </NavLink>
+          )}
 
-          {user?.role === 'admin' && (
+          {hasMenu('devices') && (
+            <NavLink
+              to="/devices"
+              className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+            >
+              <Server className="nav-icon" />
+              Manajemen Device
+            </NavLink>
+          )}
+
+          {hasMenu('audit_logs') && (
             <NavLink
               to="/audit-logs"
               className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
@@ -167,99 +203,119 @@ export default function Sidebar() {
           )}
 
           {/* Settings Sub-menu */}
-          <button
-            type="button"
-            className={`nav-link ${['/users', '/credentials', '/credential-scan', '/backup', '/db-settings', '/system-health', '/device-backup', '/snmp-tester', '/mibs', '/thresholds'].includes(location.pathname) ? 'active' : ''}`}
-            onClick={() => setOpenSettings(prev => !prev)}
-            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <Settings className="nav-icon" />
-              Settings
-            </div>
-            {openSettings ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          </button>
+          {hasMenu('settings') && (
+            <>
+              <button
+                type="button"
+                className={`nav-link ${['/users', '/credentials', '/credential-scan', '/backup', '/db-settings', '/system-health', '/device-backup', '/snmp-tester', '/mibs', '/thresholds'].includes(location.pathname) ? 'active' : ''}`}
+                onClick={() => setOpenSettings(prev => !prev)}
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <Settings className="nav-icon" />
+                  Settings
+                </div>
+                {openSettings ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              </button>
 
-          {openSettings && (
-            <div className="submenu">
-              {user?.role === 'admin' && (
-                <>
-                  <NavLink
-                    to="/users"
-                    className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-                  >
-                    <Users className="nav-icon" />
-                    Manajemen User
-                  </NavLink>
-                  <NavLink
-                    to="/credentials"
-                    className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-                  >
-                    <Key className="nav-icon" />
-                    Manajemen Kredensial
-                  </NavLink>
-                  <NavLink
-                    to="/thresholds"
-                    className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-                  >
-                    <Sliders className="nav-icon" />
-                    Profil Threshold
-                  </NavLink>
-                  <NavLink
-                    to="/credential-scan"
-                    className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-                  >
-                    <ShieldCheck className="nav-icon" />
-                    Scan Kredensial
-                  </NavLink>
-                  <NavLink
-                    to="/backup"
-                    className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-                  >
-                    <Server className="nav-icon" />
-                    Backup DB Sistem
-                  </NavLink>
-                  <NavLink
-                    to="/db-settings"
-                    className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-                  >
-                    <Database className="nav-icon" />
-                    Integrasi PostgreSQL
-                  </NavLink>
-                  <NavLink
-                    to="/system-health"
-                    className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-                  >
-                    <Activity className="nav-icon" />
-                    Kesehatan Sistem
-                  </NavLink>
-                </>
+              {openSettings && (
+                <div className="submenu">
+                  {user?.role === 'admin' && (
+                    <NavLink
+                      to="/users"
+                      className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                    >
+                      <Users className="nav-icon" />
+                      Manajemen User
+                    </NavLink>
+                  )}
+                  {hasFeature('manage_credentials') && (
+                    <NavLink
+                      to="/credentials"
+                      className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                    >
+                      <Key className="nav-icon" />
+                      Manajemen Kredensial
+                    </NavLink>
+                  )}
+                  {hasFeature('threshold_profiles') && (
+                    <NavLink
+                      to="/thresholds"
+                      className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                    >
+                      <Sliders className="nav-icon" />
+                      Profil Threshold
+                    </NavLink>
+                  )}
+                  {hasFeature('manage_credentials') && (
+                    <NavLink
+                      to="/credential-scan"
+                      className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                    >
+                      <ShieldCheck className="nav-icon" />
+                      Scan Kredensial
+                    </NavLink>
+                  )}
+                  {hasFeature('backup_db') && (
+                    <NavLink
+                      to="/backup"
+                      className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                    >
+                      <Server className="nav-icon" />
+                      Backup DB Sistem
+                    </NavLink>
+                  )}
+                  {hasFeature('postgresql_config') && (
+                    <NavLink
+                      to="/db-settings"
+                      className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                    >
+                      <Database className="nav-icon" />
+                      Integrasi PostgreSQL
+                    </NavLink>
+                  )}
+                  {user?.role === 'admin' && (
+                    <NavLink
+                      to="/system-health"
+                      className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                    >
+                      <Activity className="nav-icon" />
+                      Kesehatan Sistem
+                    </NavLink>
+                  )}
+                  {hasFeature('device_backup') && (
+                    <NavLink
+                      to="/device-backup"
+                      className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                    >
+                      <FolderGit2 className="nav-icon" />
+                      Backup Config Perangkat
+                    </NavLink>
+                  )}
+                  {hasFeature('snmp_tester') && (
+                    <NavLink
+                      to="/snmp-tester"
+                      className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                    >
+                      <Radio className="nav-icon" />
+                      SNMP Tester
+                    </NavLink>
+                  )}
+                  {hasFeature('mibs') && (
+                    <NavLink
+                      to="/mibs"
+                      className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                    >
+                      <FileCode className="nav-icon" />
+                      SNMP MIB Manager
+                    </NavLink>
+                  )}
+                </div>
               )}
-              <NavLink
-                to="/device-backup"
-                className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-              >
-                <FolderGit2 className="nav-icon" />
-                Backup Config Perangkat
-              </NavLink>
-              <NavLink
-                to="/snmp-tester"
-                className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-              >
-                <Radio className="nav-icon" />
-                SNMP Tester
-              </NavLink>
-              <NavLink
-                to="/mibs"
-                className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-              >
-                <FileCode className="nav-icon" />
-                SNMP MIB Manager
-              </NavLink>
-            </div>
+            </>
           )}
 
-          {user?.role !== 'viewer' && (
+          {hasFeature('add_device') && (
             <button className="nav-link" onClick={() => setShowAdd(true)}>
               <Plus className="nav-icon" />
               Tambah Device

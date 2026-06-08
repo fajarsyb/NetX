@@ -3,31 +3,51 @@ from datetime import datetime
 import asyncio
 from app.database import get_db_conn
 from app.models import GroupCreate, GroupUpdate
-from app.services.auth import get_current_user, require_operator_or_admin
+from app.services.auth import get_current_user, require_operator_or_admin, require_permission
 from app.services.audit import log_audit
 
 router = APIRouter(prefix="/api/groups", tags=["groups"])
 
 @router.get("")
-async def list_groups():
+async def list_groups(current_user: dict = Depends(get_current_user)):
+    perms = current_user.get("permissions") or {}
+    allowed_groups = perms.get("groups", ["*"])
+
     conn = get_db_conn()
     c = conn.cursor()
-    c.execute("""
-        SELECT g.id, g.name, g.description, g.parent_id, g.created_at,
-               p.name as parent_name,
-               COUNT(d.id) as device_count
-        FROM device_groups g
-        LEFT JOIN device_groups p ON g.parent_id = p.id
-        LEFT JOIN devices d ON d.group_id = g.id
-        GROUP BY g.id
-        ORDER BY g.name COLLATE NOCASE
-    """)
+    
+    if "*" in allowed_groups:
+        c.execute("""
+            SELECT g.id, g.name, g.description, g.parent_id, g.created_at,
+                   p.name as parent_name,
+                   COUNT(d.id) as device_count
+            FROM device_groups g
+            LEFT JOIN device_groups p ON g.parent_id = p.id
+            LEFT JOIN devices d ON d.group_id = g.id
+            GROUP BY g.id
+            ORDER BY g.name COLLATE NOCASE
+        """)
+    else:
+        # Filter by allowed group names
+        placeholders = ", ".join("?" for _ in allowed_groups)
+        c.execute(f"""
+            SELECT g.id, g.name, g.description, g.parent_id, g.created_at,
+                   p.name as parent_name,
+                   COUNT(d.id) as device_count
+            FROM device_groups g
+            LEFT JOIN device_groups p ON g.parent_id = p.id
+            LEFT JOIN devices d ON d.group_id = g.id
+            WHERE g.name IN ({placeholders})
+            GROUP BY g.id
+            ORDER BY g.name COLLATE NOCASE
+        """, allowed_groups)
+        
     rows = [dict(r) for r in c.fetchall()]
     conn.close()
     return rows
 
 @router.post("")
-async def create_group(group: GroupCreate, user: dict = Depends(require_operator_or_admin)):
+async def create_group(group: GroupCreate, user: dict = Depends(require_permission(feature="manage_groups"))):
     conn = get_db_conn()
     c = conn.cursor()
     now = datetime.now().isoformat()
@@ -48,7 +68,7 @@ async def create_group(group: GroupCreate, user: dict = Depends(require_operator
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/{group_id}")
-async def update_group(group_id: int, group: GroupUpdate, user: dict = Depends(require_operator_or_admin)):
+async def update_group(group_id: int, group: GroupUpdate, user: dict = Depends(require_permission(feature="manage_groups"))):
     if group.parent_id is not None:
         if is_circular_group_loop(group_id, group.parent_id):
             raise HTTPException(status_code=400, detail="Tidak bisa membuat hirarki melingkar (circular loop).")
@@ -80,7 +100,7 @@ async def update_group(group_id: int, group: GroupUpdate, user: dict = Depends(r
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/{group_id}")
-async def delete_group(group_id: int, user: dict = Depends(require_operator_or_admin)):
+async def delete_group(group_id: int, user: dict = Depends(require_permission(feature="manage_groups"))):
     conn = get_db_conn()
     c = conn.cursor()
     c.execute("SELECT name FROM device_groups WHERE id = ?", (group_id,))
@@ -206,7 +226,19 @@ async def refresh_single_device_full(device_id: int) -> dict:
 
 
 @router.post("/{group_id}/refresh")
-async def refresh_group_devices(group_id: int, user: dict = Depends(require_operator_or_admin)):
+async def refresh_group_devices(group_id: int, user: dict = Depends(get_current_user)):
+    # Verify group access
+    perms = user.get("permissions") or {}
+    allowed_groups = perms.get("groups", ["*"])
+    if "*" not in allowed_groups:
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute("SELECT name FROM device_groups WHERE id = ?", (group_id,))
+        grow = c.fetchone()
+        conn.close()
+        gname = grow["name"] if grow else "Ungrouped"
+        if gname not in allowed_groups:
+            raise HTTPException(status_code=403, detail="Akses Ditolak: Anda tidak diizinkan merefresh grup ini.")
     device_ids = get_all_device_ids_in_group(group_id)
     if not device_ids:
         return {

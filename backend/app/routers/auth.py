@@ -15,17 +15,21 @@ from app.services.audit import log_audit
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
+from typing import Dict, Any
+
 # ─── SCHEMAS ─────────────────────────────────────────────────────────────────
 class UserCreate(BaseModel):
     username:  str
     password:  str
     full_name: str  = ""
     role:      str  = "user"
+    permissions: Optional[Dict[str, Any]] = None
 
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     role:      Optional[str] = None
     is_active: Optional[int] = None
+    permissions: Optional[Dict[str, Any]] = None
 
 class PasswordChange(BaseModel):
     current_password: str
@@ -52,6 +56,15 @@ async def login(form: OAuth2PasswordRequestForm = Depends()):
     if not user["is_active"]:
         raise HTTPException(status_code=403, detail="Akun dinonaktifkan. Hubungi administrator.")
 
+    import json
+    perms_str = user.get("permissions")
+    perms = None
+    if perms_str:
+        try:
+            perms = json.loads(perms_str)
+        except Exception:
+            pass
+
     token = create_access_token({"sub": str(user["id"]), "role": user["role"]})
     log_audit(user["id"], user["username"], "LOGIN", "Authentication", f"User logged in successfully.")
     return {
@@ -62,6 +75,7 @@ async def login(form: OAuth2PasswordRequestForm = Depends()):
             "username":  user["username"],
             "full_name": user["full_name"],
             "role":      user["role"],
+            "permissions": perms
         },
     }
 
@@ -108,11 +122,24 @@ async def list_users(admin: dict = Depends(require_admin)):
     conn = get_db_conn()
     c = conn.cursor()
     c.execute("""
-        SELECT id, username, full_name, role, is_active, created_at
+        SELECT id, username, full_name, role, is_active, permissions, created_at
         FROM users ORDER BY id
     """)
-    rows = [dict(r) for r in c.fetchall()]
+    raw_rows = [dict(r) for r in c.fetchall()]
     conn.close()
+
+    import json
+    rows = []
+    for row in raw_rows:
+        perms_str = row.pop("permissions", None)
+        perms = None
+        if perms_str:
+            try:
+                perms = json.loads(perms_str)
+            except Exception:
+                pass
+        row["permissions"] = perms
+        rows.append(row)
     return rows
 
 
@@ -123,12 +150,15 @@ async def create_user(body: UserCreate, admin: dict = Depends(require_admin)):
     if body.role not in ("admin", "operator", "viewer"):
         raise HTTPException(status_code=400, detail="Role harus 'admin', 'operator', atau 'viewer'.")
 
+    import json
+    perms_json = json.dumps(body.permissions) if body.permissions is not None else None
+
     conn = get_db_conn()
     c = conn.cursor()
     try:
         c.execute(
-            "INSERT INTO users (username, password, full_name, role, created_at) VALUES (?,?,?,?,?)",
-            (body.username, hash_password(body.password), body.full_name, body.role, datetime.now().isoformat()),
+            "INSERT INTO users (username, password, full_name, role, permissions, created_at) VALUES (?,?,?,?,?,?)",
+            (body.username, hash_password(body.password), body.full_name, body.role, perms_json, datetime.now().isoformat()),
         )
         conn.commit()
         uid = c.lastrowid
@@ -159,6 +189,10 @@ async def update_user(user_id: int, body: UserUpdate, admin: dict = Depends(requ
     if "role" in updates and updates["role"] not in ("admin", "operator", "viewer"):
         conn.close()
         raise HTTPException(status_code=400, detail="Role harus 'admin', 'operator', atau 'viewer'.")
+
+    if "permissions" in updates:
+        import json
+        updates["permissions"] = json.dumps(updates["permissions"]) if updates["permissions"] else None
 
     set_clause = ", ".join(f"{k} = ?" for k in updates)
     vals = list(updates.values()) + [user_id]
