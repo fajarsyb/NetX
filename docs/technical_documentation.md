@@ -275,19 +275,34 @@ Tab baru `🔌 Perangkat Terhubung` ditambahkan ke SyslogViewer, menampilkan:
 
 ---
 
-## 8. Arsitektur Worker Process
+## 8. Arsitektur Distributed Worker & Antrean Job Redis
 
-Sistem NetX kini mendukung mode operasi terpisah:
+Sistem NetX telah di-refactor secara menyeluruh dari arsitektur monolitik *single-process* menjadi arsitektur terdistribusi berbasis **Redis Job Queue** dan **Distributed Locking**. Perubahan ini memisahkan server web API dari daemon pemroses backend yang berat guna mengoptimalkan kinerja CPU, membatasi kebocoran soket, serta menghindari crash batas file descriptor (`too many file descriptors in select()`).
 
-- **Mode `unified`** (default): API dan background jobs berjalan dalam satu proses.
-- **Mode `api`**: API-only, background jobs dinonaktifkan. Diatur via environment variable `NETX_MODE=api`.
-- **Worker process** (`worker.py`): Menjalankan semua background jobs secara terpisah:
-  - Device Backup Scheduler
-  - Network History Tracker
-  - Anomaly Detection Scheduler
-  - Syslog UDP Server
+### A. Komponen Backend Baru
+1. **API Server (FastAPI)**: Hanya melayani request HTTP/REST dari klien dan koneksi WebSocket untuk terminal web. Server API tidak menjalankan pemrosesan latar belakang yang berat secara langsung.
+2. **Worker Daemon (`main_worker.py`)**: Proses daemon terisolasi yang menarik pekerjaan menggunakan perintah blokir `BRPOP` dari Redis List dan mengeksekusinya secara konkuren menggunakan asinkronisasi `asyncio`.
+3. **Scheduler Daemon (`main_scheduler.py`)**: Cron scheduler mandiri yang secara berkala (setiap 30 detik) memeriksa database dan mendorong tugas pencadangan konfigurasi/pemindaian anomali ke antrean Redis.
+4. **Syslog Receiver Daemon (`syslog_server.py`)**: Menerima log Syslog UDP port 514 di luar thread API utama sehingga log bising tidak mengganggu throughput API HTTP.
 
-`run.bat` dan `run_production.bat` diupdate untuk menjalankan worker di jendela terpisah dan API dalam mode `api`, menghindari duplikasi background tasks.
+---
+
+### B. Redis Job Queue & Pola Sync-over-Async
+Komunikasi antar-proses dikelola menggunakan antrean terdistribusi berbasis tipe data **Redis List**:
+* **Antrean Prioritas**: Tugas didorong menggunakan `LPUSH` ke antrean prioritas tinggi (`queue:high`), default (`queue:default`), atau rendah (`queue:low`).
+* **Pola Sync-over-Async**: Untuk sinkronisasi perangkat instan yang dipicu pengguna dari UI (misalnya ARP, LLDP, CDP, dan MAC refresh):
+  1. API Server membuat ID tugas unik dan mendorong parameter pekerjaan ke antrean Redis.
+  2. API Server melakukan jajak pendapat (polling) asinkron ke Redis key `job:result:<job_id>` setiap 0.5 detik selama maksimal 45 detik.
+  3. Worker memproses tugas di latar belakang dan menuliskan status sukses/gagal ke Redis key hasil setelah selesai.
+  4. API Server mengambil hasil dari Redis key, lalu segera mengembalikan data database terbaru secara sinkron ke frontend React.
+
+---
+
+### C. Kontrol Konkurensi & Keamanan Sesi SSH (Distributed Lock)
+* **Redis Distributed Lock** ([locks.py](file:///c:/Code/Auto/NetX/backend/app/queue/locks.py)):
+  Sebelum worker melakukan login SSH ke perangkat fisik (Netmiko), ia wajib memperoleh kunci eksklusif perangkat di Redis menggunakan pola Redlock (`SET NX EX`). Ini menjamin satu perangkat switch hanya dikoneksikan oleh **satu sesi SSH pada satu waktu**, mencegah lockout sesi SSH pada switch.
+* **Local Concurrency Control (Semaphore)**:
+  Worker membatasi jumlah eksekusi SSH simultan maksimal **20 koneksi** menggunakan `asyncio.Semaphore(20)`. Hal ini mengamankan resource system, mencegah ledakan file descriptor, dan menjaga stabilitas koneksi jaringan.
 
 ---
 

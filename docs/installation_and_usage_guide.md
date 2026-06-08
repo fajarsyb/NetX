@@ -122,7 +122,67 @@ Jika Anda ingin memodifikasi kode backend atau frontend (Hot Reload aktif), jala
 
 ---
 
-## 5. Panduan Instalasi di Linux dan macOS
+## 5. Panduan Kontainerisasi dengan Docker Compose (Sangat Direkomendasikan)
+
+NetX mendukung penuh kontainerisasi menggunakan **Docker Compose**. Ini adalah metode penyebaran (deployment) yang paling disarankan untuk skala enterprise karena memisahkan server web API, background worker, scheduler, basis data PostgreSQL, dan Redis queue ke dalam kontainer-kontainer yang terisolasi dan tangguh.
+
+### Komponen Kontainer NetX
+Arsitektur Docker Compose NetX terdiri dari 6 kontainer utama:
+1. **`netx_postgres`**: Basis data PostgreSQL (port 5432).
+2. **`netx_redis`**: Broker antrean pekerjaan (Redis List queue) dan distributed locks (port 6379).
+3. **`netx_api`**: Server web FastAPI (port 8000).
+4. **`netx_worker`**: Background worker asinkron yang mengeksekusi pekerjaan jaringan dari Redis secara konkuren.
+5. **`netx_scheduler`**: Pemicu tugas berkala (backup terjadwal, pemindaian histori, deteksi anomali).
+6. **`netx_syslog`**: Penerima log Syslog UDP (port 514).
+
+---
+
+### Langkah Instalasi Menggunakan Docker
+
+#### Langkah 1: Persiapan Kontainer
+1. Pastikan **Docker Desktop** (untuk Windows/macOS) atau **Docker Engine + Docker Compose** (untuk Linux) sudah terinstal dan aktif.
+2. Konfigurasi file `.env` di folder `backend` (atau gunakan bawaan dari berkas `docker-compose.yml` yang otomatis menggunakan PostgreSQL dan Redis).
+
+#### Langkah 2: Menjalankan Backend via Docker
+1. Di direktori root proyek NetX, jalankan perintah berikut untuk membuat (build) image kontainer dan memulainya di background:
+   ```bash
+   docker compose up --build -d
+   ```
+2. Pastikan seluruh kontainer berjalan normal dengan mengecek status:
+   ```bash
+   docker compose ps
+   ```
+3. Anda dapat memantau log aktivitas backend dengan perintah:
+   ```bash
+   docker compose logs -f api
+   docker compose logs -f worker
+   ```
+
+#### Langkah 3: Menjalankan Frontend
+Jalankan server frontend secara lokal di host Anda untuk menghubungkannya dengan API server kontainer:
+1. Masuk ke direktori `frontend`:
+   ```bash
+   cd frontend
+   ```
+2. Instal dependensi dan jalankan Vite dev server:
+   ```bash
+   npm install
+   npm run dev
+   ```
+3. Buka browser Anda dan akses aplikasi di **`http://localhost:5173/`**.
+
+---
+
+### Startup Otomatis Satu-Klik (Windows)
+Untuk mempermudah startup di sistem Windows, jalankan berkas **`Start-NetX-Docker.bat`** di direktori root. Berkas CMD ini akan:
+1. Memastikan tidak ada port yang bentrok.
+2. Memulai seluruh kontainer backend via Docker Compose.
+3. Menjalankan server frontend di jendela perintah terpisah.
+4. Membuka peramban default Anda ke alamat `http://localhost:5173/` secara otomatis.
+
+---
+
+## 6. Panduan Instalasi di Linux dan macOS (Metode Manual Non-Docker)
 
 Di sistem operasi Linux (Ubuntu, Debian, CentOS, dll.) dan macOS, Anda dapat melakukan instalasi secara manual dengan langkah-langkah berikut:
 
@@ -359,8 +419,28 @@ Sebelum mengaktifkan engine PostgreSQL, jalankan script migrasi mandiri untuk me
 ### Langkah 4: Mengaktifkan PostgreSQL
 1. Kembali ke halaman **Integrasi PostgreSQL** di UI NetX.
 2. Klik tombol **Aktifkan PostgreSQL di .env**.
-3. **Restart Server Backend NetX** (hentikan proses `run.bat` / `run_production.bat` dan jalankan kembali).
+3. **Restart Server Backend NetX** (jika menggunakan manual, hentikan proses dan jalankan kembali; jika menggunakan Docker, jalankan `docker compose restart`).
 4. Aplikasi kini aktif berjalan menggunakan PostgreSQL!
+
+### Langkah 5: Memulihkan Cadangan Database ke PostgreSQL
+NetX mendukung penuh pemulihan database dari berkas `.zip` cadangan SQLite ke dalam database PostgreSQL aktif melalui dua metode:
+
+#### Metode A: Melalui Web UI (Direkomendasikan)
+1. Akses platform NetX di browser dan masuk ke menu **Settings** -> **Backup Management** sebagai administrator.
+2. Pilih salah satu file `.zip` cadangan dari daftar, lalu klik tombol **Restore** (Pemulihan).
+3. Server backend secara otomatis akan melakukan `TRUNCATE CASCADE` untuk membersihkan data PostgreSQL yang ada dan mengimpor ulang seluruh rekaman dari database cadangan SQLite di dalam zip ke PostgreSQL secara aman.
+
+#### Metode B: Melalui CLI di Kontainer Docker
+Jika Anda ingin memulihkan data cadangan terbaru secara langsung melalui baris perintah:
+1. Jalankan skrip pemulihan mandiri di dalam kontainer `netx_api`:
+   ```bash
+   docker exec -it netx_api python restore_to_postgres.py
+   ```
+2. Skrip otomatis mendeteksi berkas `.zip` terbaru, mengosongkan tabel PostgreSQL, menyalin baris data, dan menyelaraskan penomoran kunci utama otomatis (`SERIAL` sequences).
+3. Setelah proses selesai, jalankan restart pada stack kontainer agar perubahan terbaca oleh worker dan scheduler:
+   ```bash
+   docker compose restart
+   ```
 
 ---
 
