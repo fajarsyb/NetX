@@ -26,7 +26,8 @@ export default function Sidebar() {
   // Resizable Sidebar logic
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = localStorage.getItem('netx_sidebar_width')
-    return saved ? parseInt(saved, 10) : 260
+    const parsed = saved ? parseInt(saved, 10) : 260
+    return isNaN(parsed) ? 260 : parsed
   })
   const [isResizing, setIsResizing] = useState(false)
 

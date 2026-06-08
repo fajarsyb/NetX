@@ -928,18 +928,26 @@ select.form-control {
 .sidebar-resizer {
   position: fixed;
   top: 0;
-  left: calc(var(--sidebar-w) - 3px);
-  width: 6px;
+  left: calc(var(--sidebar-w) - 6px);
+  width: 12px;
   height: 100vh;
   cursor: col-resize;
   z-index: 1000;
   background-color: transparent;
-  transition: background-color 0.15s, width 0.15s;
 }
-.sidebar-resizer:hover,
-.sidebar-resizer.resizing {
+.sidebar-resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 5px;
+  width: 2px;
+  height: 100%;
+  background-color: transparent;
+  transition: background-color 0.15s, box-shadow 0.15s;
+}
+.sidebar-resizer:hover::after,
+.sidebar-resizer.resizing::after {
   background-color: var(--primary);
-  width: 8px;
   box-shadow: 0 0 10px var(--primary-glow);
 }
 
