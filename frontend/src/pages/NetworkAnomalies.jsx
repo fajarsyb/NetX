@@ -474,23 +474,6 @@ export default function NetworkAnomalies() {
           gap: 8px;
         }
 
-        .limit-select-styled {
-          background: var(--bg-input);
-          border: 1px solid var(--border);
-          border-radius: 8px;
-          padding: 6px 24px 6px 10px;
-          font-size: 12.5px;
-          color: var(--text-primary);
-          cursor: pointer;
-          transition: border-color 0.2s;
-          height: 34px;
-        }
-
-        .limit-select-styled:focus {
-          border-color: var(--primary);
-          outline: none;
-        }
-
         .tabs-header-wrapper {
           display: flex;
           border-bottom: 1px solid var(--border);
@@ -519,7 +502,7 @@ export default function NetworkAnomalies() {
 
         .tab-btn-modern.active {
           border-bottom-color: var(--primary);
-          color: var(--primary-bright);
+          color: var(--primary);
         }
 
         .badge-tab-count {
@@ -535,6 +518,52 @@ export default function NetworkAnomalies() {
           background: var(--primary-dim);
           color: var(--primary);
         }
+
+        /* Styled select option tags to guarantee readability on dark mode */
+        select option {
+          background-color: var(--bg-card-2) !important;
+          color: var(--text-primary) !important;
+        }
+
+        /* Glowing outlines for themed buttons */
+        .btn-outline-primary {
+          background: rgba(79, 142, 247, 0.08);
+          color: var(--primary);
+          border: 1px solid rgba(79, 142, 247, 0.3) !important;
+          transition: all 0.2s;
+        }
+        .btn-outline-primary:hover {
+          background: rgba(79, 142, 247, 0.2);
+          border-color: var(--primary) !important;
+          color: var(--text-primary);
+          box-shadow: 0 0 10px rgba(79, 142, 247, 0.25);
+        }
+
+        .btn-outline-success {
+          background: rgba(16, 185, 129, 0.08);
+          color: var(--success);
+          border: 1px solid rgba(16, 185, 129, 0.3) !important;
+          transition: all 0.2s;
+        }
+        .btn-outline-success:hover {
+          background: rgba(16, 185, 129, 0.2);
+          border-color: var(--success) !important;
+          color: var(--text-primary);
+          box-shadow: 0 0 10px rgba(16, 185, 129, 0.25);
+          transform: translateY(-1px);
+        }
+
+        .btn-danger-styled {
+          background: rgba(239, 68, 68, 0.1);
+          color: var(--danger);
+          border: 1px solid rgba(239, 68, 68, 0.3) !important;
+          transition: all 0.2s;
+        }
+        .btn-danger-styled:hover {
+          background: rgba(239, 68, 68, 0.2);
+          border-color: var(--danger) !important;
+          box-shadow: 0 0 10px rgba(239, 68, 68, 0.25);
+        }
       `}</style>
 
       {/* Header Area */}
@@ -549,11 +578,11 @@ export default function NetworkAnomalies() {
           </div>
         </div>
         <div className="flex-center gap-12">
-          <button className="btn btn-ghost btn-sm animate-fade" onClick={handleRefresh} disabled={loadingActive || loadingHistory}>
+          <button className="btn btn-outline-primary btn-sm animate-fade" onClick={handleRefresh} disabled={loadingActive || loadingHistory}>
             <RefreshCw size={13} style={{ marginRight: '6px', animation: (loadingActive || loadingHistory) ? 'spin 1s linear infinite' : 'none' }} /> Segarkan
           </button>
           {!isViewer && activeAnomalies.length > 0 && (
-            <button className="btn btn-danger btn-sm" onClick={handleResolveAll} disabled={resolvingAll}>
+            <button className="btn btn-danger-styled btn-sm" onClick={handleResolveAll} disabled={resolvingAll}>
               {resolvingAll ? 'Menyelesaikan...' : 'Selesaikan Semua'}
             </button>
           )}
@@ -637,10 +666,10 @@ export default function NetworkAnomalies() {
             <div className="filter-field">
               <label className="form-label" style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>Jenis Anomali</label>
               <select 
-                className="select-input"
+                className="form-control"
                 value={filterActiveType}
                 onChange={e => setFilterActiveType(e.target.value)}
-                style={{ background: 'var(--bg-input)', height: '40px' }}
+                style={{ height: '40px' }}
               >
                 <option value="">Semua Jenis</option>
                 {Object.entries(ANOMALY_TYPE_LABELS).map(([k, v]) => (
@@ -652,10 +681,10 @@ export default function NetworkAnomalies() {
             <div className="filter-field">
               <label className="form-label" style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>Tingkat Keparahan</label>
               <select 
-                className="select-input"
+                className="form-control"
                 value={filterActiveSeverity}
                 onChange={e => setFilterActiveSeverity(e.target.value)}
-                style={{ background: 'var(--bg-input)', height: '40px' }}
+                style={{ height: '40px' }}
               >
                 <option value="">Semua Level</option>
                 <option value="critical">Critical</option>
@@ -666,10 +695,10 @@ export default function NetworkAnomalies() {
             <div className="filter-field">
               <label className="form-label" style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>Perangkat</label>
               <select 
-                className="select-input"
+                className="form-control"
                 value={filterActiveDevice}
                 onChange={e => setFilterActiveDevice(e.target.value)}
-                style={{ background: 'var(--bg-input)', height: '40px' }}
+                style={{ height: '40px' }}
               >
                 <option value="">Semua Perangkat</option>
                 {devices.map(d => (
@@ -706,12 +735,13 @@ export default function NetworkAnomalies() {
                   <div className="limit-select-container">
                     <span className="text-muted" style={{ fontSize: '12.5px', fontWeight: 500 }}>Batas Baris:</span>
                     <select
-                      className="limit-select-styled"
+                      className="form-control"
                       value={activeLimit}
                       onChange={e => {
                         setActiveLimit(Number(e.target.value))
                         setActivePage(1)
                       }}
+                      style={{ width: '80px', height: '34px', padding: '4px 8px', fontSize: '13px' }}
                     >
                       <option value={50}>50</option>
                       <option value={100}>100</option>
@@ -755,10 +785,10 @@ export default function NetworkAnomalies() {
                       
                       {!isViewer && (
                         <button 
-                          className="btn btn-ghost btn-sm" 
+                          className="btn btn-outline-success btn-sm" 
                           onClick={() => handleResolve(a.id)}
                           disabled={resolvingId === a.id}
-                          style={{ height: '34px', borderColor: 'var(--border)', minWidth: '95px' }}
+                          style={{ height: '34px', minWidth: '95px' }}
                         >
                           {resolvingId === a.id ? (
                             <span className="loading-spinner" style={{ width: 12, height: 12 }} />
@@ -831,10 +861,10 @@ export default function NetworkAnomalies() {
             <div className="filter-field">
               <label className="form-label" style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>Jenis Anomali</label>
               <select 
-                className="select-input"
+                className="form-control"
                 value={filterType}
                 onChange={e => setFilterType(e.target.value)}
-                style={{ background: 'var(--bg-input)', height: '40px' }}
+                style={{ height: '40px' }}
               >
                 <option value="">Semua Jenis</option>
                 {Object.entries(ANOMALY_TYPE_LABELS).map(([k, v]) => (
@@ -846,10 +876,10 @@ export default function NetworkAnomalies() {
             <div className="filter-field">
               <label className="form-label" style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>Tingkat Keparahan</label>
               <select 
-                className="select-input"
+                className="form-control"
                 value={filterSeverity}
                 onChange={e => setFilterSeverity(e.target.value)}
-                style={{ background: 'var(--bg-input)', height: '40px' }}
+                style={{ height: '40px' }}
               >
                 <option value="">Semua Level</option>
                 <option value="critical">Critical</option>
@@ -860,10 +890,10 @@ export default function NetworkAnomalies() {
             <div className="filter-field">
               <label className="form-label" style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>Perangkat</label>
               <select 
-                className="select-input"
+                className="form-control"
                 value={filterDevice}
                 onChange={e => setFilterDevice(e.target.value)}
-                style={{ background: 'var(--bg-input)', height: '40px' }}
+                style={{ height: '40px' }}
               >
                 <option value="">Semua Perangkat</option>
                 {devices.map(d => (
@@ -896,9 +926,10 @@ export default function NetworkAnomalies() {
                   <div className="limit-select-container">
                     <span className="text-muted" style={{ fontSize: '12.5px', fontWeight: 500 }}>Batas Baris:</span>
                     <select
-                      className="limit-select-styled"
+                      className="form-control"
                       value={historyLimit}
                       onChange={e => setHistoryLimit(Number(e.target.value))}
+                      style={{ width: '80px', height: '34px', padding: '4px 8px', fontSize: '13px' }}
                     >
                       <option value={50}>50</option>
                       <option value={100}>100</option>
