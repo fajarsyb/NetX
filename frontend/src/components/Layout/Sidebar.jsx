@@ -3,7 +3,7 @@ import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import {
   Server, LayoutDashboard, Plus, Network, ChevronRight, ChevronDown,
   Radio, Wifi, RefreshCw, LogOut, Users, FolderGit2, ShieldCheck, Map, Key, Search, Settings, FileCode, AlertTriangle, FileText, Database, Activity,
-  Sun, Moon
+  Sun, Moon, GripVertical
 } from 'lucide-react'
 import { arpApi } from '../../api/client'
 import AddDeviceModal from '../Device/AddDeviceModal'
@@ -386,7 +386,11 @@ export default function Sidebar() {
         className={`sidebar-resizer ${isResizing ? 'resizing' : ''}`} 
         onMouseDown={startResizing}
         title="Geser untuk mengatur lebar menu"
-      />
+      >
+        <div className="sidebar-resizer-handle">
+          <GripVertical size={10} />
+        </div>
+      </div>
 
       {showAdd && (
         <AddDeviceModal
