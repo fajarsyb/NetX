@@ -44,9 +44,8 @@ async def get_lldp_cache(device_id: int):
     }
 
 
-@router.post("/devices/{device_id}/lldp/refresh")
-async def refresh_lldp(device_id: int, user: dict = Depends(require_operator_or_admin)):
-    """Connect to device, fetch LLDP neighbors, enrich with OUI, save to DB."""
+async def refresh_lldp_logic(device_id: int, user: dict = None):
+    """Connect to device, fetch LLDP neighbors, enrich with OUI, save to DB. Runs in background worker."""
     device = _require_device(device_id)
     username, password = get_device_credentials(device)
     device["username"] = username
@@ -58,7 +57,7 @@ async def refresh_lldp(device_id: int, user: dict = Depends(require_operator_or_
         )
         conn.commit()
         conn.close()
-        raise HTTPException(status_code=503, detail=raw)
+        raise Exception(raw)
 
     neighbors = parse_lldp(raw, device["device_type"])
     now = datetime.now().isoformat()
@@ -108,6 +107,34 @@ async def refresh_lldp(device_id: int, user: dict = Depends(require_operator_or_
         "neighbors":   enriched,
         "fetched_at":  now,
     }
+
+
+@router.post("/devices/{device_id}/lldp/refresh")
+async def refresh_lldp(device_id: int, user: dict = Depends(require_operator_or_admin)):
+    """Trigger LLDP refresh asynchronously via Redis queue and wait for the result."""
+    device = _require_device(device_id)
+    
+    from app.queue.queue import job_queue
+    try:
+        res = await job_queue.run_sync_over_async("refresh_lldp", {
+            "device_id": device_id,
+            "user_id": user["id"],
+            "username": user["username"]
+        }, priority="high", timeout=45.0)
+        
+        if not res.get("success"):
+            raise HTTPException(status_code=503, detail=res.get("error", "Refresh LLDP gagal."))
+        
+        result_data = res.get("result", {})
+        return {
+            "count": result_data.get("count", 0),
+            "neighbors": result_data.get("neighbors", []),
+            "fetched_at": result_data.get("fetched_at"),
+        }
+    except TimeoutError:
+        raise HTTPException(status_code=504, detail="Timeout: Proses refresh LLDP melebihi batas waktu.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/lldp/summary")

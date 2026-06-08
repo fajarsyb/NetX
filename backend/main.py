@@ -63,10 +63,18 @@ app.include_router(terminal.router)
 
 @app.on_event("startup")
 async def startup_event():
+    # Initialize database schema
+    from app.database import init_db
+    try:
+        init_db()
+        logging.getLogger("netx.main").info("Database schema initialized successfully.")
+    except Exception as e:
+        logging.getLogger("netx.main").error(f"Failed to initialize database schema: {e}")
+
     # Start the event loop latency monitor task
     asyncio.create_task(start_event_loop_monitor())
     
-    mode = os.environ.get("NETX_MODE", "unified").lower()
+    mode = os.environ.get("NETX_MODE", "api").lower()
     if mode == "api":
         logging.getLogger("netx.main").info("NetX running in API-only mode. Background worker and syslog listeners are disabled.")
         return

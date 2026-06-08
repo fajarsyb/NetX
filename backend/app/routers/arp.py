@@ -51,14 +51,14 @@ async def get_arp_cache(device_id: int, current_user: dict = Depends(get_current
     }
 
 
-@router.post("/devices/{device_id}/arp/refresh")
-async def refresh_arp(device_id: int, user: dict = Depends(require_operator_or_admin)):
-    """Connect to device, fetch ARP table, enrich with OUI, save to DB."""
+async def refresh_arp_logic(device_id: int, user: dict = None):
+    """Connect to device, fetch ARP table, enrich with OUI, save to DB. Runs in background worker."""
     device = _require_device(device_id)
     
     from app.routers.devices import check_user_device_access
-    if not check_user_device_access(device, user):
-        raise HTTPException(status_code=403, detail="Akses Ditolak: Anda tidak memiliki akses ke perangkat di grup ini.")
+    if user and not check_user_device_access(device, user):
+        raise Exception("Akses Ditolak: Anda tidak memiliki akses ke perangkat di grup ini.")
+        
     username, password = get_device_credentials(device)
     device["username"] = username
     raw = await get_arp_raw(device, password)
@@ -80,7 +80,7 @@ async def refresh_arp(device_id: int, user: dict = Depends(require_operator_or_a
         else:
             clean_msg = f"Koneksi Gagal: {err_detail}"
             
-        raise HTTPException(status_code=400, detail=clean_msg)
+        raise Exception(clean_msg)
 
     entries = parse_arp(raw, device["device_type"])
     now = datetime.now().isoformat()
@@ -130,6 +130,38 @@ async def refresh_arp(device_id: int, user: dict = Depends(require_operator_or_a
         "entries":     enriched,
         "fetched_at":  now,
     }
+
+
+@router.post("/devices/{device_id}/arp/refresh")
+async def refresh_arp(device_id: int, user: dict = Depends(require_operator_or_admin)):
+    """Trigger ARP refresh asynchronously via Redis queue and wait for the result."""
+    device = _require_device(device_id)
+    
+    from app.routers.devices import check_user_device_access
+    if not check_user_device_access(device, user):
+        raise HTTPException(status_code=403, detail="Akses Ditolak: Anda tidak memiliki akses ke perangkat di grup ini.")
+
+    from app.queue.queue import job_queue
+    try:
+        res = await job_queue.run_sync_over_async("refresh_arp", {
+            "device_id": device_id,
+            "user_id": user["id"],
+            "username": user["username"]
+        }, priority="high", timeout=45.0)
+        
+        if not res.get("success"):
+            raise HTTPException(status_code=400, detail=res.get("error", "Refresh ARP gagal."))
+        
+        result_data = res.get("result", {})
+        return {
+            "count": result_data.get("count", 0),
+            "entries": result_data.get("entries", []),
+            "fetched_at": result_data.get("fetched_at"),
+        }
+    except TimeoutError:
+        raise HTTPException(status_code=504, detail="Timeout: Proses refresh ARP melebihi batas waktu.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/arp/summary")

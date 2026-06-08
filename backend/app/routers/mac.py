@@ -42,9 +42,8 @@ async def get_mac_cache(device_id: int):
         "last_fetched": last_fetched,
     }
 
-@router.post("/devices/{device_id}/mac/refresh")
-async def refresh_mac_table(device_id: int, user: dict = Depends(require_operator_or_admin)):
-    """Connect to device, fetch raw MAC table, parse and save to DB cache."""
+async def refresh_mac_table_logic(device_id: int, user: dict = None):
+    """Connect to device, fetch raw MAC table, parse and save to DB cache. Runs in background worker."""
     device = _require_device(device_id)
     username, password = get_device_credentials(device)
     device["username"] = username
@@ -57,7 +56,7 @@ async def refresh_mac_table(device_id: int, user: dict = Depends(require_operato
         )
         conn.commit()
         conn.close()
-        raise HTTPException(status_code=503, detail=raw)
+        raise Exception(raw)
 
     entries = parse_mac_table(raw, device["device_type"])
     now = datetime.now().isoformat()
@@ -109,6 +108,35 @@ async def refresh_mac_table(device_id: int, user: dict = Depends(require_operato
         "message": f"Tabel MAC Address berhasil disegarkan. Menemukan {len(enriched_entries)} entri.",
         "entries": enriched_entries
     }
+
+
+@router.post("/devices/{device_id}/mac/refresh")
+async def refresh_mac_table(device_id: int, user: dict = Depends(require_operator_or_admin)):
+    """Trigger MAC table refresh asynchronously via Redis queue and wait for the result."""
+    device = _require_device(device_id)
+    
+    from app.queue.queue import job_queue
+    try:
+        res = await job_queue.run_sync_over_async("refresh_mac", {
+            "device_id": device_id,
+            "user_id": user["id"],
+            "username": user["username"]
+        }, priority="high", timeout=45.0)
+        
+        if not res.get("success"):
+            raise HTTPException(status_code=503, detail=res.get("error", "Refresh MAC table gagal."))
+        
+        result_data = res.get("result", {})
+        return {
+            "success": True,
+            "count": result_data.get("count", 0),
+            "message": result_data.get("message"),
+            "entries": result_data.get("entries", []),
+        }
+    except TimeoutError:
+        raise HTTPException(status_code=504, detail="Timeout: Proses refresh MAC table melebihi batas waktu.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ─── MAC ADDRESS TRACKER / INVESTIGATION HELPERS ─────────────────────────────
 import re

@@ -1,12 +1,6 @@
-"""
-System Health Monitoring Router
-Exposes system diagnostics, DB query performance, event loop lag, and resource usage.
-"""
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 import redis
 import os
-from app.services.auth import get_current_user
-from app.services.health_monitor import monitor
 from app.database import get_db_conn
 
 router = APIRouter(prefix="/api/health", tags=["health"])
@@ -49,8 +43,3 @@ async def get_system_health():
         raise HTTPException(status_code=500, detail=status)
         
     return status
-
-@router.get("/diagnostics")
-def get_health_diagnostics(user: dict = Depends(get_current_user)):
-    """Retrieve detailed diagnostics and metrics for self-health monitoring."""
-    return monitor.get_diagnostics()

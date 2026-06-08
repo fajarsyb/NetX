@@ -20,20 +20,20 @@ async def get_cdp_cache(device_id: int):
     conn.close()
     return rows
 
-@router.post("/{device_id}/cdp/refresh")
-async def refresh_cdp(device_id: int, user: dict = Depends(require_operator_or_admin)):
+async def refresh_cdp_logic(device_id: int, user: dict = None):
+    """Connect to device, fetch CDP neighbors, save to DB. Runs in background worker."""
     conn = get_db_conn()
     c = conn.cursor()
     c.execute("SELECT * FROM devices WHERE id = ?", (device_id,))
     row = c.fetchone()
     if not row:
         conn.close()
-        raise HTTPException(status_code=404, detail="Device tidak ditemukan.")
+        raise Exception("Device tidak ditemukan.")
 
     device = dict(row)
     if not (device.get("device_type") or "").lower().startswith("cisco"):
         conn.close()
-        raise HTTPException(status_code=400, detail="Protokol CDP hanya didukung untuk perangkat Cisco.")
+        raise Exception("Protokol CDP hanya didukung untuk perangkat Cisco.")
 
     username, password = get_device_credentials(device)
     device["username"] = username
@@ -42,7 +42,7 @@ async def refresh_cdp(device_id: int, user: dict = Depends(require_operator_or_a
     raw_output = await get_cdp_raw(device, password)
     if raw_output.startswith("ERROR:"):
         conn.close()
-        raise HTTPException(status_code=503, detail=raw_output)
+        raise Exception(raw_output)
         
     # 2. Parse
     neighbors = parse_cdp(raw_output, device["device_type"])
@@ -91,3 +91,38 @@ async def refresh_cdp(device_id: int, user: dict = Depends(require_operator_or_a
         "fetched_at": now,
         "message": f"✓ {len(enriched)} CDP neighbor berhasil diambil."
     }
+
+
+@router.post("/{device_id}/cdp/refresh")
+async def refresh_cdp(device_id: int, user: dict = Depends(require_operator_or_admin)):
+    """Trigger CDP refresh asynchronously via Redis queue and wait for the result."""
+    conn = get_db_conn()
+    c = conn.cursor()
+    c.execute("SELECT * FROM devices WHERE id = ?", (device_id,))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Device tidak ditemukan.")
+
+    from app.queue.queue import job_queue
+    try:
+        res = await job_queue.run_sync_over_async("refresh_cdp", {
+            "device_id": device_id,
+            "user_id": user["id"],
+            "username": user["username"]
+        }, priority="high", timeout=45.0)
+        
+        if not res.get("success"):
+            raise HTTPException(status_code=503, detail=res.get("error", "Refresh CDP gagal."))
+        
+        result_data = res.get("result", {})
+        return {
+            "count": result_data.get("count", 0),
+            "neighbors": result_data.get("neighbors", []),
+            "fetched_at": result_data.get("fetched_at"),
+            "message": result_data.get("message"),
+        }
+    except TimeoutError:
+        raise HTTPException(status_code=504, detail="Timeout: Proses refresh CDP melebihi batas waktu.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

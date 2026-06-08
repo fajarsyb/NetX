@@ -1356,6 +1356,6 @@ def get_device_credentials(device: dict) -> tuple[str, str]:
     return username, password
 
 
-# Run at import time
-init_db()
+# Do not run at import time to prevent concurrent DDL conflicts in multi-worker setups.
+# init_db()
 

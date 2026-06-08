@@ -583,73 +583,18 @@ class BulkRefreshRequest(BaseModel):
     device_ids: List[int]
     components: List[str]
 
+import redis
+import json
+import os
+
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+redis_client = redis.from_url(REDIS_URL)
+
 bulk_refresh_status = {}
-
-async def run_bulk_refresh_task(task_id: str, device_ids: List[int], components: List[str], user_id: int, username: str):
-    # Import locally to avoid circular dependencies
-    from app.routers.arp import refresh_arp
-    from app.routers.lldp import refresh_lldp
-    from app.routers.cdp import refresh_cdp
-    from app.routers.snmp import detect_snmp_info
-    from app.routers.mac import refresh_mac_table
-
-    status_entry = bulk_refresh_status[task_id]
-    results = status_entry["results"]
-
-    conn = get_db_conn()
-    c = conn.cursor()
-    c.execute("SELECT id, name, device_type FROM devices")
-    device_info = {row["id"]: {"name": row["name"], "device_type": row["device_type"]} for row in c.fetchall()}
-    conn.close()
-
-    total_steps = len(device_ids) * len(components)
-    completed_steps = 0
-
-    for dev_id in device_ids:
-        dev_data = device_info.get(dev_id, {"name": f"Device {dev_id}", "device_type": "cisco_ios"})
-        dev_name = dev_data["name"]
-        dev_type = dev_data["device_type"] or ""
-        results[str(dev_id)] = {"name": dev_name}
-
-        for comp in components:
-            try:
-                if comp == "arp":
-                    await refresh_arp(dev_id)
-                elif comp == "lldp":
-                    await refresh_lldp(dev_id)
-                elif comp == "cdp":
-                    if not dev_type.lower().startswith("cisco"):
-                        results[str(dev_id)][comp] = {"success": True, "skipped": True}
-                        completed_steps += 1
-                        status_entry["current"] = completed_steps
-                        continue
-                    await refresh_cdp(dev_id)
-                elif comp == "info":
-                    await detect_snmp_info(dev_id, method="auto")
-                elif comp == "mac":
-                    await refresh_mac_table(dev_id)
-
-                results[str(dev_id)][comp] = {"success": True}
-            except HTTPException as he:
-                err_msg = he.detail
-                results[str(dev_id)][comp] = {"success": False, "error": err_msg}
-                log_audit(user_id, username, "REFRESH_FAIL", f"devices/{dev_id}", f"Gagal refresh {comp} pada {dev_name}: {err_msg}")
-            except Exception as e:
-                err_msg = str(e)
-                results[str(dev_id)][comp] = {"success": False, "error": err_msg}
-                log_audit(user_id, username, "REFRESH_FAIL", f"devices/{dev_id}", f"Gagal refresh {comp} pada {dev_name}: {err_msg}")
-
-            completed_steps += 1
-            status_entry["current"] = completed_steps
-            # Controlled delay between tasks to protect device CPU & server resources
-            await asyncio.sleep(0.5)
-
-    status_entry["status"] = "completed"
 
 @router.post("/bulk-refresh")
 async def trigger_bulk_refresh(
     req: BulkRefreshRequest, 
-    background_tasks: BackgroundTasks, 
     user: dict = Depends(require_operator_or_admin)
 ):
     """Trigger sequential bulk refresh of network components across multiple devices."""
@@ -659,21 +604,27 @@ async def trigger_bulk_refresh(
         raise HTTPException(status_code=400, detail="Pilih minimal satu komponen untuk disegarkan.")
 
     task_id = str(uuid.uuid4())
-    bulk_refresh_status[task_id] = {
+    status_entry = {
         "status": "running",
         "total": len(req.device_ids) * len(req.components),
         "current": 0,
         "results": {}
     }
+    
+    try:
+        redis_client.setex(f"bulk_refresh:{task_id}", 86400, json.dumps(status_entry))
+    except Exception as e:
+        logger.error(f"Failed to write bulk refresh status to Redis: {e}")
+        bulk_refresh_status[task_id] = status_entry
 
-    background_tasks.add_task(
-        run_bulk_refresh_task,
-        task_id,
-        req.device_ids,
-        req.components,
-        user["id"],
-        user["username"]
-    )
+    from app.queue.queue import job_queue
+    job_queue.enqueue("bulk_refresh", {
+        "task_id": task_id,
+        "device_ids": req.device_ids,
+        "components": req.components,
+        "user_id": user["id"],
+        "username": user["username"]
+    }, priority="high")
 
     return {
         "success": True,
@@ -684,9 +635,20 @@ async def trigger_bulk_refresh(
 @router.get("/bulk-refresh/{task_id}")
 async def get_bulk_refresh_status(task_id: str, current_user: dict = Depends(get_current_user)):
     """Fetch live progress of bulk refresh task."""
-    if task_id not in bulk_refresh_status:
-        raise HTTPException(status_code=404, detail="Task ID tidak ditemukan.")
-    return bulk_refresh_status[task_id]
+    try:
+        data = redis_client.get(f"bulk_refresh:{task_id}")
+        if not data:
+            if task_id in bulk_refresh_status:
+                return bulk_refresh_status[task_id]
+            raise HTTPException(status_code=404, detail="Task ID tidak ditemukan.")
+        return json.loads(data.decode("utf-8"))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to read bulk refresh status from Redis: {e}")
+        if task_id in bulk_refresh_status:
+            return bulk_refresh_status[task_id]
+        raise HTTPException(status_code=500, detail="Failed to fetch task status.")
 
 
 @router.get("/{device_id}/port-map")

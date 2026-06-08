@@ -90,16 +90,23 @@ async def list_device_backup_versions(device_id: int, current_user: dict = Depen
 
 @router.post("/backup/{device_id}")
 async def trigger_device_backup(device_id: int, user: dict = Depends(require_operator_or_admin)):
-    """Trigger a manual backup for a specific device immediately."""
-    res = await backup_device_config(
-        device_id, 
-        only_if_changed=True, 
-        user_id=user["id"], 
-        username=user["username"]
-    )
-    if not res["success"]:
-        raise HTTPException(status_code=500, detail=res["error"])
-    return res
+    """Trigger a manual backup for a specific device immediately via Redis queue."""
+    from app.queue.queue import job_queue
+    try:
+        res = await job_queue.run_sync_over_async("device_backup", {
+            "device_id": device_id,
+            "only_if_changed": True,
+            "user_id": user["id"],
+            "username": user["username"]
+        }, priority="high", timeout=60.0)
+        
+        if not res.get("success"):
+            raise HTTPException(status_code=500, detail=res.get("error", "Backup konfigurasi gagal."))
+        return res.get("result", {})
+    except TimeoutError:
+        raise HTTPException(status_code=504, detail="Timeout: Proses backup konfigurasi melebihi batas waktu.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/{backup_id}")

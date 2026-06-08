@@ -405,3 +405,23 @@ async def start_syslog_server(port: int = 514, fallback_port: int = 5140):
         logger.error(f"Gagal total mengikat server Syslog ke port {fallback_port}: {e}.")
         logger.error("Layanan Syslog Server tidak dapat dimulai.")
         return None
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] syslog_daemon: %(message)s")
+    
+    async def run_daemon():
+        # Bind to standard syslog port (514) first
+        transport = await start_syslog_server()
+        if transport:
+            try:
+                while not transport.is_closing():
+                    await asyncio.sleep(1)
+            except KeyboardInterrupt:
+                pass
+            finally:
+                transport.close()
+                
+    try:
+        asyncio.run(run_daemon())
+    except KeyboardInterrupt:
+        logger.info("Syslog daemon stopped by user.")

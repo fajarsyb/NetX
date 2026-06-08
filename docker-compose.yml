@@ -1,0 +1,135 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: netx_postgres
+    environment:
+      POSTGRES_DB: netx
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: RxVUDCKZDM3MG9rckvFe
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d netx"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - netx_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: netx_redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - netx_network
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.api
+    container_name: netx_api
+    environment:
+      - DB_ENGINE=postgresql
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=netx
+      - DB_USER=postgres
+      - DB_PASSWORD=RxVUDCKZDM3MG9rckvFe
+      - REDIS_URL=redis://redis:6379/0
+      - NETX_MODE=api
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - netx_network
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    container_name: netx_worker
+    environment:
+      - DB_ENGINE=postgresql
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=netx
+      - DB_USER=postgres
+      - DB_PASSWORD=RxVUDCKZDM3MG9rckvFe
+      - REDIS_URL=redis://redis:6379/0
+      - NETX_MODE=worker
+      - MAX_CONCURRENT_SSH=20
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: always
+    networks:
+      - netx_network
+
+  scheduler:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    container_name: netx_scheduler
+    command: python main_scheduler.py
+    environment:
+      - DB_ENGINE=postgresql
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=netx
+      - DB_USER=postgres
+      - DB_PASSWORD=RxVUDCKZDM3MG9rckvFe
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: always
+    networks:
+      - netx_network
+
+  syslog:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    container_name: netx_syslog
+    command: python -m app.services.syslog_server
+    ports:
+      - "514:514/udp"
+    environment:
+      - DB_ENGINE=postgresql
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=netx
+      - DB_USER=postgres
+      - DB_PASSWORD=RxVUDCKZDM3MG9rckvFe
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: always
+    networks:
+      - netx_network
+
+volumes:
+  pgdata:
+  redisdata:
+
+networks:
+  netx_network:
+    driver: bridge
