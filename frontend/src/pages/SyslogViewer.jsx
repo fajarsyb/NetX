@@ -208,6 +208,12 @@ export default function SyslogViewer() {
           display: flex;
           align-items: center;
           gap: 12px;
+          box-shadow: 0 4px 15px 0 rgba(0,0,0,0.06);
+          transition: border-color 0.2s;
+        }
+
+        .syslog-meta-card:hover {
+          border-color: var(--border-light);
         }
 
         .syslog-meta-val {
@@ -236,6 +242,39 @@ export default function SyslogViewer() {
           height: 8px;
           border-radius: 50%;
           margin-right: 6px;
+        }
+
+        /* Theme-compliant styling for select option tags on dark mode */
+        select option {
+          background-color: var(--bg-card-2) !important;
+          color: var(--text-primary) !important;
+        }
+
+        /* Glowing outline styles for buttons */
+        .btn-outline-primary {
+          background: rgba(79, 142, 247, 0.08);
+          color: var(--primary);
+          border: 1px solid rgba(79, 142, 247, 0.3) !important;
+          transition: all 0.2s;
+        }
+        .btn-outline-primary:hover {
+          background: rgba(79, 142, 247, 0.2);
+          border-color: var(--primary) !important;
+          color: var(--text-primary);
+          box-shadow: 0 0 10px rgba(79, 142, 247, 0.25);
+        }
+
+        .btn-outline-danger {
+          background: rgba(239, 68, 68, 0.08);
+          color: var(--danger);
+          border: 1px solid rgba(239, 68, 68, 0.3) !important;
+          transition: all 0.2s;
+        }
+        .btn-outline-danger:hover {
+          background: rgba(239, 68, 68, 0.2);
+          border-color: var(--danger) !important;
+          color: var(--text-primary);
+          box-shadow: 0 0 10px rgba(239, 68, 68, 0.25);
         }
       `}</style>
 
@@ -270,12 +309,12 @@ export default function SyslogViewer() {
             )}
           </button>
 
-          <button className="btn btn-ghost btn-sm" onClick={handleManualRefresh} disabled={loading}>
+          <button className="btn btn-outline-primary btn-sm" onClick={handleManualRefresh} disabled={loading}>
             <RefreshCw size={13} style={{ marginRight: '6px', animation: loading ? 'spin 1s linear infinite' : 'none' }} /> Segarkan
           </button>
 
           {!isViewer && logs.length > 0 && (
-            <button className="btn btn-danger btn-sm" onClick={() => setShowClearConfirm(true)}>
+            <button className="btn btn-outline-danger btn-sm" onClick={() => setShowClearConfirm(true)}>
               <Trash2 size={13} style={{ marginRight: '6px' }} /> Bersihkan Log
             </button>
           )}
@@ -357,17 +396,17 @@ export default function SyslogViewer() {
                   placeholder="Cari pesan log, program, atau IP..." 
                   value={searchQuery} 
                   onChange={e => setSearchQuery(e.target.value)} 
-                  style={{ fontSize: '12.5px' }}
+                  style={{ fontSize: '13px' }}
                 />
               </div>
 
               {/* Device Filter */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '160px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '180px' }}>
                 <select 
-                  className="select-input"
+                  className="form-control"
                   value={filterDevice}
                   onChange={e => setFilterDevice(e.target.value)}
-                  style={{ background: 'var(--bg-input)' }}
+                  style={{ height: '38px' }}
                 >
                   <option value="">Semua Perangkat</option>
                   {devices.map(d => (
@@ -378,12 +417,12 @@ export default function SyslogViewer() {
               </div>
 
               {/* Severity Filter */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '160px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '180px' }}>
                 <select 
-                  className="select-input"
+                  className="form-control"
                   value={filterSeverity}
                   onChange={e => setFilterSeverity(e.target.value)}
-                  style={{ background: 'var(--bg-input)' }}
+                  style={{ height: '38px' }}
                 >
                   <option value="">Semua Tingkat Keparahan</option>
                   {SEVERITY_LEVELS.map(l => (
@@ -427,7 +466,7 @@ export default function SyslogViewer() {
                         const style = getSeverityStyle(l.severity)
                         
                         return (
-                          <tr 
+                           <tr 
                             key={l.id} 
                             style={{ 
                               background: style.bg,
