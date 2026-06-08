@@ -30,6 +30,7 @@ async def get_anomalies_history(
     anomaly_type: Optional[str] = Query(None),
     severity: Optional[str] = Query(None),
     device_id: Optional[int] = Query(None),
+    search: Optional[str] = Query(None),
     current_user: dict = Depends(get_current_user)
 ):
     """Retrieve network anomalies history with pagination and filters."""
@@ -53,6 +54,10 @@ async def get_anomalies_history(
     if device_id:
         query += " AND a.device_id = ?"
         params.append(device_id)
+    if search:
+        query += " AND (a.details LIKE ? OR a.interface_name LIKE ? OR d.name LIKE ? OR d.ip LIKE ?)"
+        search_param = f"%{search}%"
+        params.extend([search_param, search_param, search_param, search_param])
         
     # Count total
     c.execute(f"SELECT COUNT(*) {query}", params)
