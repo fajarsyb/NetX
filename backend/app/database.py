@@ -96,8 +96,9 @@ class PostgreSQLCursorWrapper:
                 INSERT INTO interface_stats_latest (
                     device_id, interface_name, in_broadcast, out_broadcast,
                     in_multicast, out_multicast, in_unicast, out_unicast,
-                    oper_status, stp_top_changes, status_changes_history, updated_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    oper_status, stp_top_changes, status_changes_history, updated_at,
+                    in_errors, out_errors, crc_errors, frame_errors, link_speed
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (device_id, interface_name) DO UPDATE SET
                     in_broadcast = EXCLUDED.in_broadcast,
                     out_broadcast = EXCLUDED.out_broadcast,
@@ -108,7 +109,12 @@ class PostgreSQLCursorWrapper:
                     oper_status = EXCLUDED.oper_status,
                     stp_top_changes = EXCLUDED.stp_top_changes,
                     status_changes_history = EXCLUDED.status_changes_history,
-                    updated_at = EXCLUDED.updated_at
+                    updated_at = EXCLUDED.updated_at,
+                    in_errors = EXCLUDED.in_errors,
+                    out_errors = EXCLUDED.out_errors,
+                    crc_errors = EXCLUDED.crc_errors,
+                    frame_errors = EXCLUDED.frame_errors,
+                    link_speed = EXCLUDED.link_speed
             """
 
         import time as pytime

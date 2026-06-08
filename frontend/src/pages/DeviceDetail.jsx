@@ -52,6 +52,7 @@ export default function DeviceDetail() {
   const [snmpLoading, setSnmpLoading] = useState(false)
   const [interfaces,  setInterfaces]  = useState([])
   const [ifLoading,   setIfLoading]   = useState(false)
+  const [ifHealthFilter, setIfHealthFilter] = useState('all') // all | issues | excellent | good | warning | critical
 
   // MAC state
   const [macEntries,  setMacEntries]  = useState([])
@@ -771,142 +772,250 @@ export default function DeviceDetail() {
                 <div style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
                   Tidak ada data interface. Pastikan SNMP Community dikonfigurasi dengan benar untuk perangkat ini.
                 </div>
-              ) : (
-                <div className="table-wrapper" style={{ maxHeight: '600px', overflowY: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead>
-                      <tr>
-                        <th style={{ width: '60px' }}>Index</th>
-                        <th style={{ minWidth: '180px' }}>Interface / Alias</th>
-                        <th style={{ width: '80px' }}>Status</th>
-                        <th style={{ minWidth: '150px' }}>Properties</th>
-                        <th style={{ width: '140px' }}>MAC Address</th>
-                        <th style={{ minWidth: '160px' }}>Throughput (Rx / Tx)</th>
-                        <th style={{ minWidth: '160px' }}>Utilization (Rx / Tx)</th>
-                        <th style={{ minWidth: '180px' }}>Kesehatan Port & Kabel</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {interfaces.map(i => (
-                        <tr key={i.index} style={{ borderBottom: '1px solid var(--border)' }}>
-                          <td style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--text-muted)' }}>#{i.index}</td>
-                          <td>
-                            <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{i.name}</div>
-                            {i.alias && (
-                              <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic', marginTop: '2px' }}>
-                                {i.alias}
-                              </div>
-                            )}
-                          </td>
-                          <td>
-                            <span className={`badge badge-${i.status === 'up' ? 'online' : 'offline'}`} style={{ padding: '2px 8px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                              <span 
-                                className="status-dot" 
-                                style={{ 
-                                  background: i.status === 'up' ? 'var(--success)' : 'var(--danger)',
-                                  boxShadow: i.status === 'up' ? '0 0 6px var(--success)' : 'none',
-                                  width: '6px', height: '6px'
-                                }} 
-                              />
-                              {i.status}
-                            </span>
-                          </td>
-                          <td>
-                            <div style={{ fontSize: '12px', fontWeight: 600, color: i.speed.includes('Gbps') ? 'var(--primary)' : 'var(--text)' }}>
-                              {i.speed}
-                            </div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                              {i.type} (MTU {i.mtu})
-                            </div>
-                          </td>
-                          <td style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--text-secondary)' }}>{i.mac || '—'}</td>
-                          <td>
-                            <div style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-primary)' }}>
-                              <span style={{ color: 'var(--success)', display: 'inline-block' }}>📥</span> 
-                              <span>{i.rx_rate}</span>
-                            </div>
-                            <div style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-primary)', marginTop: '4px' }}>
-                              <span style={{ color: 'var(--warning)', display: 'inline-block' }}>📤</span> 
-                              <span>{i.tx_rate}</span>
-                            </div>
-                          </td>
-                          <td>
-                            {/* Rx Util Bar */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                              <span style={{ fontSize: '10px', color: 'var(--text-muted)', width: '60px' }}>In: {i.rx_util}</span>
-                              <div style={{ flex: 1, height: '6px', background: 'var(--border)', borderRadius: '3px', overflow: 'hidden' }}>
-                                <div 
-                                  style={{ 
-                                    width: `${i.rx_util_val}%`, 
-                                    height: '100%', 
-                                    background: 'var(--success)',
-                                    boxShadow: '0 0 4px var(--success)',
-                                    borderRadius: '3px' 
-                                  }} 
-                                />
-                              </div>
-                            </div>
-                            {/* Tx Util Bar */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <span style={{ fontSize: '10px', color: 'var(--text-muted)', width: '60px' }}>Out: {i.tx_util}</span>
-                              <div style={{ flex: 1, height: '6px', background: 'var(--border)', borderRadius: '3px', overflow: 'hidden' }}>
-                                <div 
-                                  style={{ 
-                                    width: `${i.tx_util_val}%`, 
-                                    height: '100%', 
-                                    background: 'var(--warning)',
-                                    boxShadow: '0 0 4px var(--warning)',
-                                    borderRadius: '3px' 
-                                  }} 
-                                />
-                              </div>
-                            </div>
-                          </td>
-                          <td>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                              {i.health_status === 'good' ? (
-                                <span className="badge badge-online" style={{ background: 'rgba(16,185,129,0.12)', color: 'var(--success)', width: 'fit-content', textTransform: 'none' }}>
-                                  ✓ Aman
-                                </span>
-                              ) : i.health_status === 'critical' ? (
-                                <span className="badge badge-offline" style={{ background: 'rgba(239,68,68,0.12)', color: 'var(--danger)', fontWeight: 700, width: 'fit-content', textTransform: 'none', animation: 'pulse 2s infinite' }}>
-                                  ⚠️ Critical
-                                </span>
-                              ) : (
-                                <span className="badge" style={{ background: 'rgba(245,158,11,0.12)', color: 'var(--warning)', width: 'fit-content', textTransform: 'none' }}>
-                                  ⚠️ Peringatan
-                                </span>
-                              )}
-                              
-                              {/* Error list */}
-                              {(i.rx_err > 0 || i.tx_err > 0) && (
-                                <div style={{ fontSize: '11px', color: 'var(--text-secondary)', lineHeight: '1.3' }}>
-                                  Rx/Tx-Err: {i.rx_err} {i.rx_err_rate > 0 && <span style={{ color: 'var(--danger)', fontWeight: 600 }}>({i.rx_err_rate}/s)</span>} / {i.tx_err} {i.tx_err_rate > 0 && <span style={{ color: 'var(--danger)', fontWeight: 600 }}>({i.tx_err_rate}/s)</span>}
-                                </div>
-                              )}
-                              {(i.crc_err > 0 || i.frame_err > 0) && (
-                                <div style={{ fontSize: '11px', color: i.crc_err_rate > 0 ? 'var(--danger)' : 'var(--text-secondary)', fontWeight: i.crc_err_rate > 0 ? 600 : 'normal', lineHeight: '1.3' }}>
-                                  CRC/Frame: {i.crc_err} {i.crc_err_rate > 0 && <span style={{ color: 'var(--danger)' }}>(+{i.crc_err_rate}/s)</span>} / {i.frame_err} {i.frame_err_rate > 0 && <span style={{ color: 'var(--danger)' }}>(+{i.frame_err_rate}/s)</span>}
-                                </div>
-                              )}
-                              {i.speed_drop_warning && (
-                                <div style={{ fontSize: '11.5px', color: 'var(--warning)', fontWeight: 600, maxWidth: '200px', lineHeight: '1.2' }}>
-                                  {i.speed_drop_warning}
-                                </div>
-                              )}
-                              {i.health_status === 'good' && (
-                                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                                  Kabel & Port normal.
-                                </div>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
+              ) : (() => {
+                // Compute summary stats
+                const portsUp = interfaces.filter(i => i.status === 'up').length
+                const portsDown = interfaces.filter(i => i.status === 'down').length
+                const portsExcellent = interfaces.filter(i => i.health_status === 'excellent').length
+                const portsGood = interfaces.filter(i => i.health_status === 'good').length
+                const portsWarning = interfaces.filter(i => i.health_status === 'warning').length
+                const portsCritical = interfaces.filter(i => i.health_status === 'critical').length
+                const portsWithIssues = portsWarning + portsCritical
+                const totalCrc = interfaces.reduce((s, i) => s + (i.crc_err || 0), 0)
+                const totalFrame = interfaces.reduce((s, i) => s + (i.frame_err || 0), 0)
+                const totalRxErr = interfaces.reduce((s, i) => s + (i.rx_err || 0), 0)
+                const totalTxErr = interfaces.reduce((s, i) => s + (i.tx_err || 0), 0)
+                const totalDiscards = interfaces.reduce((s, i) => s + (i.in_discards || 0) + (i.out_discards || 0), 0)
+                const totalCollisions = interfaces.reduce((s, i) => s + (i.late_collisions || 0), 0)
+                const avgHealthScore = Math.round(interfaces.reduce((s, i) => s + (i.health_score || 100), 0) / interfaces.length)
+
+                // Apply filter
+                const filtered = interfaces.filter(i => {
+                  if (ifHealthFilter === 'all') return true
+                  if (ifHealthFilter === 'issues') return i.health_status === 'warning' || i.health_status === 'critical'
+                  return i.health_status === ifHealthFilter
+                })
+
+                return (
+                  <>
+                    {/* Summary Stats */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px', marginBottom: '16px' }}>
+                      <div style={{ padding: '12px', background: 'var(--bg-secondary)', borderRadius: '10px', textAlign: 'center', border: '1px solid var(--border)' }}>
+                        <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--primary)' }}>{interfaces.length}</div>
+                        <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Port</div>
+                      </div>
+                      <div style={{ padding: '12px', background: 'var(--bg-secondary)', borderRadius: '10px', textAlign: 'center', border: '1px solid var(--border)' }}>
+                        <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--success)' }}>{portsUp}</div>
+                        <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Port Up</div>
+                      </div>
+                      <div style={{ padding: '12px', background: 'var(--bg-secondary)', borderRadius: '10px', textAlign: 'center', border: '1px solid var(--border)' }}>
+                        <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-muted)' }}>{portsDown}</div>
+                        <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Port Down</div>
+                      </div>
+                      <div style={{ padding: '12px', background: portsWithIssues > 0 ? 'rgba(239,68,68,0.06)' : 'var(--bg-secondary)', borderRadius: '10px', textAlign: 'center', border: `1px solid ${portsWithIssues > 0 ? 'rgba(239,68,68,0.2)' : 'var(--border)'}` }}>
+                        <div style={{ fontSize: '22px', fontWeight: 800, color: portsWithIssues > 0 ? 'var(--danger)' : 'var(--success)' }}>{portsWithIssues}</div>
+                        <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Port Bermasalah</div>
+                      </div>
+                      <div style={{ padding: '12px', background: 'var(--bg-secondary)', borderRadius: '10px', textAlign: 'center', border: '1px solid var(--border)' }}>
+                        <div style={{ fontSize: '22px', fontWeight: 800, color: avgHealthScore >= 90 ? 'var(--success)' : avgHealthScore >= 60 ? 'var(--warning)' : 'var(--danger)' }}>{avgHealthScore}%</div>
+                        <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Health Score</div>
+                      </div>
+                    </div>
+
+                    {/* Error Totals Summary */}
+                    {(totalCrc + totalFrame + totalRxErr + totalTxErr + totalDiscards + totalCollisions) > 0 && (
+                      <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginBottom: '16px', padding: '12px 16px', background: 'rgba(239,68,68,0.04)', border: '1px solid rgba(239,68,68,0.12)', borderRadius: '10px' }}>
+                        <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '6px' }}>📊 Error Kumulatif:</span>
+                        {totalCrc > 0 && <span style={{ fontSize: '11px', color: 'var(--danger)', fontWeight: 600, fontFamily: 'monospace' }}>CRC: {totalCrc.toLocaleString()}</span>}
+                        {totalFrame > 0 && <span style={{ fontSize: '11px', color: 'var(--danger)', fontWeight: 600, fontFamily: 'monospace' }}>Frame: {totalFrame.toLocaleString()}</span>}
+                        {totalRxErr > 0 && <span style={{ fontSize: '11px', color: 'var(--warning)', fontWeight: 600, fontFamily: 'monospace' }}>RX-Err: {totalRxErr.toLocaleString()}</span>}
+                        {totalTxErr > 0 && <span style={{ fontSize: '11px', color: 'var(--warning)', fontWeight: 600, fontFamily: 'monospace' }}>TX-Err: {totalTxErr.toLocaleString()}</span>}
+                        {totalDiscards > 0 && <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, fontFamily: 'monospace' }}>Discards: {totalDiscards.toLocaleString()}</span>}
+                        {totalCollisions > 0 && <span style={{ fontSize: '11px', color: 'var(--danger)', fontWeight: 600, fontFamily: 'monospace' }}>Late Collisions: {totalCollisions.toLocaleString()}</span>}
+                      </div>
+                    )}
+
+                    {/* Health Filter Buttons */}
+                    <div style={{ display: 'flex', gap: '6px', marginBottom: '16px', flexWrap: 'wrap' }}>
+                      {[
+                        { key: 'all', label: `Semua (${interfaces.length})`, color: 'var(--primary)' },
+                        { key: 'issues', label: `⚠ Bermasalah (${portsWithIssues})`, color: 'var(--danger)' },
+                        { key: 'excellent', label: `✨ Excellent (${portsExcellent})`, color: 'var(--success)' },
+                        { key: 'good', label: `✓ Good (${portsGood})`, color: '#22d3ee' },
+                        { key: 'warning', label: `⚠ Warning (${portsWarning})`, color: 'var(--warning)' },
+                        { key: 'critical', label: `🔴 Critical (${portsCritical})`, color: 'var(--danger)' },
+                      ].map(f => (
+                        <button
+                          key={f.key}
+                          onClick={() => setIfHealthFilter(f.key)}
+                          style={{
+                            padding: '5px 12px', fontSize: '11px', fontWeight: 600, borderRadius: '20px', cursor: 'pointer', transition: 'all 0.15s',
+                            border: ifHealthFilter === f.key ? `1.5px solid ${f.color}` : '1.5px solid var(--border)',
+                            background: ifHealthFilter === f.key ? `${f.color}15` : 'transparent',
+                            color: ifHealthFilter === f.key ? f.color : 'var(--text-secondary)',
+                          }}
+                        >
+                          {f.label}
+                        </button>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+                    </div>
+
+                    {/* Table */}
+                    <div className="table-wrapper" style={{ maxHeight: '650px', overflowY: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr>
+                            <th style={{ width: '50px' }}>Idx</th>
+                            <th style={{ minWidth: '160px' }}>Interface / Alias</th>
+                            <th style={{ width: '70px' }}>Status</th>
+                            <th style={{ minWidth: '130px' }}>Properties</th>
+                            <th style={{ width: '130px' }}>MAC Address</th>
+                            <th style={{ minWidth: '140px' }}>Throughput</th>
+                            <th style={{ minWidth: '140px' }}>Utilization</th>
+                            <th style={{ minWidth: '260px' }}>Diagnostik Kesehatan Port</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filtered.map(i => {
+                            const isCritical = i.health_status === 'critical'
+                            const isWarning = i.health_status === 'warning'
+                            const rowBg = isCritical ? 'rgba(239,68,68,0.04)' : isWarning ? 'rgba(245,158,11,0.03)' : 'transparent'
+                            return (
+                              <tr key={i.index} style={{ borderBottom: '1px solid var(--border)', background: rowBg }}>
+                                <td style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--text-muted)' }}>#{i.index}</td>
+                                <td>
+                                  <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{i.name}</div>
+                                  {i.alias && (
+                                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic', marginTop: '2px' }}>
+                                      {i.alias}
+                                    </div>
+                                  )}
+                                </td>
+                                <td>
+                                  <span className={`badge badge-${i.status === 'up' ? 'online' : 'offline'}`} style={{ padding: '2px 8px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                    <span 
+                                      className="status-dot" 
+                                      style={{ 
+                                        background: i.status === 'up' ? 'var(--success)' : 'var(--danger)',
+                                        boxShadow: i.status === 'up' ? '0 0 6px var(--success)' : 'none',
+                                        width: '6px', height: '6px'
+                                      }} 
+                                    />
+                                    {i.status}
+                                  </span>
+                                </td>
+                                <td>
+                                  <div style={{ fontSize: '12px', fontWeight: 600, color: i.speed.includes('Gbps') ? 'var(--primary)' : 'var(--text)' }}>
+                                    {i.speed}
+                                  </div>
+                                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                    {i.type} (MTU {i.mtu})
+                                  </div>
+                                </td>
+                                <td style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--text-secondary)' }}>{i.mac || '—'}</td>
+                                <td>
+                                  <div style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-primary)' }}>
+                                    <span style={{ color: 'var(--success)', display: 'inline-block' }}>📥</span> 
+                                    <span>{i.rx_rate}</span>
+                                  </div>
+                                  <div style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-primary)', marginTop: '4px' }}>
+                                    <span style={{ color: 'var(--warning)', display: 'inline-block' }}>📤</span> 
+                                    <span>{i.tx_rate}</span>
+                                  </div>
+                                </td>
+                                <td>
+                                  {/* Rx Util Bar */}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                    <span style={{ fontSize: '10px', color: 'var(--text-muted)', width: '60px' }}>In: {i.rx_util}</span>
+                                    <div style={{ flex: 1, height: '6px', background: 'var(--border)', borderRadius: '3px', overflow: 'hidden' }}>
+                                      <div style={{ width: `${i.rx_util_val}%`, height: '100%', background: 'var(--success)', boxShadow: '0 0 4px var(--success)', borderRadius: '3px' }} />
+                                    </div>
+                                  </div>
+                                  {/* Tx Util Bar */}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span style={{ fontSize: '10px', color: 'var(--text-muted)', width: '60px' }}>Out: {i.tx_util}</span>
+                                    <div style={{ flex: 1, height: '6px', background: 'var(--border)', borderRadius: '3px', overflow: 'hidden' }}>
+                                      <div style={{ width: `${i.tx_util_val}%`, height: '100%', background: 'var(--warning)', boxShadow: '0 0 4px var(--warning)', borderRadius: '3px' }} />
+                                    </div>
+                                  </div>
+                                </td>
+                                <td>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                    {/* Health Badge + Score */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                      <span style={{
+                                        display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 700,
+                                        background: i.health_status === 'excellent' ? 'rgba(16,185,129,0.12)' : i.health_status === 'good' ? 'rgba(34,211,238,0.12)' : i.health_status === 'warning' ? 'rgba(245,158,11,0.12)' : 'rgba(239,68,68,0.15)',
+                                        color: i.health_status === 'excellent' ? 'var(--success)' : i.health_status === 'good' ? '#22d3ee' : i.health_status === 'warning' ? 'var(--warning)' : 'var(--danger)',
+                                        ...(i.health_status === 'critical' ? { animation: 'pulse 2s infinite' } : {})
+                                      }}>
+                                        {i.health_status === 'excellent' ? '✨' : i.health_status === 'good' ? '✓' : i.health_status === 'warning' ? '⚠️' : '🔴'}
+                                        {i.health_status === 'excellent' ? 'Excellent' : i.health_status === 'good' ? 'Good' : i.health_status === 'warning' ? 'Warning' : 'Critical'}
+                                      </span>
+                                      <span style={{ 
+                                        fontSize: '11px', fontWeight: 800, fontFamily: 'monospace',
+                                        color: i.health_score >= 90 ? 'var(--success)' : i.health_score >= 60 ? 'var(--warning)' : 'var(--danger)'
+                                      }}>
+                                        {i.health_score}%
+                                      </span>
+                                    </div>
+
+                                    {/* Issues Detail */}
+                                    {i.issues && i.issues.length > 0 ? (
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                        {i.issues.map((issue, idx) => (
+                                          <div key={idx} style={{ 
+                                            padding: '5px 8px', borderRadius: '6px', fontSize: '10.5px', lineHeight: '1.35',
+                                            background: issue.severity === 'critical' ? 'rgba(239,68,68,0.06)' : issue.severity === 'warning' ? 'rgba(245,158,11,0.06)' : 'rgba(100,116,139,0.06)',
+                                            border: `1px solid ${issue.severity === 'critical' ? 'rgba(239,68,68,0.15)' : issue.severity === 'warning' ? 'rgba(245,158,11,0.15)' : 'rgba(100,116,139,0.1)'}`,
+                                          }}>
+                                            <div style={{ fontWeight: 700, color: issue.severity === 'critical' ? 'var(--danger)' : issue.severity === 'warning' ? 'var(--warning)' : 'var(--text-secondary)' }}>
+                                              {issue.severity === 'critical' ? '🔴' : issue.severity === 'warning' ? '🟡' : 'ℹ️'} {issue.type}
+                                            </div>
+                                            <div style={{ color: 'var(--text-secondary)', marginTop: '2px', fontFamily: 'monospace', fontSize: '10px' }}>
+                                              {issue.detail}
+                                            </div>
+                                            <div style={{ color: 'var(--primary)', marginTop: '2px', fontSize: '10px', fontStyle: 'italic' }}>
+                                              💡 {issue.recommendation}
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                                        Kabel & Port dalam kondisi normal.
+                                      </div>
+                                    )}
+
+                                    {/* Error counters summary row */}
+                                    {(i.rx_err > 0 || i.tx_err > 0 || i.crc_err > 0 || i.frame_err > 0 || i.in_discards > 0 || i.out_discards > 0 || i.late_collisions > 0) && (
+                                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '2px' }}>
+                                        {i.crc_err > 0 && <span style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '8px', background: 'rgba(239,68,68,0.1)', color: 'var(--danger)', fontFamily: 'monospace', fontWeight: 600 }}>CRC:{i.crc_err}</span>}
+                                        {i.frame_err > 0 && <span style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '8px', background: 'rgba(239,68,68,0.1)', color: 'var(--danger)', fontFamily: 'monospace', fontWeight: 600 }}>FRM:{i.frame_err}</span>}
+                                        {i.rx_err > 0 && <span style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '8px', background: 'rgba(245,158,11,0.1)', color: 'var(--warning)', fontFamily: 'monospace', fontWeight: 600 }}>RX:{i.rx_err}</span>}
+                                        {i.tx_err > 0 && <span style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '8px', background: 'rgba(245,158,11,0.1)', color: 'var(--warning)', fontFamily: 'monospace', fontWeight: 600 }}>TX:{i.tx_err}</span>}
+                                        {(i.in_discards > 0 || i.out_discards > 0) && <span style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '8px', background: 'rgba(100,116,139,0.1)', color: 'var(--text-secondary)', fontFamily: 'monospace', fontWeight: 600 }}>DSC:{i.in_discards + i.out_discards}</span>}
+                                        {i.late_collisions > 0 && <span style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '8px', background: 'rgba(239,68,68,0.1)', color: 'var(--danger)', fontFamily: 'monospace', fontWeight: 600 }}>COLL:{i.late_collisions}</span>}
+                                      </div>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                          {filtered.length === 0 && (
+                            <tr>
+                              <td colSpan={8} style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)', fontSize: '13px' }}>
+                                Tidak ada interface yang cocok dengan filter "{ifHealthFilter}".
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )
+              })()}
             </div>
           </div>
         </div>

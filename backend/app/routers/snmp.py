@@ -624,6 +624,63 @@ async def detect_snmp_info(device_id: int, method: str = "auto"):
         }
     }
 
+def get_expected_speed_mbps(if_name: str) -> int:
+    """Returns the expected speed in Mbps based on interface name, or 0 if unknown."""
+    name_lower = if_name.lower()
+    
+    # 100G
+    if any(name_lower.startswith(x) for x in ('hu', 'hundredgig')) or '100g' in name_lower:
+        return 100000
+    # 40G
+    if any(name_lower.startswith(x) for x in ('fo', 'fortygig')) or '40g' in name_lower:
+        return 40000
+    # 25G
+    if '25g' in name_lower:
+        return 25000
+        
+    # 10G
+    if name_lower.startswith('tengig') or '10g' in name_lower or \
+       (name_lower.startswith('te') and any(x.isdigit() for x in name_lower)) or \
+       name_lower.startswith('xe'):
+        return 10000
+        
+    # 1G
+    if name_lower.startswith('gigabit') or '1g' in name_lower or \
+       (name_lower.startswith('gi') and any(x.isdigit() for x in name_lower)) or \
+       name_lower.startswith('ge') or '1000base' in name_lower:
+        return 1000
+        
+    # 100M
+    if name_lower.startswith('fastethernet') or \
+       (name_lower.startswith('fa') and any(x.isdigit() for x in name_lower)) or \
+       name_lower.startswith('fe'):
+        return 100
+        
+    # 10G/40G/100G Juniper 'et-'
+    if name_lower.startswith('et-'):
+        return 100000
+    
+    # 10M
+    if name_lower.startswith('ethernet') or \
+       (name_lower.startswith('et') and any(x.isdigit() for x in name_lower)):
+        return 10
+        
+    return 0
+
+def is_physical_interface(if_name: str) -> bool:
+    """Checks if the interface is a physical device port (not virtual/logical/mgmt)."""
+    name_lower = if_name.lower()
+    if '.' in name_lower:
+        return False
+    skips = ('null', 'loopback', 'vlan', 'mgmt', 'management', 'port-channel', 'po', 
+             'bridge', 'bdi', 'tunnel', 'tu', 'lo', 'virtual', 'vl', 'stack', 'portchannel',
+             'wlan', 'veth', 'docker')
+    if any(name_lower.startswith(x) for x in skips):
+        return False
+    if not name_lower or name_lower.isnumeric():
+        return False
+    return True
+
 @router.get("/interfaces/{device_id}")
 async def get_snmp_interfaces(device_id: int):
     # Fetch device
@@ -706,9 +763,12 @@ async def get_snmp_interfaces(device_id: int):
         walk_oid('1.3.6.1.2.1.2.2.1.20'),    # out_errors_t1 (ifOutErrors)
         walk_oid('1.3.6.1.2.1.10.7.2.1.3'),  # crc_errors_t1 (dot3StatsFCSErrors)
         walk_oid('1.3.6.1.2.1.10.7.2.1.2'),  # frame_errors_t1 (dot3StatsAlignmentErrors)
+        walk_oid('1.3.6.1.2.1.2.2.1.13'),    # in_discards_t1 (ifInDiscards)
+        walk_oid('1.3.6.1.2.1.2.2.1.19'),    # out_discards_t1 (ifOutDiscards)
+        walk_oid('1.3.6.1.2.1.10.7.2.1.8'),  # late_collisions_t1 (dot3StatsLateCollisions)
     )
     
-    descrs, statuses, speeds, high_speeds, macs, aliases, mtus, types, in_octets_t1, out_octets_t1, hc_in_t1, hc_out_t1, in_errors_t1, out_errors_t1, crc_errors_t1, frame_errors_t1 = res
+    descrs, statuses, speeds, high_speeds, macs, aliases, mtus, types, in_octets_t1, out_octets_t1, hc_in_t1, hc_out_t1, in_errors_t1, out_errors_t1, crc_errors_t1, frame_errors_t1, in_discards_t1, out_discards_t1, late_collisions_t1 = res
 
     if not descrs:
         raise HTTPException(status_code=400, detail="Gagal mengambil tabel interface via SNMP (Timeout atau port 161 tertutup).")
@@ -726,13 +786,16 @@ async def get_snmp_interfaces(device_id: int):
         walk_oid('1.3.6.1.2.1.2.2.1.20'),    # out_errors_t2
         walk_oid('1.3.6.1.2.1.10.7.2.1.3'),  # crc_errors_t2
         walk_oid('1.3.6.1.2.1.10.7.2.1.2'),  # frame_errors_t2
+        walk_oid('1.3.6.1.2.1.2.2.1.13'),    # in_discards_t2
+        walk_oid('1.3.6.1.2.1.2.2.1.19'),    # out_discards_t2
+        walk_oid('1.3.6.1.2.1.10.7.2.1.8'),  # late_collisions_t2
     )
     t2 = time.time()
     delta_t = t2 - t1
     if delta_t <= 0:
         delta_t = 1.0
 
-    in_octets_t2, out_octets_t2, hc_in_t2, hc_out_t2, in_errors_t2, out_errors_t2, crc_errors_t2, frame_errors_t2 = res_t2
+    in_octets_t2, out_octets_t2, hc_in_t2, hc_out_t2, in_errors_t2, out_errors_t2, crc_errors_t2, frame_errors_t2, in_discards_t2, out_discards_t2, late_collisions_t2 = res_t2
 
     # Status mapping: 1=up, 2=down, etc.
     status_map = {
@@ -910,7 +973,19 @@ async def get_snmp_interfaces(device_id: int):
         try: frame_err = int(frame_errors_t1.get(idx, 0))
         except: pass
         
-        # Calculate rates
+        in_disc = 0
+        try: in_disc = int(in_discards_t1.get(idx, 0))
+        except: pass
+        
+        out_disc = 0
+        try: out_disc = int(out_discards_t1.get(idx, 0))
+        except: pass
+        
+        late_coll = 0
+        try: late_coll = int(late_collisions_t1.get(idx, 0))
+        except: pass
+        
+        # Calculate rates (T2 values)
         rx_err_t2 = 0
         try: rx_err_t2 = int(in_errors_t2.get(idx, 0))
         except: pass
@@ -927,37 +1002,120 @@ async def get_snmp_interfaces(device_id: int):
         try: frame_err_t2 = int(frame_errors_t2.get(idx, 0))
         except: pass
         
+        in_disc_t2 = 0
+        try: in_disc_t2 = int(in_discards_t2.get(idx, 0))
+        except: pass
+        
+        out_disc_t2 = 0
+        try: out_disc_t2 = int(out_discards_t2.get(idx, 0))
+        except: pass
+        
+        late_coll_t2 = 0
+        try: late_coll_t2 = int(late_collisions_t2.get(idx, 0))
+        except: pass
+        
         rx_err_rate = max(0.0, (rx_err_t2 - rx_err) / delta_t)
         tx_err_rate = max(0.0, (tx_err_t2 - tx_err) / delta_t)
         crc_err_rate = max(0.0, (crc_err_t2 - crc_err) / delta_t)
         frame_err_rate = max(0.0, (frame_err_t2 - frame_err) / delta_t)
+        in_disc_rate = max(0.0, (in_disc_t2 - in_disc) / delta_t)
+        out_disc_rate = max(0.0, (out_disc_t2 - out_disc) / delta_t)
+        late_coll_rate = max(0.0, (late_coll_t2 - late_coll) / delta_t)
+        
+        delta_rx_err = max(0, rx_err_t2 - rx_err)
+        delta_tx_err = max(0, tx_err_t2 - tx_err)
+        delta_crc_err = max(0, crc_err_t2 - crc_err)
+        delta_frame_err = max(0, frame_err_t2 - frame_err)
+        delta_late_coll = max(0, late_coll_t2 - late_coll)
+        
+        is_phys = is_physical_interface(descr_str)
         
         speed_drop_warning = None
-        if status == 'up':
-            name_lower = descr_str.lower()
-            if any(x in name_lower for x in ('tengigabit', 'tengig', 'te', 'xg', 'xe', '10g')):
-                if speed_mbps > 0 and speed_mbps < 10000:
-                    speed_drop_warning = f"Port 10G sinkron pada {speed_str} (Kecepatan Turun!)."
-            elif any(x in name_lower for x in ('gigabit', 'gig', 'gi', 'ge', '1000base')):
-                if speed_mbps > 0 and speed_mbps < 1000:
-                    speed_drop_warning = f"Port Gigabit sinkron pada {speed_str} (Kecepatan Turun!)."
-            elif any(x in name_lower for x in ('fastethernet', 'fa', 'fe')):
-                if speed_mbps > 0 and speed_mbps < 100:
-                    speed_drop_warning = f"Port FastEthernet sinkron pada {speed_str} (Kecepatan Turun!)."
-                    
-        health_status = 'good'
-        if rx_err_rate > 0.0 or tx_err_rate > 0.0 or crc_err_rate > 0.0 or frame_err_rate > 0.0:
+        if status == 'up' and is_phys:
+            expected_speed = get_expected_speed_mbps(descr_str)
+            if expected_speed > 0 and speed_mbps > 0 and speed_mbps < expected_speed:
+                if expected_speed >= 100000:
+                    speed_type = "100G"
+                elif expected_speed >= 40000:
+                    speed_type = "40G"
+                elif expected_speed >= 10000:
+                    speed_type = "10G"
+                elif expected_speed >= 1000:
+                    speed_type = "Gigabit"
+                elif expected_speed >= 100:
+                    speed_type = "FastEthernet"
+                else:
+                    speed_type = "Ethernet"
+                
+                curr_speed_str = f"{speed_mbps / 1000:.1f} Gbps".replace('.0 ', ' ') if speed_mbps >= 1000 else f"{speed_mbps} Mbps"
+                speed_drop_warning = f"Port {speed_type} sinkron pada {curr_speed_str} (Kecepatan Turun!)."
+
+        # Health score: 4-tier system (excellent, good, warning, critical)
+        # Count active issues for a more granular assessment
+        issues = []
+        
+        # Only check physical errors if it's a physical interface
+        if is_phys:
+            if crc_err_rate >= 0.05 and delta_crc_err >= 5:
+                issues.append({"type": "CRC Errors", "severity": "critical", "detail": f"{crc_err_rate:.2f}/s (Total: {crc_err_t2})", "recommendation": "Ganti kabel LAN atau bersihkan konektor RJ45."})
+            elif crc_err_t2 > 100:
+                issues.append({"type": "CRC Errors (Historis)", "severity": "warning", "detail": f"Total: {crc_err_t2}", "recommendation": "Monitor kabel, pertimbangkan penggantian."})
+            
+            if frame_err_rate >= 0.05 and delta_frame_err >= 5:
+                issues.append({"type": "Framing Errors", "severity": "critical", "detail": f"{frame_err_rate:.2f}/s (Total: {frame_err_t2})", "recommendation": "Periksa duplex mismatch atau ganti kabel."})
+            elif frame_err_t2 > 100:
+                issues.append({"type": "Framing Errors (Historis)", "severity": "warning", "detail": f"Total: {frame_err_t2}", "recommendation": "Monitor kondisi kabel secara berkala."})
+            
+            if rx_err_rate >= 0.1 and delta_rx_err >= 5:
+                issues.append({"type": "RX Errors", "severity": "critical", "detail": f"{rx_err_rate:.2f}/s (Total: {rx_err_t2})", "recommendation": "Periksa port fisik dan kabel perangkat asal."})
+            elif rx_err_t2 > 50:
+                issues.append({"type": "RX Errors (Historis)", "severity": "warning", "detail": f"Total: {rx_err_t2}", "recommendation": "Perhatikan tren error secara berkala."})
+            
+            if tx_err_rate >= 0.1 and delta_tx_err >= 5:
+                issues.append({"type": "TX Errors", "severity": "critical", "detail": f"{tx_err_rate:.2f}/s (Total: {tx_err_t2})", "recommendation": "Periksa sirkuit internal port switch/router."})
+            elif tx_err_t2 > 50:
+                issues.append({"type": "TX Errors (Historis)", "severity": "warning", "detail": f"Total: {tx_err_t2}", "recommendation": "Monitor sirkuit port ini."})
+            
+            if late_coll_rate >= 0.05 and delta_late_coll >= 5:
+                issues.append({"type": "Late Collisions", "severity": "critical", "detail": f"{late_coll_rate:.2f}/s (Total: {late_coll_t2})", "recommendation": "Periksa duplex mismatch atau kabel terlalu panjang (>100m)."})
+            elif late_coll_t2 > 10:
+                issues.append({"type": "Late Collisions (Historis)", "severity": "warning", "detail": f"Total: {late_coll_t2}", "recommendation": "Periksa panjang kabel dan konfigurasi duplex."})
+            
+            if speed_drop_warning:
+                issues.append({"type": "Link Speed Drop", "severity": "warning", "detail": speed_drop_warning, "recommendation": "Bersihkan pin port, ganti kabel, atau cek auto-negotiation."})
+
+        # Discards are buffer/QoS issues, checked for all interfaces
+        if in_disc_rate > 0.0 or out_disc_rate > 0.0:
+            total_disc_rate = in_disc_rate + out_disc_rate
+            issues.append({"type": "Packet Discards", "severity": "warning", "detail": f"In: {in_disc_rate:.2f}/s, Out: {out_disc_rate:.2f}/s (Total In: {in_disc_t2}, Out: {out_disc_t2})", "recommendation": "Periksa buffer overrun atau QoS policy."})
+        elif (in_disc_t2 + out_disc_t2) > 100:
+            issues.append({"type": "Packet Discards (Historis)", "severity": "info", "detail": f"In: {in_disc_t2}, Out: {out_disc_t2}", "recommendation": "Review QoS policy dan kapasitas buffer."})
+
+        # Determine health tier based on issues
+        has_critical = any(i["severity"] == "critical" for i in issues)
+        has_warning = any(i["severity"] == "warning" for i in issues)
+        has_info = any(i["severity"] == "info" for i in issues)
+        total_errors = rx_err + tx_err + crc_err + frame_err + in_disc + out_disc + late_coll
+        
+        if has_critical:
             health_status = 'critical'
-        elif speed_drop_warning is not None:
+            health_score = max(0, 100 - (len([i for i in issues if i['severity'] == 'critical']) * 25) - (len([i for i in issues if i['severity'] == 'warning']) * 10))
+        elif has_warning:
             health_status = 'warning'
-        elif rx_err > 50 or tx_err > 50 or crc_err > 50 or frame_err > 50:
-            health_status = 'warning'
+            health_score = max(30, 100 - (len([i for i in issues if i['severity'] == 'warning']) * 15))
+        elif total_errors > 10:
+            health_status = 'good'
+            health_score = max(60, 90 - min(30, total_errors // 10))
+        else:
+            health_status = 'excellent'
+            health_score = 100
 
         list_ifs.append({
             "index": idx,
             "name": descr_str,
             "status": status,
             "speed": speed_str,
+            "speed_mbps": speed_mbps,
             "mac": mac_str,
             "alias": alias_str,
             "mtu": mtu,
@@ -972,12 +1130,20 @@ async def get_snmp_interfaces(device_id: int):
             "tx_err": tx_err,
             "crc_err": crc_err,
             "frame_err": frame_err,
+            "in_discards": in_disc,
+            "out_discards": out_disc,
+            "late_collisions": late_coll,
             "rx_err_rate": round(rx_err_rate, 2),
             "tx_err_rate": round(tx_err_rate, 2),
             "crc_err_rate": round(crc_err_rate, 2),
             "frame_err_rate": round(frame_err_rate, 2),
+            "in_disc_rate": round(in_disc_rate, 2),
+            "out_disc_rate": round(out_disc_rate, 2),
+            "late_coll_rate": round(late_coll_rate, 2),
             "speed_drop_warning": speed_drop_warning,
-            "health_status": health_status
+            "health_status": health_status,
+            "health_score": health_score,
+            "issues": issues
         })
 
     # Sort interfaces by name using simple natural sort

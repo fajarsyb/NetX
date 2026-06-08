@@ -43,7 +43,7 @@ export default function Sidebar() {
   useEffect(() => {
     const handleMouseMove = (e) => {
       if (!isResizing) return
-      const newWidth = Math.max(200, Math.min(e.clientX, 450))
+      const newWidth = Math.max(200, Math.min(e.clientX, 600))
       setSidebarWidth(newWidth)
     }
 
@@ -379,13 +379,13 @@ export default function Sidebar() {
             </div>
           </div>
         )}
-        {/* Resize Handle */}
-        <div 
-          className={`sidebar-resizer ${isResizing ? 'resizing' : ''}`} 
-          onMouseDown={startResizing}
-          title="Geser untuk mengatur lebar menu"
-        />
       </aside>
+      {/* Resize Handle (positioned outside to avoid scrollbar clipping) */}
+      <div 
+        className={`sidebar-resizer ${isResizing ? 'resizing' : ''}`} 
+        onMouseDown={startResizing}
+        title="Geser untuk mengatur lebar menu"
+      />
 
       {showAdd && (
         <AddDeviceModal

@@ -133,6 +133,7 @@ export default function Dashboard() {
   })
 
   const [activeAnomalies, setActiveAnomalies] = useState([])
+  const [deviceAnomalySummary, setDeviceAnomalySummary] = useState([])
 
   const toast = useToast()
   const navigate = useNavigate()
@@ -146,18 +147,20 @@ export default function Dashboard() {
   const fetchData = async () => {
     setLoading(true)
     try {
-      const [arpRes, lldpRes, groupsRes, macRes, anomaliesRes] = await Promise.all([
+      const [arpRes, lldpRes, groupsRes, macRes, anomaliesRes, anomSummaryRes] = await Promise.all([
         arpApi.getSummary(),
         lldpApi.getSummary(),
         groupsApi.list(),
         macApi.getSummary(),
         anomaliesApi.getActive(),
+        anomaliesApi.getDeviceSummary().catch(() => ({ data: [] })),
       ])
       setArpSummary(arpRes.data)
       setLldpSummary(lldpRes.data)
       setGroups(groupsRes.data)
       setMacSummary(macRes.data)
       setActiveAnomalies(anomaliesRes.data)
+      setDeviceAnomalySummary(anomSummaryRes.data || [])
     } catch (_) {}
     setLoading(false)
   }
@@ -538,11 +541,16 @@ export default function Dashboard() {
         <div className="device-grid">
           {devices.map(d => {
             const st = d.status || 'unknown'
+            const portHealth = deviceAnomalySummary.find(a => a.device_id === d.id)
+            const hasCritical = portHealth?.critical_count > 0
+            const hasWarning = portHealth?.warning_count > 0
+            const portIssueCount = (portHealth?.critical_count || 0) + (portHealth?.warning_count || 0)
             return (
               <div
                 key={d.id}
                 className="card card-clickable"
                 onClick={() => navigate(`/device/${d.id}`)}
+                style={hasCritical ? { borderColor: 'rgba(239,68,68,0.4)', boxShadow: '0 0 12px rgba(239,68,68,0.08)' } : hasWarning ? { borderColor: 'rgba(245,158,11,0.35)' } : {}}
               >
                 {/* Card header */}
                 <div className="device-card-header">
@@ -571,8 +579,30 @@ export default function Dashboard() {
                   )}
                 </div>
 
+                {/* Port Health Indicator */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', padding: '8px 10px', borderRadius: '8px', background: hasCritical ? 'rgba(239,68,68,0.08)' : hasWarning ? 'rgba(245,158,11,0.08)' : 'rgba(16,185,129,0.06)', border: `1px solid ${hasCritical ? 'rgba(239,68,68,0.2)' : hasWarning ? 'rgba(245,158,11,0.2)' : 'rgba(16,185,129,0.15)'}` }}>
+                  <span style={{ fontSize: '14px' }}>{hasCritical ? '🔴' : hasWarning ? '🟡' : '🟢'}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '11.5px', fontWeight: 600, color: hasCritical ? 'var(--danger)' : hasWarning ? 'var(--warning)' : 'var(--success)' }}>
+                      {hasCritical ? 'Port Issue Kritis' : hasWarning ? 'Peringatan Port' : 'Port Sehat'}
+                    </div>
+                    {portIssueCount > 0 && (
+                      <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '1px' }}>
+                        {portHealth.critical_count > 0 && `${portHealth.critical_count} kritis`}
+                        {portHealth.critical_count > 0 && portHealth.warning_count > 0 && ', '}
+                        {portHealth.warning_count > 0 && `${portHealth.warning_count} peringatan`}
+                      </div>
+                    )}
+                  </div>
+                  {portIssueCount > 0 && (
+                    <span style={{ fontSize: '16px', fontWeight: 800, color: hasCritical ? 'var(--danger)' : 'var(--warning)', fontFamily: 'monospace' }}>
+                      {portIssueCount}
+                    </span>
+                  )}
+                </div>
+
                 {/* Stats */}
-                <div className="device-card-stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', borderTop: '1px solid var(--border)', paddingTop: '12px', marginTop: '12px' }}>
+                <div className="device-card-stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', borderTop: '1px solid var(--border)', paddingTop: '12px', marginTop: '0' }}>
                   <div className="device-card-stat">
                     <span className="device-card-stat-val" style={{ color:'var(--accent)', fontSize: '18px' }}>
                       {d.arp_count || 0}

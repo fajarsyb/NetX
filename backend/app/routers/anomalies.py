@@ -122,6 +122,36 @@ async def resolve_anomaly(anomaly_id: int, user: dict = Depends(require_operator
     finally:
         conn.close()
 
+@router.get("/device-summary")
+async def get_device_anomaly_summary(current_user: dict = Depends(get_current_user)):
+    """Return a per-device summary of active anomalies (port health indicators)."""
+    conn = get_db_conn()
+    c = conn.cursor()
+    c.execute("""
+        SELECT device_id, severity, anomaly_type
+        FROM network_anomalies
+        WHERE is_active = 1
+    """)
+    rows = c.fetchall()
+    conn.close()
+
+    device_map = {}
+    for r in rows:
+        did = r["device_id"]
+        if did not in device_map:
+            device_map[did] = {"device_id": did, "critical_count": 0, "warning_count": 0, "anomaly_types": set()}
+        if r["severity"] == "critical":
+            device_map[did]["critical_count"] += 1
+        else:
+            device_map[did]["warning_count"] += 1
+        device_map[did]["anomaly_types"].add(r["anomaly_type"])
+
+    result = []
+    for d in device_map.values():
+        d["anomaly_types"] = list(d["anomaly_types"])
+        result.append(d)
+    return result
+
 @router.post("/resolve-all")
 async def resolve_all_anomalies(user: dict = Depends(require_operator_or_admin)):
     """Mark all active anomalies as resolved."""

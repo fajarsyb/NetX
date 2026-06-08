@@ -130,6 +130,7 @@ export const anomaliesApi = {
   getHistory: (params) => api.get('/anomalies/history', { params }),
   resolve:    (id)     => api.post(`/anomalies/${id}/resolve`),
   resolveAll: ()       => api.post('/anomalies/resolve-all'),
+  getDeviceSummary: () => api.get('/anomalies/device-summary'),
 }
 
 export const syslogApi = {

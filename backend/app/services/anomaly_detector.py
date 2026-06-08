@@ -25,6 +25,49 @@ PORT_FLAP_WINDOW_SECONDS = 300  # 5 minutes
 
 STP_TCN_AUTO_RESOLVE_SECONDS = 300 # 5 minutes
 
+def get_expected_speed_mbps(if_name: str) -> int:
+    """Returns the expected speed in Mbps based on interface name, or 0 if unknown."""
+    name_lower = if_name.lower()
+    
+    # 100G
+    if any(name_lower.startswith(x) for x in ('hu', 'hundredgig')) or '100g' in name_lower:
+        return 100000
+    # 40G
+    if any(name_lower.startswith(x) for x in ('fo', 'fortygig')) or '40g' in name_lower:
+        return 40000
+    # 25G
+    if '25g' in name_lower:
+        return 25000
+        
+    # 10G
+    if name_lower.startswith('tengig') or '10g' in name_lower or \
+       (name_lower.startswith('te') and any(x.isdigit() for x in name_lower)) or \
+       name_lower.startswith('xe'):
+        return 10000
+        
+    # 1G
+    if name_lower.startswith('gigabit') or '1g' in name_lower or \
+       (name_lower.startswith('gi') and any(x.isdigit() for x in name_lower)) or \
+       name_lower.startswith('ge') or '1000base' in name_lower:
+        return 1000
+        
+    # 100M
+    if name_lower.startswith('fastethernet') or \
+       (name_lower.startswith('fa') and any(x.isdigit() for x in name_lower)) or \
+       name_lower.startswith('fe'):
+        return 100
+        
+    # 10G/40G/100G Juniper 'et-'
+    if name_lower.startswith('et-'):
+        return 100000
+    
+    # 10M
+    if name_lower.startswith('ethernet') or \
+       (name_lower.startswith('et') and any(x.isdigit() for x in name_lower)):
+        return 10
+        
+    return 0
+
 async def walk_oid(ip: str, community: str, mp_model: int, oid_str: str) -> dict:
     """Walks an OID and returns a dict mapping index (int) to value string."""
     results = {}
@@ -260,8 +303,21 @@ async def scan_device_anomalies(device: dict):
             else:
                 if_name = descr
                 
-            # Skip Null / Loopback / Virtual
-            if not if_name or if_name.lower().startswith('null') or if_name.lower().startswith('loopback') or if_name.lower().startswith('vlan'):
+            if not if_name:
+                continue
+                
+            # Skip Null / Loopback / Virtual / Management / LAGs / Subinterfaces
+            name_lower = if_name.lower()
+            if '.' in name_lower or any(name_lower.startswith(x) for x in (
+                   'null', 'loopback', 'vlan', 'mgmt', 'management', 'port-channel', 'po', 
+                   'bridge', 'bdi', 'tunnel', 'tu', 'lo', 'virtual', 'vl', 'stack', 'portchannel',
+                   'wlan', 'veth', 'docker'
+               )):
+                c.execute("""
+                    UPDATE network_anomalies 
+                    SET is_active = 0, resolved_at = ? 
+                    WHERE device_id = ? AND interface_name = ? AND is_active = 1
+                """, (now_iso, device_id, if_name))
                 continue
                 
             # Extract operational status
@@ -333,15 +389,21 @@ async def scan_device_anomalies(device: dict):
                 rate_in_uni = max(0, (iu - prev["in_unicast"])) / delta_t
                 rate_out_uni = max(0, (ou - prev["out_unicast"])) / delta_t
                 
+                # Compute absolute delta of errors
+                delta_rx_err = max(0, rx_err - prev_rx_err)
+                delta_tx_err = max(0, tx_err - prev_tx_err)
+                delta_crc_err = max(0, crc_err - prev_crc_err)
+                delta_frame_err = max(0, frame_err - prev_frame_err)
+                
                 # Compute error rates
-                rate_rx_err = max(0.0, (rx_err - prev_rx_err)) / delta_t
-                rate_tx_err = max(0.0, (tx_err - prev_tx_err)) / delta_t
-                rate_crc_err = max(0.0, (crc_err - prev_crc_err)) / delta_t
-                rate_frame_err = max(0.0, (frame_err - prev_frame_err)) / delta_t
+                rate_rx_err = delta_rx_err / delta_t
+                rate_tx_err = delta_tx_err / delta_t
+                rate_crc_err = delta_crc_err / delta_t
+                rate_frame_err = delta_frame_err / delta_t
                 
                 # --- Port & Cable Physical Health Detection ---
-                # 1. CRC / LAN Cable Errors
-                if rate_crc_err > 0.0:
+                # 1. CRC / LAN Cable Errors (Requires rate >= 0.05 AND delta >= 5)
+                if rate_crc_err >= 0.05 and delta_crc_err >= 5:
                     details = f"Peningkatan CRC errors terdeteksi pada interface {if_name}: {rate_crc_err:.2f} errors/detik. Total: {crc_err}. Mengindikasikan kerusakan fisik kabel LAN atau pin port kotor."
                     c.execute("""
                         SELECT id FROM network_anomalies 
@@ -352,15 +414,15 @@ async def scan_device_anomalies(device: dict):
                             INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
                             VALUES (?, 'crc_errors', 'critical', ?, ?, 1, ?)
                         """, (device_id, if_name, details, now_iso))
-                else:
+                elif rate_crc_err == 0.0:
                     c.execute("""
                         UPDATE network_anomalies 
                         SET is_active = 0, resolved_at = ? 
                         WHERE device_id = ? AND anomaly_type = 'crc_errors' AND interface_name = ? AND is_active = 1
                     """, (now_iso, device_id, if_name))
 
-                # 2. Framing Errors
-                if rate_frame_err > 0.0:
+                # 2. Framing Errors (Requires rate >= 0.05 AND delta >= 5)
+                if rate_frame_err >= 0.05 and delta_frame_err >= 5:
                     details = f"Peningkatan Framing errors terdeteksi pada interface {if_name}: {rate_frame_err:.2f} errors/detik. Total: {frame_err}. Adanya kerusakan sirkuit fisik atau interferensi berat."
                     c.execute("""
                         SELECT id FROM network_anomalies 
@@ -371,15 +433,15 @@ async def scan_device_anomalies(device: dict):
                             INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
                             VALUES (?, 'framing_errors', 'warning', ?, ?, 1, ?)
                         """, (device_id, if_name, details, now_iso))
-                else:
+                elif rate_frame_err == 0.0:
                     c.execute("""
                         UPDATE network_anomalies 
                         SET is_active = 0, resolved_at = ? 
                         WHERE device_id = ? AND anomaly_type = 'framing_errors' AND interface_name = ? AND is_active = 1
                     """, (now_iso, device_id, if_name))
 
-                # 3. Transmission Errors (RX-ERR / TX-ERR)
-                if rate_rx_err > 0.0 or rate_tx_err > 0.0:
+                # 3. Transmission Errors (RX-ERR / TX-ERR) (Requires rate >= 0.1 AND delta >= 5)
+                if (rate_rx_err >= 0.1 or rate_tx_err >= 0.1) and (delta_rx_err + delta_tx_err) >= 5:
                     details = f"Deteksi transmission errors pada interface {if_name}: Laju RX-ERR {rate_rx_err:.2f}/s, TX-ERR {rate_tx_err:.2f}/s. Total RX-ERR: {rx_err}, TX-ERR: {tx_err}. Kerusakan sirkuit port internal."
                     c.execute("""
                         SELECT id FROM network_anomalies 
@@ -390,26 +452,33 @@ async def scan_device_anomalies(device: dict):
                             INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
                             VALUES (?, 'transmission_errors', 'critical', ?, ?, 1, ?)
                         """, (device_id, if_name, details, now_iso))
-                else:
+                elif rate_rx_err == 0.0 and rate_tx_err == 0.0:
                     c.execute("""
                         UPDATE network_anomalies 
                         SET is_active = 0, resolved_at = ? 
                         WHERE device_id = ? AND anomaly_type = 'transmission_errors' AND interface_name = ? AND is_active = 1
                     """, (now_iso, device_id, if_name))
 
-                # 4. Link Speed Drop
+                # 4. Link Speed Drop (Accurate check based on classification)
                 speed_drop_warning = None
                 if oper_status == 'up':
-                    name_lower = if_name.lower()
-                    if any(x in name_lower for x in ('tengigabit', 'tengig', 'te', 'xg', 'xe', '10g')):
-                        if speed_mbps > 0 and speed_mbps < 10000:
-                            speed_drop_warning = f"Port 10G sinkron pada {speed_mbps} Mbps (Link Speed Drop!)."
-                    elif any(x in name_lower for x in ('gigabit', 'gig', 'gi', 'ge', '1000base')):
-                        if speed_mbps > 0 and speed_mbps < 100:
-                            speed_drop_warning = f"Port Gigabit sinkron pada {speed_mbps} Mbps (Link Speed Drop!)."
-                    elif any(x in name_lower for x in ('fastethernet', 'fa', 'fe')):
-                        if speed_mbps > 0 and speed_mbps < 10:
-                            speed_drop_warning = f"Port FastEthernet sinkron pada {speed_mbps} Mbps (Link Speed Drop!)."
+                    expected_speed = get_expected_speed_mbps(if_name)
+                    if expected_speed > 0 and speed_mbps > 0 and speed_mbps < expected_speed:
+                        if expected_speed >= 100000:
+                            speed_type = "100G"
+                        elif expected_speed >= 40000:
+                            speed_type = "40G"
+                        elif expected_speed >= 10000:
+                            speed_type = "10G"
+                        elif expected_speed >= 1000:
+                            speed_type = "Gigabit"
+                        elif expected_speed >= 100:
+                            speed_type = "FastEthernet"
+                        else:
+                            speed_type = "Ethernet"
+                            
+                        curr_speed_str = f"{speed_mbps / 1000:.1f} Gbps".replace('.0 ', ' ') if speed_mbps >= 1000 else f"{speed_mbps} Mbps"
+                        speed_drop_warning = f"Port {speed_type} sinkron pada {curr_speed_str} (Link Speed Drop!)."
                 
                 if speed_drop_warning:
                     details = f"Penurunan kecepatan link terdeteksi pada interface {if_name}: {speed_drop_warning}. Pin port kotor, berkarat, atau kabel LAN rusak."
@@ -484,11 +553,20 @@ async def scan_device_anomalies(device: dict):
                         WHERE device_id = ? AND anomaly_type = 'multicast_storm' AND interface_name = ? AND is_active = 1
                     """, (now_iso, device_id, if_name))
 
-                # Unicast Storm
+                # Unicast Storm (Dynamic threshold based on interface speed)
                 rate_unic = max(rate_in_uni, rate_out_uni)
-                if rate_unic >= UNICAST_STORM_WARNING:
-                    sev = 'critical' if rate_unic >= UNICAST_STORM_CRITICAL else 'warning'
-                    details = f"Trafik Unicast tinggi pada interface {if_name}: {int(rate_unic)} pps (Batas: {UNICAST_STORM_WARNING} pps)."
+                
+                # Get speed to scale threshold
+                port_speed = speed_mbps if speed_mbps > 0 else get_expected_speed_mbps(if_name)
+                port_speed = port_speed if port_speed > 0 else 1000 # default to 1G if unknown
+                
+                # Dynamic unicast threshold: scale base thresholds (warning=80k, critical=120k for 1G)
+                unicast_warn = 80000 * (port_speed / 1000)
+                unicast_crit = 120000 * (port_speed / 1000)
+                
+                if rate_unic >= unicast_warn:
+                    sev = 'critical' if rate_unic >= unicast_crit else 'warning'
+                    details = f"Trafik Unicast tinggi pada interface {if_name}: {int(rate_unic)} pps (Batas: {int(unicast_warn)} pps)."
                     
                     c.execute("""
                         SELECT id, severity FROM network_anomalies 
