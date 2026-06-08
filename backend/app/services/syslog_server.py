@@ -2,10 +2,41 @@ import asyncio
 import logging
 import re
 import json
+import hashlib
 from datetime import datetime, timedelta
 from app.database import get_db_conn
 
 logger = logging.getLogger("netx.syslog_server")
+
+def get_log_template(message: str) -> tuple[str, str]:
+    """
+    Groups/clusters syslog messages by replacing variables with placeholders.
+    Returns (template_string, pattern_hash).
+    """
+    # 1. Clean timestamps or counters (e.g. "123: *Oct 11 22:14:14: ")
+    msg = re.sub(r"^\d+:\s*(?:\*\w{3}\s+\d+\s+\d+:\d+:\d+(?:\.\d+)?:\s*)?", "", message)
+    
+    # 2. Replace IP addresses
+    msg = re.sub(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b", "<IP>", msg)
+    
+    # 3. Replace MAC addresses
+    msg = re.sub(r"\b(?:[0-9A-Fa-f]{2}[:-]){5}(?:[0-9A-Fa-f]{2})\b", "<MAC>", msg)
+    msg = re.sub(r"\b[0-9a-fA-F]{4}\.[0-9a-fA-F]{4}\.[0-9a-fA-F]{4}\b", "<MAC>", msg)
+    
+    # 4. Replace standard Interface names (e.g. GigabitEthernet0/1, ge-0/0/0, port1)
+    msg = re.sub(r"\b(?:[a-zA-Z]{2,15}\d+(?:\/\d+)+(?:\.\d+)?|port\d+(?:\.\d+)*)\b", "<IF>", msg)
+    
+    # 5. Replace hex numbers
+    msg = re.sub(r"\b0x[0-9a-fA-F]+\b", "<HEX>", msg)
+    
+    # 6. Replace integers
+    msg = re.sub(r"\b\d+\b", "<NUM>", msg)
+    
+    template = msg.strip()
+    pattern_hash = hashlib.md5(template.encode("utf-8", errors="ignore")).hexdigest()
+    
+    return template, pattern_hash
+
 
 # Cache mapping sender IP -> device_id
 # None represents an unregistered device

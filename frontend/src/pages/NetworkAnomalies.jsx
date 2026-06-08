@@ -3,9 +3,10 @@ import {
   AlertTriangle, CheckCircle, RefreshCw, Search, Clock, 
   AlertOctagon, Activity, FileText, ChevronLeft, ChevronRight, Info, Filter, X
 } from 'lucide-react'
-import { anomaliesApi, devicesApi } from '../api/client'
+import { anomaliesApi, devicesApi, syslogApi } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../components/shared/ToastProvider'
+import { cleanInterfaceName } from '../utils/portUtils'
 
 export default function NetworkAnomalies() {
   const [activeAnomalies, setActiveAnomalies] = useState([])
@@ -18,8 +19,10 @@ export default function NetworkAnomalies() {
   const [resolvingId, setResolvingId] = useState(null)
   const [resolvingAll, setResolvingAll] = useState(false)
 
-  // Tab state: 'active' or 'history'
+  // Tab state: 'active', 'history', or 'senders'
   const [activeTab, setActiveTab] = useState('active')
+  const [logSenders, setLogSenders] = useState([])
+  const [loadingSenders, setLoadingSenders] = useState(false)
 
   // --- Tab 1: Active Anomalies States ---
   const [activePage, setActivePage] = useState(1)
@@ -114,6 +117,25 @@ export default function NetworkAnomalies() {
     fetchActiveAnomalies()
   }, [])
 
+  const fetchSenders = async () => {
+    setLoadingSenders(true)
+    try {
+      const res = await syslogApi.getSenders()
+      setLogSenders(Array.isArray(res.data) ? res.data : [])
+    } catch (err) {
+      console.error('Failed to load active syslog senders:', err)
+      toast.error('Gagal mengambil data pengirim log.')
+    } finally {
+      setLoadingSenders(false)
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === 'senders') {
+      fetchSenders()
+    }
+  }, [activeTab])
+
   useEffect(() => {
     if (activeTab === 'history') {
       fetchHistoryAnomalies()
@@ -133,10 +155,12 @@ export default function NetworkAnomalies() {
   const handleRefresh = () => {
     if (activeTab === 'active') {
       fetchActiveAnomalies()
-    } else {
+    } else if (activeTab === 'history') {
       fetchHistoryAnomalies()
+    } else if (activeTab === 'senders') {
+      fetchSenders()
     }
-    toast.success('Data anomali berhasil diperbarui.')
+    toast.success('Data berhasil diperbarui.')
   }
 
   const handleResolve = async (id) => {
@@ -637,6 +661,12 @@ export default function NetworkAnomalies() {
         >
           Riwayat Log Anomali
         </button>
+        <button 
+          className={`tab-btn-modern ${activeTab === 'senders' ? 'active' : ''}`}
+          onClick={() => setActiveTab('senders')}
+        >
+          📊 Pengirim Log Aktif
+        </button>
       </div>
 
       {/* --- TAB 1: ACTIVE ANOMALIES VIEW --- */}
@@ -770,7 +800,7 @@ export default function NetworkAnomalies() {
                             </span>
                             {a.interface_name && a.interface_name !== 'Global' && (
                               <span className="badge badge-ssh" style={{ fontSize: '11px', background: 'var(--primary-dim)', color: 'var(--primary)', fontWeight: 600 }}>
-                                Port: {a.interface_name}
+                                Port: {cleanInterfaceName(a.interface_name)}
                               </span>
                             )}
                           </div>
@@ -966,7 +996,7 @@ export default function NetworkAnomalies() {
                               {h.severity}
                             </span>
                           </td>
-                          <td className="mono" style={{ fontWeight: 'bold' }}>{h.interface_name || '—'}</td>
+                          <td className="mono" style={{ fontWeight: 'bold' }}>{cleanInterfaceName(h.interface_name) || '—'}</td>
                           <td style={{ fontSize: '12.5px', color: 'var(--text-secondary)', maxWeight: '400px' }}>{h.details}</td>
                           <td className="mono" style={{ fontSize: '11.5px', color: h.is_active ? 'var(--danger)' : 'var(--text-muted)' }}>
                             {h.is_active ? (
@@ -1012,6 +1042,78 @@ export default function NetworkAnomalies() {
             )}
           </div>
         </>
+      )}
+
+      {/* --- TAB 3: LOG SENDERS VIEW --- */}
+      {activeTab === 'senders' && (
+        <div className="animate-slide">
+          <div className="card p-0" style={{ overflow: 'hidden' }}>
+            <div className="p-24" style={{ borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                  Perangkat Aktif Mengirimkan Syslog
+                </h3>
+                <p style={{ margin: '4px 0 0 0', fontSize: '12.5px', color: 'var(--text-muted)' }}>
+                  Menampilkan daftar IP/perangkat yang mengirimkan log ke server NetX.
+                </p>
+              </div>
+              <button className="btn btn-outline-primary btn-sm" onClick={fetchSenders} disabled={loadingSenders}>
+                <RefreshCw size={12} className={loadingSenders ? 'spin' : ''} /> Segarkan Data
+              </button>
+            </div>
+
+            {loadingSenders ? (
+              <div className="loading-overlay" style={{ padding: '48px' }}>
+                <div className="loading-spinner" />
+                <span>Memuat data pengirim syslog...</span>
+              </div>
+            ) : logSenders.length === 0 ? (
+              <div style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                Belum ada perangkat yang tercatat mengirimkan log ke server.
+              </div>
+            ) : (
+              <div className="table-wrapper">
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ paddingLeft: '24px' }}>Nama Perangkat</th>
+                      <th>IP Address</th>
+                      <th>Source IP Log</th>
+                      <th style={{ textAlign: 'center' }}>Jumlah Log Diterima</th>
+                      <th style={{ paddingRight: '24px', textAlign: 'right' }}>Terakhir Dilihat</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {logSenders.map((s, idx) => (
+                      <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ paddingLeft: '24px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                          {s.device_name}
+                        </td>
+                        <td className="mono" style={{ fontWeight: 600 }}>{s.device_ip}</td>
+                        <td className="mono" style={{ color: 'var(--text-muted)' }}>{s.raw_sender_ip}</td>
+                        <td style={{ textAlign: 'center' }}>
+                          <span style={{ 
+                            background: 'var(--primary-dim)', 
+                            color: 'var(--primary)', 
+                            padding: '4px 10px', 
+                            borderRadius: '12px', 
+                            fontSize: '12px',
+                            fontWeight: 700
+                          }}>
+                            {s.log_count.toLocaleString()}
+                          </span>
+                        </td>
+                        <td style={{ paddingRight: '24px', textAlign: 'right', fontSize: '12.5px', color: 'var(--text-secondary)' }}>
+                          {new Date(s.last_seen).toLocaleString('id-ID')}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   )

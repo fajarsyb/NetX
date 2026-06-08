@@ -9,6 +9,49 @@ from pysnmp.hlapi.v3arch.asyncio import (
 
 logger = logging.getLogger("netx.anomaly_detector")
 
+def load_device_thresholds(device_id: int, conn) -> dict:
+    """Loads custom thresholds for a device, falling back to system defaults if none set."""
+    c = conn.cursor()
+    try:
+        c.execute("""
+            SELECT tp.* 
+            FROM devices d
+            JOIN threshold_profiles tp ON d.threshold_profile_id = tp.id
+            WHERE d.id = ?
+        """, (device_id,))
+        row = c.fetchone()
+    except Exception:
+        row = None
+    
+    defaults = {
+        "broadcast_storm_warning": 1000,
+        "broadcast_storm_critical": 5000,
+        "multicast_storm_warning": 1000,
+        "multicast_storm_critical": 5000,
+        "unicast_storm_warning": 80000,
+        "unicast_storm_critical": 120000,
+        "port_flap_warning": 3,
+        "port_flap_critical": 6,
+        "port_flap_window": 300,
+        "crc_error_rate": 0.05,
+        "crc_error_delta": 5,
+        "frame_error_rate": 0.05,
+        "frame_error_delta": 5,
+        "transmission_error_rate": 0.1,
+        "transmission_error_delta": 5
+    }
+    
+    if not row:
+        return defaults
+        
+    profile = dict(row)
+    for k, default_val in defaults.items():
+        if k in profile and profile[k] is not None:
+            defaults[k] = profile[k]
+            
+    return defaults
+
+
 # Configuration / Thresholds
 BROADCAST_STORM_CRITICAL = 5000  # packets per second (pps)
 BROADCAST_STORM_WARNING = 1000
@@ -259,6 +302,7 @@ async def scan_device_anomalies(device: dict):
         
     # Open local connection for this device's updates
     conn = get_db_conn()
+    th = load_device_thresholds(device_id, conn)
     c = conn.cursor()
     try:
         # Get active/previous stats from DB
@@ -402,8 +446,8 @@ async def scan_device_anomalies(device: dict):
                 rate_frame_err = delta_frame_err / delta_t
                 
                 # --- Port & Cable Physical Health Detection ---
-                # 1. CRC / LAN Cable Errors (Requires rate >= 0.05 AND delta >= 5)
-                if rate_crc_err >= 0.05 and delta_crc_err >= 5:
+                # 1. CRC / LAN Cable Errors (Requires rate >= th["crc_error_rate"] AND delta >= th["crc_error_delta"])
+                if rate_crc_err >= th["crc_error_rate"] and delta_crc_err >= th["crc_error_delta"]:
                     details = f"Peningkatan CRC errors terdeteksi pada interface {if_name}: {rate_crc_err:.2f} errors/detik. Total: {crc_err}. Mengindikasikan kerusakan fisik kabel LAN atau pin port kotor."
                     c.execute("""
                         SELECT id FROM network_anomalies 
@@ -421,8 +465,8 @@ async def scan_device_anomalies(device: dict):
                         WHERE device_id = ? AND anomaly_type = 'crc_errors' AND interface_name = ? AND is_active = 1
                     """, (now_iso, device_id, if_name))
 
-                # 2. Framing Errors (Requires rate >= 0.05 AND delta >= 5)
-                if rate_frame_err >= 0.05 and delta_frame_err >= 5:
+                # 2. Framing Errors (Requires rate >= th["frame_error_rate"] AND delta >= th["frame_error_delta"])
+                if rate_frame_err >= th["frame_error_rate"] and delta_frame_err >= th["frame_error_delta"]:
                     details = f"Peningkatan Framing errors terdeteksi pada interface {if_name}: {rate_frame_err:.2f} errors/detik. Total: {frame_err}. Adanya kerusakan sirkuit fisik atau interferensi berat."
                     c.execute("""
                         SELECT id FROM network_anomalies 
@@ -440,8 +484,8 @@ async def scan_device_anomalies(device: dict):
                         WHERE device_id = ? AND anomaly_type = 'framing_errors' AND interface_name = ? AND is_active = 1
                     """, (now_iso, device_id, if_name))
 
-                # 3. Transmission Errors (RX-ERR / TX-ERR) (Requires rate >= 0.1 AND delta >= 5)
-                if (rate_rx_err >= 0.1 or rate_tx_err >= 0.1) and (delta_rx_err + delta_tx_err) >= 5:
+                # 3. Transmission Errors (RX-ERR / TX-ERR) (Requires rate >= th["transmission_error_rate"] AND delta >= th["transmission_error_delta"])
+                if (rate_rx_err >= th["transmission_error_rate"] or rate_tx_err >= th["transmission_error_rate"]) and (delta_rx_err + delta_tx_err) >= th["transmission_error_delta"]:
                     details = f"Deteksi transmission errors pada interface {if_name}: Laju RX-ERR {rate_rx_err:.2f}/s, TX-ERR {rate_tx_err:.2f}/s. Total RX-ERR: {rx_err}, TX-ERR: {tx_err}. Kerusakan sirkuit port internal."
                     c.execute("""
                         SELECT id FROM network_anomalies 
@@ -501,9 +545,9 @@ async def scan_device_anomalies(device: dict):
                 # --- Storm Detection ---
                 # Broadcast Storm
                 rate_broad = max(rate_in_broad, rate_out_broad)
-                if rate_broad >= BROADCAST_STORM_WARNING:
-                    sev = 'critical' if rate_broad >= BROADCAST_STORM_CRITICAL else 'warning'
-                    details = f"Trafik Broadcast tinggi pada interface {if_name}: {int(rate_broad)} pps (Batas: {BROADCAST_STORM_WARNING} pps)."
+                if rate_broad >= th["broadcast_storm_warning"]:
+                    sev = 'critical' if rate_broad >= th["broadcast_storm_critical"] else 'warning'
+                    details = f"Trafik Broadcast tinggi pada interface {if_name}: {int(rate_broad)} pps (Batas: {th['broadcast_storm_warning']} pps)."
                     
                     # Check if already active
                     c.execute("""
@@ -529,9 +573,9 @@ async def scan_device_anomalies(device: dict):
                     
                 # Multicast Storm
                 rate_mult = max(rate_in_multi, rate_out_multi)
-                if rate_mult >= MULTICAST_STORM_WARNING:
-                    sev = 'critical' if rate_mult >= MULTICAST_STORM_CRITICAL else 'warning'
-                    details = f"Trafik Multicast tinggi pada interface {if_name}: {int(rate_mult)} pps (Batas: {MULTICAST_STORM_WARNING} pps)."
+                if rate_mult >= th["multicast_storm_warning"]:
+                    sev = 'critical' if rate_mult >= th["multicast_storm_critical"] else 'warning'
+                    details = f"Trafik Multicast tinggi pada interface {if_name}: {int(rate_mult)} pps (Batas: {th['multicast_storm_warning']} pps)."
                     
                     c.execute("""
                         SELECT id, severity FROM network_anomalies 
@@ -561,8 +605,8 @@ async def scan_device_anomalies(device: dict):
                 port_speed = port_speed if port_speed > 0 else 1000 # default to 1G if unknown
                 
                 # Dynamic unicast threshold: scale base thresholds (warning=80k, critical=120k for 1G)
-                unicast_warn = 80000 * (port_speed / 1000)
-                unicast_crit = 120000 * (port_speed / 1000)
+                unicast_warn = th["unicast_storm_warning"] * (port_speed / 1000)
+                unicast_crit = th["unicast_storm_critical"] * (port_speed / 1000)
                 
                 if rate_unic >= unicast_warn:
                     sev = 'critical' if rate_unic >= unicast_crit else 'warning'
@@ -599,7 +643,7 @@ async def scan_device_anomalies(device: dict):
                     changes_hist.append(now_iso)
                     
                 # Filter changes older than 5 minutes
-                cutoff = now - timedelta(seconds=PORT_FLAP_WINDOW_SECONDS)
+                cutoff = now - timedelta(seconds=th["port_flap_window"])
                 valid_changes = []
                 for t_str in changes_hist:
                     try:
@@ -611,9 +655,9 @@ async def scan_device_anomalies(device: dict):
                 changes_hist = valid_changes
                 
                 changes_count = len(changes_hist)
-                if changes_count >= PORT_FLAP_WARNING_COUNT:
-                    sev = 'critical' if changes_count >= PORT_FLAP_CRITICAL_COUNT else 'warning'
-                    details = f"Port Flapping terdeteksi pada interface {if_name}: status berubah {changes_count} kali dalam 5 menit terakhir."
+                if changes_count >= th["port_flap_warning"]:
+                    sev = 'critical' if changes_count >= th["port_flap_critical"] else 'warning'
+                    details = f"Port Flapping terdeteksi pada interface {if_name}: status berubah {changes_count} kali dalam {int(th['port_flap_window']/60)} menit terakhir."
                     
                     c.execute("""
                         SELECT id, severity FROM network_anomalies 
@@ -660,6 +704,154 @@ async def scan_device_anomalies(device: dict):
             monitor.record_scan_completed()
         except Exception:
             pass
+
+def correlate_active_anomalies(conn):
+    """
+    Performs Event Correlation & Root Cause Analysis (RCA).
+    Links dependent anomalies to their root cause by setting parent_anomaly_id.
+    """
+    c = conn.cursor()
+    now_iso = datetime.now().isoformat()
+    
+    # 1. Sync device_offline anomalies based on device status
+    c.execute("SELECT id, name, status FROM devices")
+    devices = c.fetchall()
+    for dev in devices:
+        dev_id = dev["id"]
+        dev_name = dev["name"]
+        if dev["status"] == "offline":
+            # Ensure active device_offline anomaly exists
+            c.execute("""
+                SELECT id FROM network_anomalies 
+                WHERE device_id = ? AND anomaly_type = 'device_offline' AND is_active = 1
+            """, (dev_id,))
+            if not c.fetchone():
+                details = f"Perangkat {dev_name} terdeteksi offline. Tidak dapat terhubung via SSH/Telnet atau SNMP."
+                c.execute("""
+                    INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
+                    VALUES (?, 'device_offline', 'critical', 'Global', ?, 1, ?)
+                """, (dev_id, details, now_iso))
+        else:
+            # Resolve any active device_offline anomaly
+            c.execute("""
+                UPDATE network_anomalies 
+                SET is_active = 0, resolved_at = ? 
+                WHERE device_id = ? AND anomaly_type = 'device_offline' AND is_active = 1
+            """, (now_iso, dev_id))
+            
+    # 2. Reset parent links for all active anomalies
+    c.execute("UPDATE network_anomalies SET parent_anomaly_id = NULL WHERE is_active = 1")
+    
+    # 3. Fetch all active anomalies
+    c.execute("SELECT * FROM network_anomalies WHERE is_active = 1")
+    active_anoms = [dict(r) for r in c.fetchall()]
+    if not active_anoms:
+        return
+        
+    # Map device_id -> anomalies
+    device_anoms = {}
+    for anom in active_anoms:
+        did = anom["device_id"]
+        if did not in device_anoms:
+            device_anoms[did] = []
+        device_anoms[did].append(anom)
+        
+    # 4. Fetch topology mapping (LLDP and CDP)
+    c.execute("SELECT id, ip, name FROM devices")
+    dev_rows = c.fetchall()
+    ip_to_id = {}
+    name_to_id = {}
+    for d in dev_rows:
+        ip_to_id[d["ip"]] = d["id"]
+        name_to_id[d["name"].lower().strip()] = d["id"]
+        
+    # Fetch LLDP links
+    c.execute("SELECT device_id, local_port, neighbor_name, neighbor_ip, neighbor_port FROM lldp_neighbors")
+    lldp_rows = c.fetchall()
+    
+    def clean_port(port_name: str) -> str:
+        if not port_name:
+            return ""
+        token = port_name.split()[0] if port_name.split() else port_name
+        if token.endswith(".0"):
+            token = token[:-2]
+        return token.lower()
+        
+    links = {}
+    
+    for row in lldp_rows:
+        n_id = None
+        n_ip = row["neighbor_ip"]
+        n_name = row["neighbor_name"]
+        
+        if n_ip in ip_to_id:
+            n_id = ip_to_id[n_ip]
+        elif n_name:
+            n_key = n_name.lower().strip()
+            if n_key in name_to_id:
+                n_id = name_to_id[n_key]
+                
+        if n_id:
+            did = row["device_id"]
+            lp = clean_port(row["local_port"])
+            np = clean_port(row["neighbor_port"])
+            links[(did, lp)] = (n_id, np)
+            links[(n_id, np)] = (did, lp)
+            
+    # Fetch CDP links
+    c.execute("SELECT device_id, local_port, neighbor_name, neighbor_ip, neighbor_port FROM cdp_neighbors")
+    cdp_rows = c.fetchall()
+    for row in cdp_rows:
+        n_id = None
+        n_ip = row["neighbor_ip"]
+        n_name = row["neighbor_name"]
+        if n_ip in ip_to_id:
+            n_id = ip_to_id[n_ip]
+        elif n_name:
+            n_key = n_name.lower().strip()
+            if n_key in name_to_id:
+                n_id = name_to_id[n_key]
+                
+        if n_id:
+            did = row["device_id"]
+            lp = clean_port(row["local_port"])
+            np = clean_port(row["neighbor_port"])
+            links[(did, lp)] = (n_id, np)
+            links[(n_id, np)] = (did, lp)
+            
+    # 5. Correlate
+    for anom in active_anoms:
+        anom_id = anom["id"]
+        did = anom["device_id"]
+        atype = anom["anomaly_type"]
+        iface = clean_port(anom["interface_name"])
+        
+        # Scenario A: Device is offline
+        if atype == 'device_offline':
+            for (src_id, src_port), (dst_id, dst_port) in links.items():
+                if src_id == did:
+                    if dst_id in device_anoms:
+                        for neighbor_anom in device_anoms[dst_id]:
+                            n_port = clean_port(neighbor_anom["interface_name"])
+                            if n_port == dst_port and neighbor_anom["anomaly_type"] in ('port_flapping', 'port_down', 'crc_errors'):
+                                c.execute("UPDATE network_anomalies SET parent_anomaly_id = ? WHERE id = ?", (neighbor_anom["id"], anom_id))
+                                break
+                        else:
+                            for neighbor_anom in device_anoms[dst_id]:
+                                if neighbor_anom["anomaly_type"] == 'device_offline':
+                                    c.execute("UPDATE network_anomalies SET parent_anomaly_id = ? WHERE id = ?", (neighbor_anom["id"], anom_id))
+                                    break
+        
+        # Scenario B: Interface anomalies
+        elif atype in ('port_flapping', 'port_down') and iface:
+            if (did, iface) in links:
+                n_id, n_port = links[(did, iface)]
+                if n_id in device_anoms:
+                    for neighbor_anom in device_anoms[n_id]:
+                        if clean_port(neighbor_anom["interface_name"]) == n_port and neighbor_anom["anomaly_type"] in ('port_flapping', 'port_down'):
+                            if neighbor_anom["detected_at"] <= anom["detected_at"]:
+                                c.execute("UPDATE network_anomalies SET parent_anomaly_id = ? WHERE id = ?", (neighbor_anom["id"], anom_id))
+                                break
 
 def auto_resolve_transient_anomalies(conn):
     """Automatically resolves transient anomalies (like stp_tcn) after a timeout."""
@@ -722,9 +914,10 @@ async def run_anomaly_detection():
         conn_resolve = get_db_conn()
         try:
             auto_resolve_transient_anomalies(conn_resolve)
+            correlate_active_anomalies(conn_resolve)
             conn_resolve.commit()
         except Exception as ex:
-            logger.error(f"Error auto-resolving anomalies: {ex}")
+            logger.error(f"Error auto-resolving/correlating anomalies: {ex}")
             conn_resolve.rollback()
         finally:
             conn_resolve.close()

@@ -766,9 +766,10 @@ async def get_snmp_interfaces(device_id: int):
         walk_oid('1.3.6.1.2.1.2.2.1.13'),    # in_discards_t1 (ifInDiscards)
         walk_oid('1.3.6.1.2.1.2.2.1.19'),    # out_discards_t1 (ifOutDiscards)
         walk_oid('1.3.6.1.2.1.10.7.2.1.8'),  # late_collisions_t1 (dot3StatsLateCollisions)
+        walk_oid('1.3.6.1.2.1.2.2.1.7'),     # admin_statuses (ifAdminStatus)
     )
     
-    descrs, statuses, speeds, high_speeds, macs, aliases, mtus, types, in_octets_t1, out_octets_t1, hc_in_t1, hc_out_t1, in_errors_t1, out_errors_t1, crc_errors_t1, frame_errors_t1, in_discards_t1, out_discards_t1, late_collisions_t1 = res
+    descrs, statuses, speeds, high_speeds, macs, aliases, mtus, types, in_octets_t1, out_octets_t1, hc_in_t1, hc_out_t1, in_errors_t1, out_errors_t1, crc_errors_t1, frame_errors_t1, in_discards_t1, out_discards_t1, late_collisions_t1, admin_statuses = res
 
     if not descrs:
         raise HTTPException(status_code=400, detail="Gagal mengambil tabel interface via SNMP (Timeout atau port 161 tertutup).")
@@ -836,6 +837,9 @@ async def get_snmp_interfaces(device_id: int):
 
         raw_status = statuses.get(idx, 'unknown')
         status = status_map.get(raw_status, raw_status)
+
+        raw_admin = admin_statuses.get(idx, 'unknown')
+        admin_status = status_map.get(raw_admin, raw_admin)
 
         # Speed calculation (High speed is in Mbps, standard speed in bps)
         speed_bps = 0
@@ -1114,6 +1118,7 @@ async def get_snmp_interfaces(device_id: int):
             "index": idx,
             "name": descr_str,
             "status": status,
+            "admin_status": admin_status,
             "speed": speed_str,
             "speed_mbps": speed_mbps,
             "mac": mac_str,

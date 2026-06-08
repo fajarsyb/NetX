@@ -678,7 +678,60 @@ def init_db():
         );
         """)
 
+        # Threshold Profiles
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS threshold_profiles (
+            id                            SERIAL PRIMARY KEY,
+            name                          VARCHAR(255) NOT NULL UNIQUE,
+            description                   TEXT DEFAULT '',
+            broadcast_storm_warning       INTEGER DEFAULT 1000,
+            broadcast_storm_critical      INTEGER DEFAULT 5000,
+            multicast_storm_warning       INTEGER DEFAULT 1000,
+            multicast_storm_critical      INTEGER DEFAULT 5000,
+            unicast_storm_warning         INTEGER DEFAULT 80000,
+            unicast_storm_critical        INTEGER DEFAULT 120000,
+            port_flap_warning             INTEGER DEFAULT 3,
+            port_flap_critical            INTEGER DEFAULT 6,
+            port_flap_window              INTEGER DEFAULT 300,
+            crc_error_rate                REAL DEFAULT 0.05,
+            crc_error_delta               INTEGER DEFAULT 5,
+            frame_error_rate              REAL DEFAULT 0.05,
+            frame_error_delta             INTEGER DEFAULT 5,
+            transmission_error_rate       REAL DEFAULT 0.1,
+            transmission_error_delta      INTEGER DEFAULT 5,
+            created_at                    VARCHAR(100) NOT NULL
+        );
+        """)
+
+        # Syslog Patterns
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS syslog_patterns (
+            pattern_hash                  VARCHAR(64) PRIMARY KEY,
+            template                      TEXT NOT NULL,
+            program                       VARCHAR(255) DEFAULT '',
+            severity                      INTEGER DEFAULT 5,
+            is_blocked                    INTEGER DEFAULT 0,
+            is_anomaly                    INTEGER DEFAULT 0,
+            created_at                    VARCHAR(100) NOT NULL
+        );
+        """)
+
+        # Alter tables to add columns for PostgreSQL
+        try:
+            c.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS threshold_profile_id INTEGER REFERENCES threshold_profiles(id) ON DELETE SET NULL;")
+        except Exception:
+            pass
+        try:
+            c.execute("ALTER TABLE device_syslogs ADD COLUMN IF NOT EXISTS pattern_hash VARCHAR(64) REFERENCES syslog_patterns(pattern_hash) ON DELETE SET NULL;")
+        except Exception:
+            pass
+        try:
+            c.execute("ALTER TABLE network_anomalies ADD COLUMN IF NOT EXISTS parent_anomaly_id INTEGER REFERENCES network_anomalies(id) ON DELETE SET NULL;")
+        except Exception:
+            pass
+
         # Create default admin user if none exists in PostgreSQL
+
         c.execute("SELECT COUNT(*) as cnt FROM users")
         row = c.fetchone()
         if row["cnt"] == 0:
@@ -1172,6 +1225,58 @@ def init_db():
                 c.execute(f"ALTER TABLE interface_stats_latest ADD COLUMN {col} BIGINT DEFAULT 0;")
             except Exception:
                 pass
+
+        # Threshold Profiles
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS threshold_profiles (
+            id                            INTEGER PRIMARY KEY AUTOINCREMENT,
+            name                          TEXT NOT NULL UNIQUE,
+            description                   TEXT DEFAULT '',
+            broadcast_storm_warning       INTEGER DEFAULT 1000,
+            broadcast_storm_critical      INTEGER DEFAULT 5000,
+            multicast_storm_warning       INTEGER DEFAULT 1000,
+            multicast_storm_critical      INTEGER DEFAULT 5000,
+            unicast_storm_warning         INTEGER DEFAULT 80000,
+            unicast_storm_critical        INTEGER DEFAULT 120000,
+            port_flap_warning             INTEGER DEFAULT 3,
+            port_flap_critical            INTEGER DEFAULT 6,
+            port_flap_window              INTEGER DEFAULT 300,
+            crc_error_rate                REAL DEFAULT 0.05,
+            crc_error_delta               INTEGER DEFAULT 5,
+            frame_error_rate              REAL DEFAULT 0.05,
+            frame_error_delta             INTEGER DEFAULT 5,
+            transmission_error_rate       REAL DEFAULT 0.1,
+            transmission_error_delta      INTEGER DEFAULT 5,
+            created_at                    TEXT NOT NULL
+        );
+        """)
+
+        # Syslog Patterns
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS syslog_patterns (
+            pattern_hash                  TEXT PRIMARY KEY,
+            template                      TEXT NOT NULL,
+            program                       TEXT DEFAULT '',
+            severity                      INTEGER DEFAULT 5,
+            is_blocked                    INTEGER DEFAULT 0,
+            is_anomaly                    INTEGER DEFAULT 0,
+            created_at                    TEXT NOT NULL
+        );
+        """)
+
+        # Alter tables to add columns for SQLite
+        try:
+            c.execute("ALTER TABLE devices ADD COLUMN threshold_profile_id INTEGER REFERENCES threshold_profiles(id) ON DELETE SET NULL;")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            c.execute("ALTER TABLE device_syslogs ADD COLUMN pattern_hash TEXT REFERENCES syslog_patterns(pattern_hash) ON DELETE SET NULL;")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            c.execute("ALTER TABLE network_anomalies ADD COLUMN parent_anomaly_id INTEGER REFERENCES network_anomalies(id) ON DELETE SET NULL;")
+        except sqlite3.OperationalError:
+            pass
 
     conn.commit()
     conn.close()

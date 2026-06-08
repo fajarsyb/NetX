@@ -166,6 +166,11 @@ def parse_mac_table(output: str, device_type: str) -> List[Dict]:
 
         # Clean interface name from any leading/trailing commas or brackets
         interface = interface.strip(" ,()[]{}")
+        
+        # Discard trailing space-separated integers/flags for Juniper interfaces (e.g. "ge-0/0/5.0 0 0" -> "ge-0/0/5.0")
+        if interface and any(interface.lower().startswith(p) for p in ("ge-", "xe-", "et-", "ae", "vtep", "irb", "fxp", "em", "me", "lo", "vlan")):
+            interface = interface.split()[0]
+            
         vlan = vlan.strip(" ,()[]{}")
 
         # Ignore entries where the interface is just a dash or empty

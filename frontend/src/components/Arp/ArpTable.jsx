@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { Search, ArrowUpDown } from 'lucide-react'
+import { cleanInterfaceName } from '../../utils/portUtils'
 import VendorBadge from './VendorBadge'
 
 const TYPE_COLORS = {
@@ -106,7 +107,7 @@ export default function ArpTable({ entries = [] }) {
                 <tr key={i}>
                   <td className="mono">{e.ip_address}</td>
                   <td className="mono" style={{ color:'var(--text-secondary)' }}>{e.mac_address}</td>
-                  <td style={{ color:'var(--text-secondary)', fontSize:'12px' }}>{e.interface || '—'}</td>
+                  <td style={{ color:'var(--text-secondary)', fontSize:'12px' }}>{cleanInterfaceName(e.interface) || '—'}</td>
                   <td>
                     <span style={{
                       padding:'2px 8px', borderRadius:'20px', fontSize:'11px',

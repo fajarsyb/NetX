@@ -25,6 +25,7 @@ class DeviceCreate(BaseModel):
     os_version: Optional[str] = ""
     serial_number: Optional[str] = ""
     mac_address: Optional[str] = ""
+    threshold_profile_id: Optional[int] = None
 
 
 class DeviceUpdate(BaseModel):
@@ -50,6 +51,7 @@ class DeviceUpdate(BaseModel):
     os_version: Optional[str] = None
     serial_number: Optional[str] = None
     mac_address: Optional[str] = None
+    threshold_profile_id: Optional[int] = None
 
 class GroupCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
@@ -60,3 +62,41 @@ class GroupUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     parent_id: Optional[int] = None
+
+class ThresholdProfileCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = ""
+    broadcast_storm_warning: Optional[int] = 1000
+    broadcast_storm_critical: Optional[int] = 5000
+    multicast_storm_warning: Optional[int] = 1000
+    multicast_storm_critical: Optional[int] = 5000
+    unicast_storm_warning: Optional[int] = 80000
+    unicast_storm_critical: Optional[int] = 120000
+    port_flap_warning: Optional[int] = 3
+    port_flap_critical: Optional[int] = 6
+    port_flap_window: Optional[int] = 300
+    crc_error_rate: Optional[float] = 0.05
+    crc_error_delta: Optional[int] = 5
+    frame_error_rate: Optional[float] = 0.05
+    frame_error_delta: Optional[int] = 5
+    transmission_error_rate: Optional[float] = 0.1
+    transmission_error_delta: Optional[int] = 5
+
+class ThresholdProfileUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    broadcast_storm_warning: Optional[int] = None
+    broadcast_storm_critical: Optional[int] = None
+    multicast_storm_warning: Optional[int] = None
+    multicast_storm_critical: Optional[int] = None
+    unicast_storm_warning: Optional[int] = None
+    unicast_storm_critical: Optional[int] = None
+    port_flap_warning: Optional[int] = None
+    port_flap_critical: Optional[int] = None
+    port_flap_window: Optional[int] = None
+    crc_error_rate: Optional[float] = None
+    crc_error_delta: Optional[int] = None
+    frame_error_rate: Optional[float] = None
+    frame_error_delta: Optional[int] = None
+    transmission_error_rate: Optional[float] = None
+    transmission_error_delta: Optional[int] = None

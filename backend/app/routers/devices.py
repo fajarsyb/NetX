@@ -95,7 +95,7 @@ async def list_devices():
                d.snmp_version, d.snmp_community,
                d.os_version, d.serial_number, d.mac_address, d.hardware_model,
                d.credential_id, d.custom_info_cmd, d.raw_info, d.device_role,
-               g.name as group_name
+               d.threshold_profile_id, g.name as group_name
         FROM devices d
         LEFT JOIN device_groups g ON d.group_id = g.id
         ORDER BY d.name COLLATE NOCASE
@@ -120,13 +120,13 @@ async def create_device(dev: DeviceCreate, background_tasks: BackgroundTasks, us
                                  device_type, description, group_id, credential_id, created_at,
                                  custom_arp_cmd, custom_lldp_cmd, custom_cdp_cmd, custom_routing_cmd,
                                  custom_info_cmd, snmp_version, snmp_community, device_role,
-                                 hardware_model, os_version, serial_number, mac_address)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                 hardware_model, os_version, serial_number, mac_address, threshold_profile_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (dev.name, dev.ip, dev.protocol, dev.port, dev.username,
               enc_pass, dev.device_type, dev.description, dev.group_id, dev.credential_id, now,
               dev.custom_arp_cmd, dev.custom_lldp_cmd, dev.custom_cdp_cmd, dev.custom_routing_cmd,
               dev.custom_info_cmd, dev.snmp_version, dev.snmp_community, dev.device_role,
-              dev.hardware_model, dev.os_version, dev.serial_number, dev.mac_address))
+              dev.hardware_model, dev.os_version, dev.serial_number, dev.mac_address, dev.threshold_profile_id))
         conn.commit()
         device_id = c.lastrowid
         conn.close()
@@ -332,7 +332,7 @@ async def get_device(device_id: int):
                d.snmp_version, d.snmp_community,
                d.os_version, d.serial_number, d.mac_address, d.hardware_model,
                d.credential_id, d.custom_info_cmd, d.raw_info, d.device_role,
-               g.name as group_name
+               d.threshold_profile_id, g.name as group_name
         FROM devices d
         LEFT JOIN device_groups g ON d.group_id = g.id
         WHERE d.id = ?
@@ -649,6 +649,7 @@ async def get_device_port_map(device_id: int, current_user: dict = Depends(get_c
             "interface": name,
             "normalized": norm,
             "status": i["status"],
+            "admin_status": i.get("admin_status", "up"),
             "speed": i["speed"],
             "alias": i["alias"],
             "mac_entries": [],
@@ -665,6 +666,7 @@ async def get_device_port_map(device_id: int, current_user: dict = Depends(get_c
                 "interface": original_name,
                 "normalized": norm,
                 "status": "unknown",
+                "admin_status": "unknown",
                 "speed": "—",
                 "alias": "",
                 "mac_entries": [],

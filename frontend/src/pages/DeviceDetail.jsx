@@ -15,6 +15,7 @@ import RoutingTable from '../components/Routing/RoutingTable'
 import WebCli from '../components/Terminal/WebCli'
 import AddDeviceModal from '../components/Device/AddDeviceModal'
 import PortMapper from '../components/PortMapper/PortMapper'
+import { cleanInterfaceName } from '../utils/portUtils'
 
 // ─── Stat card ─────────────────────────────────────────────────────────────
 function StatCard({ label, value, color = 'blue', icon }) {
@@ -700,7 +701,7 @@ export default function DeviceDetail() {
                               {e.entry_type}
                             </span>
                           </td>
-                          <td style={{ fontWeight: 600 }}>{e.interface}</td>
+                          <td style={{ fontWeight: 600 }}>{cleanInterfaceName(e.interface)}</td>
                         </tr>
                       ))}
                   </tbody>
@@ -1137,7 +1138,7 @@ export default function DeviceDetail() {
                                   #{port.bridge_port}
                                 </td>
                                 <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
-                                  {port.interface_name}
+                                  {cleanInterfaceName(port.interface_name)}
                                 </td>
                                 <td>
                                   <span 

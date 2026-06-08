@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { Search } from 'lucide-react'
+import { cleanInterfaceName } from '../../utils/portUtils'
 import VendorBadge from '../Arp/VendorBadge'
 
 export default function LldpTable({ neighbors = [] }) {
@@ -59,11 +60,11 @@ export default function LldpTable({ neighbors = [] }) {
           <tbody>
             {filtered.map((n, i) => (
               <tr key={i}>
-                <td className="mono" style={{ color:'var(--accent)' }}>{n.local_port || '—'}</td>
+                <td className="mono" style={{ color:'var(--accent)' }}>{cleanInterfaceName(n.local_port) || '—'}</td>
                 <td style={{ fontWeight:600, color:'var(--text-primary)' }}>{n.neighbor_name || '—'}</td>
                 <td className="mono">{n.neighbor_ip || '—'}</td>
                 <td className="mono" style={{ color:'var(--text-secondary)', fontSize:'11px' }}>{n.neighbor_mac || '—'}</td>
-                <td style={{ color:'var(--text-muted)', fontSize:'12px' }}>{n.neighbor_port || '—'}</td>
+                <td style={{ color:'var(--text-muted)', fontSize:'12px' }}>{cleanInterfaceName(n.neighbor_port) || '—'}</td>
                 <td style={{ color:'var(--text-muted)', fontSize:'11px', maxWidth:'200px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}
                     title={n.neighbor_platform}>
                   {n.neighbor_platform ? n.neighbor_platform.slice(0, 60) + (n.neighbor_platform.length > 60 ? '...' : '') : '—'}

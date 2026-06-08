@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { Search } from 'lucide-react'
+import { cleanInterfaceName } from '../../utils/portUtils'
 
 export default function RoutingTable({ routes = [] }) {
   const [search, setSearch] = useState('')
@@ -70,7 +71,7 @@ export default function RoutingTable({ routes = [] }) {
                 </td>
                 <td className="mono" style={{ color:'var(--text-primary)', fontWeight: 600 }}>{r.destination || '—'}</td>
                 <td className="mono">{r.gateway || '—'}</td>
-                <td style={{ color:'var(--text-muted)', fontSize:'12px' }}>{r.interface || '—'}</td>
+                <td style={{ color:'var(--text-muted)', fontSize:'12px' }}>{cleanInterfaceName(r.interface) || '—'}</td>
                 <td className="mono" style={{ color:'var(--text-muted)', fontSize:'11px' }}>{r.metric || '—'}</td>
               </tr>
             ))}

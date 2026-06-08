@@ -7,6 +7,7 @@ import {
 import { macApi, arpApi, lldpApi, groupsApi } from '../api/client'
 import { useToast } from '../components/shared/ToastProvider'
 import { useNavigate } from 'react-router-dom'
+import { cleanInterfaceName } from '../utils/portUtils'
 
 const buildHierarchicalGroups = (groupsList) => {
   const map = {}
@@ -490,7 +491,7 @@ export default function MacInvestigation() {
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px' }}>
                     {result.arp_info.length > 0 
-                      ? `Terdeteksi di interface ${result.arp_info[0].interface} (via ${result.arp_info[0].device_name})` 
+                      ? `Terdeteksi di interface ${cleanInterfaceName(result.arp_info[0].interface)} (via ${result.arp_info[0].device_name})` 
                       : 'Tidak ada cache ARP yang cocok'}
                   </div>
                 </div>
@@ -503,7 +504,7 @@ export default function MacInvestigation() {
                     </span>
                     {result.edge_port ? (
                       <div className="font-bold text-lg" style={{ marginTop: '6px', fontSize: '15px', color: 'var(--text-primary)' }}>
-                        {result.edge_port.device_name} — {result.edge_port.interface}
+                        {result.edge_port.device_name} — {cleanInterfaceName(result.edge_port.interface)}
                       </div>
                     ) : (
                       <div className="font-bold text-lg text-muted" style={{ marginTop: '6px', fontSize: '15px' }}>
@@ -578,7 +579,7 @@ export default function MacInvestigation() {
                               </div>
 
                               <div style={{ marginTop: '8px', display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '12.5px', color: 'var(--text-secondary)' }}>
-                                <div><strong>Port:</strong> <span className="font-mono text-primary">{loc.interface}</span></div>
+                                <div><strong>Port:</strong> <span className="font-mono text-primary">{cleanInterfaceName(loc.interface)}</span></div>
                                 <div><strong>VLAN:</strong> {loc.vlan}</div>
                                 <div><strong>Tipe:</strong> <span style={{ textTransform: 'capitalize' }}>{loc.entry_type}</span></div>
                                 <div><strong>Terakhir Dilihat:</strong> {new Date(loc.fetched_at).toLocaleString('id-ID')}</div>
@@ -591,7 +592,7 @@ export default function MacInvestigation() {
                                 <div style={{ fontSize: '12px', textAlign: 'right' }}>
                                   <div style={{ color: 'var(--text-muted)', fontSize: '10px', textTransform: 'uppercase', fontWeight: 600 }}>Menghubungkan ke</div>
                                   <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{loc.neighbor.neighbor_name || loc.neighbor.neighbor_ip}</div>
-                                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Port tetangga: {loc.neighbor.neighbor_port}</div>
+                                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Port tetangga: {cleanInterfaceName(loc.neighbor.neighbor_port)}</div>
                                 </div>
                                 <ArrowRight size={16} className="text-muted" />
                               </div>
@@ -645,7 +646,7 @@ export default function MacInvestigation() {
                             <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>{loc.device_role}</div>
                           </td>
                           <td>{loc.device_ip}</td>
-                          <td className="font-mono" style={{ fontWeight: 600 }}>{loc.interface}</td>
+                          <td className="font-mono" style={{ fontWeight: 600 }}>{cleanInterfaceName(loc.interface)}</td>
                           <td>{loc.vlan}</td>
                           <td>
                             <span className={`badge badge-${loc.is_uplink ? 'telnet' : 'ssh'}`}>
@@ -776,7 +777,7 @@ export default function MacInvestigation() {
                         </td>
                         <td className="mono" style={{ fontWeight: 700 }}>{item.ip_address}</td>
                         <td className="mono" style={{ fontWeight: 600 }}>{item.mac_address}</td>
-                        <td>{item.interface || '-'}</td>
+                        <td>{cleanInterfaceName(item.interface) || '-'}</td>
                         <td>{renderVendorBadge(item.mac_vendor, item.device_category)}</td>
                         <td>
                           <span className={`badge badge-${item.entry_type === 'static' ? 'telnet' : 'ssh'}`}>
@@ -951,7 +952,7 @@ export default function MacInvestigation() {
                         </td>
                         <td>{item.vlan || '1'}</td>
                         <td className="mono" style={{ fontWeight: 600 }}>{item.mac_address}</td>
-                        <td className="mono" style={{ fontWeight: 700 }}>{item.interface}</td>
+                        <td className="mono" style={{ fontWeight: 700 }}>{cleanInterfaceName(item.interface)}</td>
                         <td>{renderVendorBadgeSimple(item.mac_vendor)}</td>
                         <td>
                           <span className={`badge badge-${item.entry_type === 'static' ? 'telnet' : 'ssh'}`}>
@@ -1124,10 +1125,10 @@ export default function MacInvestigation() {
                           </span>
                           <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{item.device_ip}</div>
                         </td>
-                        <td className="mono" style={{ fontWeight: 700 }}>{item.local_port}</td>
+                        <td className="mono" style={{ fontWeight: 700 }}>{cleanInterfaceName(item.local_port)}</td>
                         <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{item.neighbor_name || '-'}</td>
                         <td className="mono">{item.neighbor_ip || '-'}</td>
-                        <td className="mono">{item.neighbor_port || '-'}</td>
+                        <td className="mono">{cleanInterfaceName(item.neighbor_port) || '-'}</td>
                         <td>{item.neighbor_platform || '-'}</td>
                         <td>{renderVendorBadge(item.neighbor_vendor, item.device_category)}</td>
                         <td style={{ paddingRight: '20px', fontSize: '12px', color: 'var(--text-muted)' }}>

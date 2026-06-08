@@ -1,10 +1,15 @@
 import { useState, useMemo } from 'react'
 import { Search, RefreshCw, Info, Cable, Cpu, Layers } from 'lucide-react'
 import VendorBadge from '../Arp/VendorBadge'
+import { useTheme } from '../../context/ThemeContext'
+import { cleanInterfaceName, getPortLabel } from '../../utils/portUtils'
 
 export default function PortMapper({ portMap = [], loading = false, onRefresh }) {
   const [search, setSearch] = useState('')
   const [selectedPort, setSelectedPort] = useState(null)
+  const { theme } = useTheme()
+
+  // Suffix clean helper for Juniper ports is imported from portUtils.js
 
   // Natural sort comparator for interfaces
   const sortedPorts = useMemo(() => {
@@ -55,7 +60,10 @@ export default function PortMapper({ portMap = [], loading = false, onRefresh })
     return sortedPorts.filter(p => {
       if (!q) return true
       
-      const matchIface = p.interface.toLowerCase().includes(q) || (p.alias || '').toLowerCase().includes(q)
+      const matchIface = p.interface.toLowerCase().includes(q) || 
+                         cleanInterfaceName(p.interface).toLowerCase().includes(q) ||
+                         (p.alias || '').toLowerCase().includes(q)
+                         
       const matchNeighbor = p.lldp_neighbor 
         ? (p.lldp_neighbor.neighbor_name.toLowerCase().includes(q) || p.lldp_neighbor.neighbor_ip.toLowerCase().includes(q))
         : p.cdp_neighbor
@@ -73,24 +81,35 @@ export default function PortMapper({ portMap = [], loading = false, onRefresh })
     })
   }, [sortedPorts, search])
 
-  // Extract port trailing number for physical switch UI label
-  const getPortLabel = (name) => {
-    const match = name.match(/(\d+)$/)
-    return match ? match[1] : name
-  }
+  // getPortLabel is imported from portUtils.js
 
-  // Get color gradient/class depending on port properties
+  // Get color gradient/class depending on port properties and theme
   const getPortStyle = (port) => {
     const status = port.status?.toLowerCase()
+    const adminStatus = port.admin_status?.toLowerCase()
+
+    // 1. Down / Disabled / Shut (Red)
+    if (adminStatus === 'down') {
+      return {
+        background: 'linear-gradient(180deg, #ef4444 0%, #c2410c 100%)',
+        border: '1px solid #f87171',
+        color: '#ffffff',
+        boxShadow: '0 0 10px rgba(239, 68, 68, 0.4)'
+      }
+    }
+
+    // 2. Unused / Oper Down (Grey)
     if (status === 'down') {
       return {
-        background: 'linear-gradient(180deg, #334155 0%, #1e293b 100%)',
-        border: '1px solid #475569',
-        color: '#94a3b8'
+        background: theme === 'light'
+          ? 'linear-gradient(180deg, #f1f5f9 0%, #cbd5e1 100%)'
+          : 'linear-gradient(180deg, #334155 0%, #1e293b 100%)',
+        border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid #475569',
+        color: theme === 'light' ? '#475569' : '#94a3b8'
       }
     }
     
-    // Check if neighbor connected (Uplink)
+    // 3. Up (Uplink / Neighbor connected - Purple)
     if (port.lldp_neighbor || port.cdp_neighbor) {
       return {
         background: 'linear-gradient(180deg, #a855f7 0%, #7c3aed 100%)',
@@ -100,8 +119,8 @@ export default function PortMapper({ portMap = [], loading = false, onRefresh })
       }
     }
 
-    // Check if MAC address learned
-    if (port.mac_entries && port.mac_entries.length > 0) {
+    // 4. Up / Client / Active (Green)
+    if (status === 'up' || (port.mac_entries && port.mac_entries.length > 0)) {
       return {
         background: 'linear-gradient(180deg, #10b981 0%, #047857 100%)',
         border: '1px solid #34d399',
@@ -110,15 +129,7 @@ export default function PortMapper({ portMap = [], loading = false, onRefresh })
       }
     }
 
-    if (status === 'up') {
-      return {
-        background: 'linear-gradient(180deg, #06b6d4 0%, #0891b2 100%)',
-        border: '1px solid #22d3ee',
-        color: '#ffffff',
-        boxShadow: '0 0 10px rgba(6, 182, 212, 0.4)'
-      }
-    }
-
+    // Fallback (Grey)
     return {
       background: 'linear-gradient(180deg, #4b5563 0%, #374151 100%)',
       border: '1px solid #6b7280',
@@ -133,26 +144,39 @@ export default function PortMapper({ portMap = [], loading = false, onRefresh })
     <div className="animate-slide">
       {/* Physical Faceplate View Panel */}
       {physicalPorts.length > 0 && (
-        <div className="card p-24 mb-24" style={{ background: '#0b0f19', border: '1px solid var(--border)', borderRadius: '12px' }}>
+        <div className="card p-24 mb-24" style={{ 
+          background: theme === 'light' ? 'var(--bg-card)' : '#0b0f19', 
+          border: '1px solid var(--border)', 
+          borderRadius: '12px' 
+        }}>
           <div className="flex-between mb-16">
             <div>
-              <h4 style={{ margin: 0, fontSize: '15px', color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h4 style={{ margin: 0, fontSize: '15px', color: theme === 'light' ? 'var(--text-primary)' : '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Layers size={16} className="text-primary" /> Visualisasi Panel Port Switch (Fisik)
               </h4>
-              <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#64748b' }}>
+              <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: 'var(--text-secondary)' }}>
                 Alternasi Port Ganjil (Baris Atas) dan Genap (Baris Bawah). Klik port untuk melihat detail.
               </p>
             </div>
             {/* Status Legend */}
             <div style={{ display: 'flex', gap: '16px', fontSize: '11px', flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#94a3b8' }}>
-                <span style={{ width: 8, height: 8, background: '#334155', border: '1px solid #475569', borderRadius: '2px' }} /> Down / Kosong
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)' }}>
+                <span style={{ width: 8, height: 8, background: 'linear-gradient(180deg, #10b981 0%, #047857 100%)', borderRadius: '2px' }} /> Up (Aktif)
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#94a3b8' }}>
-                <span style={{ width: 8, height: 8, background: 'linear-gradient(180deg, #10b981 0%, #047857 100%)', borderRadius: '2px' }} /> Up (Client / Aktif)
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)' }}>
+                <span style={{ width: 8, height: 8, background: 'linear-gradient(180deg, #a855f7 0%, #7c3aed 100%)', borderRadius: '2px' }} /> Up (Uplink / Tetangga)
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#94a3b8' }}>
-                <span style={{ width: 8, height: 8, background: 'linear-gradient(180deg, #a855f7 0%, #7c3aed 100%)', borderRadius: '2px' }} /> Up (Uplink / Neighbor)
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)' }}>
+                <span style={{ 
+                  width: 8, 
+                  height: 8, 
+                  background: theme === 'light' ? '#cbd5e1' : '#334155', 
+                  border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid #475569', 
+                  borderRadius: '2px' 
+                }} /> Tidak Digunakan
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)' }}>
+                <span style={{ width: 8, height: 8, background: 'linear-gradient(180deg, #ef4444 0%, #c2410c 100%)', borderRadius: '2px' }} /> Down (Disabled)
               </div>
             </div>
           </div>
@@ -160,19 +184,23 @@ export default function PortMapper({ portMap = [], loading = false, onRefresh })
           <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '20px', alignItems: 'start' }}>
             {/* Switch Chassis Faceplate */}
             <div style={{
-              background: 'linear-gradient(180deg, #182030 0%, #0f131f 100%)',
-              border: '2px solid #2d3748',
+              background: theme === 'light' 
+                ? 'linear-gradient(180deg, #f8fafc 0%, #edf2f7 100%)' 
+                : 'linear-gradient(180deg, #182030 0%, #0f131f 100%)',
+              border: theme === 'light' ? '2px solid #cbd5e1' : '2px solid #2d3748',
               borderRadius: '8px',
               padding: '16px 20px',
               display: 'flex',
               flexDirection: 'column',
               gap: '12px',
               overflowX: 'auto',
-              boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.8), 0 4px 6px -1px rgba(0,0,0,0.5)'
+              boxShadow: theme === 'light'
+                ? 'inset 0 1px 3px rgba(0,0,0,0.1), 0 4px 6px -1px rgba(0,0,0,0.05)'
+                : 'inset 0 1px 3px rgba(0,0,0,0.8), 0 4px 6px -1px rgba(0,0,0,0.5)'
             }}>
               {/* LED Status indicators */}
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
-                <span style={{ fontSize: '10px', color: '#475569', fontWeight: 800, fontFamily: 'monospace' }}>NetX SWITCH</span>
+                <span style={{ fontSize: '10px', color: theme === 'light' ? '#64748b' : '#475569', fontWeight: 800, fontFamily: 'monospace' }}>NetX SWITCH</span>
                 <div style={{ display: 'flex', gap: '4px' }}>
                   <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 4px #22c55e' }} title="PWR" />
                   <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#22c55e', animation: 'pulse 1.5s infinite' }} title="SYS" />
@@ -199,11 +227,13 @@ export default function PortMapper({ portMap = [], loading = false, onRefresh })
                         cursor: 'pointer',
                         transition: 'all 0.15s ease',
                         transform: activeDetail?.normalized === port.normalized ? 'scale(1.1)' : 'none',
-                        border: activeDetail?.normalized === port.normalized ? '2px solid #ffffff' : '',
+                        border: activeDetail?.normalized === port.normalized 
+                          ? (theme === 'light' ? '2px solid var(--primary)' : '2px solid #ffffff') 
+                          : '',
                         ...getPortStyle(port)
                       }}
                       onClick={() => setSelectedPort(port)}
-                      title={`${port.interface} (${port.status?.toUpperCase()})`}
+                      title={`${cleanInterfaceName(port.interface)} (${port.status?.toUpperCase()})`}
                     >
                       {getPortLabel(port.interface)}
                     </div>
@@ -228,11 +258,13 @@ export default function PortMapper({ portMap = [], loading = false, onRefresh })
                         cursor: 'pointer',
                         transition: 'all 0.15s ease',
                         transform: activeDetail?.normalized === port.normalized ? 'scale(1.1)' : 'none',
-                        border: activeDetail?.normalized === port.normalized ? '2px solid #ffffff' : '',
+                        border: activeDetail?.normalized === port.normalized 
+                          ? (theme === 'light' ? '2px solid var(--primary)' : '2px solid #ffffff') 
+                          : '',
                         ...getPortStyle(port)
                       }}
                       onClick={() => setSelectedPort(port)}
-                      title={`${port.interface} (${port.status?.toUpperCase()})`}
+                      title={`${cleanInterfaceName(port.interface)} (${port.status?.toUpperCase()})`}
                     >
                       {getPortLabel(port.interface)}
                     </div>
@@ -243,27 +275,37 @@ export default function PortMapper({ portMap = [], loading = false, onRefresh })
 
             {/* Quick Details Card for Selected Port */}
             {activeDetail && (
-              <div className="card p-16" style={{ background: '#131924', border: '1px solid #2d3748', borderRadius: '8px', color: '#cbd5e1' }}>
-                <div className="flex-between" style={{ borderBottom: '1px solid #2d3748', paddingBottom: '10px', marginBottom: '12px' }}>
+              <div className="card p-16" style={{ 
+                background: theme === 'light' ? 'var(--bg-card-2)' : '#131924', 
+                border: theme === 'light' ? '1px solid var(--border)' : '1px solid #2d3748', 
+                borderRadius: '8px', 
+                color: 'var(--text-primary)' 
+              }}>
+                <div className="flex-between" style={{ borderBottom: theme === 'light' ? '1px solid var(--border)' : '1px solid #2d3748', paddingBottom: '10px', marginBottom: '12px' }}>
                   <div>
-                    <h5 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      🔌 Detail Port: <span style={{ color: 'var(--primary)' }}>{activeDetail.interface}</span>
+                    <h5 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      🔌 Detail Port: <span style={{ color: 'var(--primary)' }}>{cleanInterfaceName(activeDetail.interface)}</span>
                     </h5>
                     {activeDetail.alias && (
-                      <span style={{ fontSize: '11px', color: '#64748b', fontStyle: 'italic' }}>{activeDetail.alias}</span>
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontStyle: 'italic' }}>{activeDetail.alias}</span>
                     )}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span className={`badge badge-${activeDetail.status === 'up' ? 'online' : 'offline'}`} style={{ padding: '2px 8px', fontSize: '10px' }}>
                       {activeDetail.status?.toUpperCase()}
                     </span>
-                    <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>{activeDetail.speed}</span>
+                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>{activeDetail.speed}</span>
                   </div>
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
                   {/* Neighbors (LLDP/CDP) */}
-                  <div style={{ background: '#0b0f19', padding: '12px', borderRadius: '6px', border: '1px solid #1e293b' }}>
+                  <div style={{ 
+                    background: theme === 'light' ? 'var(--bg-card)' : '#0b0f19', 
+                    padding: '12px', 
+                    borderRadius: '6px', 
+                    border: '1px solid var(--border)' 
+                  }}>
                     <h6 style={{ margin: '0 0 8px 0', fontSize: '12px', fontWeight: 600, color: '#a855f7', display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <Cable size={14} /> Neighbor Terhubung (LLDP/CDP)
                     </h6>
@@ -271,43 +313,48 @@ export default function PortMapper({ portMap = [], loading = false, onRefresh })
                       <div style={{ fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         <div><strong>Nama:</strong> {activeDetail.lldp_neighbor.neighbor_name}</div>
                         <div><strong>IP Tetangga:</strong> <span className="mono">{activeDetail.lldp_neighbor.neighbor_ip}</span></div>
-                        <div><strong>Port Lawan:</strong> <span className="mono">{activeDetail.lldp_neighbor.neighbor_port}</span></div>
+                        <div><strong>Port Lawan:</strong> <span className="mono">{cleanInterfaceName(activeDetail.lldp_neighbor.neighbor_port)}</span></div>
                         <div><strong>Model / Vendor:</strong> {activeDetail.lldp_neighbor.device_hint} ({activeDetail.lldp_neighbor.neighbor_vendor})</div>
                       </div>
                     ) : activeDetail.cdp_neighbor ? (
                       <div style={{ fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         <div><strong>Nama (CDP):</strong> {activeDetail.cdp_neighbor.neighbor_name}</div>
                         <div><strong>IP Tetangga:</strong> <span className="mono">{activeDetail.cdp_neighbor.neighbor_ip}</span></div>
-                        <div><strong>Port Lawan:</strong> <span className="mono">{activeDetail.cdp_neighbor.neighbor_port}</span></div>
+                        <div><strong>Port Lawan:</strong> <span className="mono">{cleanInterfaceName(activeDetail.cdp_neighbor.neighbor_port)}</span></div>
                         <div><strong>Platform:</strong> {activeDetail.cdp_neighbor.neighbor_platform}</div>
                       </div>
                     ) : (
-                      <div style={{ fontSize: '12px', color: '#64748b', fontStyle: 'italic', padding: '4px 0' }}>Tidak ada neighbor terdeteksi.</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontStyle: 'italic', padding: '4px 0' }}>Tidak ada neighbor terdeteksi.</div>
                     )}
                   </div>
 
                   {/* Learned MAC Addresses */}
-                  <div style={{ background: '#0b0f19', padding: '12px', borderRadius: '6px', border: '1px solid #1e293b' }}>
+                  <div style={{ 
+                    background: theme === 'light' ? 'var(--bg-card)' : '#0b0f19', 
+                    padding: '12px', 
+                    borderRadius: '6px', 
+                    border: '1px solid var(--border)' 
+                  }}>
                     <h6 style={{ margin: '0 0 8px 0', fontSize: '12px', fontWeight: 600, color: '#10b981', display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <Cpu size={14} /> MAC Address Terdeteksi ({activeDetail.mac_entries.length})
                     </h6>
                     {activeDetail.mac_entries.length > 0 ? (
                       <div style={{ maxHeight: '100px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         {activeDetail.mac_entries.map((m, idx) => (
-                          <div key={idx} style={{ fontSize: '11px', display: 'flex', justifyContent: 'space-between', borderBottom: idx < activeDetail.mac_entries.length - 1 ? '1px dashed #1e293b' : 'none', paddingBottom: '4px' }}>
+                          <div key={idx} style={{ fontSize: '11px', display: 'flex', justifyContent: 'space-between', borderBottom: idx < activeDetail.mac_entries.length - 1 ? '1px dashed var(--border)' : 'none', paddingBottom: '4px' }}>
                             <div>
                               <span className="mono text-primary" style={{ fontWeight: 600 }}>{m.mac_address}</span>
-                              <div style={{ color: '#64748b', fontSize: '10px' }}>{m.mac_vendor} (VLAN {m.vlan})</div>
+                              <div style={{ color: 'var(--text-secondary)', fontSize: '10px' }}>{m.mac_vendor} (VLAN {m.vlan})</div>
                             </div>
                             <div style={{ textAlign: 'right' }}>
-                              <span className="mono" style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>{m.ip_address}</span>
-                              <div style={{ fontSize: '9px', textTransform: 'capitalize', color: '#64748b' }}>{m.entry_type}</div>
+                              <span className="mono" style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{m.ip_address}</span>
+                              <div style={{ fontSize: '9px', textTransform: 'capitalize', color: 'var(--text-secondary)' }}>{m.entry_type}</div>
                             </div>
                           </div>
                         ))}
                       </div>
                     ) : (
-                      <div style={{ fontSize: '12px', color: '#64748b', fontStyle: 'italic', padding: '4px 0' }}>Tidak ada host/MAC address learned pada port ini.</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontStyle: 'italic', padding: '4px 0' }}>Tidak ada host/MAC address learned pada port ini.</div>
                     )}
                   </div>
                 </div>
@@ -378,11 +425,11 @@ export default function PortMapper({ portMap = [], loading = false, onRefresh })
                             style={{ fontWeight: 700, color: hasNeighbor ? 'var(--accent)' : 'var(--text-primary)', cursor: 'pointer' }}
                             onClick={() => {
                               setSelectedPort(port)
-                              const el = document.querySelector('.card[style*="background: rgb(11, 15, 25)"]')
+                              const el = document.querySelector('.card[style*="background: rgb(11, 15, 25)"]') || document.querySelector('.card[style*="background: var(--bg-card)"]')
                               if (el) el.scrollIntoView({ behavior: 'smooth' })
                             }}
                           >
-                            {port.interface}
+                            {cleanInterfaceName(port.interface)}
                           </span>
                         </div>
                         {port.alias && (
@@ -439,7 +486,7 @@ export default function PortMapper({ portMap = [], loading = false, onRefresh })
                               IP: <span className="mono" style={{ fontWeight: 600 }}>{port.lldp_neighbor.neighbor_ip}</span>
                             </div>
                             <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                              Port: <span className="mono">{port.lldp_neighbor.neighbor_port}</span>
+                              Port: <span className="mono">{cleanInterfaceName(port.lldp_neighbor.neighbor_port)}</span>
                             </div>
                             <div style={{ fontSize: '10px', color: '#a855f7', fontWeight: 600, marginTop: '4px' }}>
                               LLDP • {port.lldp_neighbor.device_hint}
@@ -452,7 +499,7 @@ export default function PortMapper({ portMap = [], loading = false, onRefresh })
                               IP: <span className="mono" style={{ fontWeight: 600 }}>{port.cdp_neighbor.neighbor_ip}</span>
                             </div>
                             <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                              Port: <span className="mono">{port.cdp_neighbor.neighbor_port}</span>
+                              Port: <span className="mono">{cleanInterfaceName(port.cdp_neighbor.neighbor_port)}</span>
                             </div>
                             <div style={{ fontSize: '10px', color: 'var(--primary)', fontWeight: 600, marginTop: '4px' }}>
                               CDP • {port.cdp_neighbor.neighbor_platform}

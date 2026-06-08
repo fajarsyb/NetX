@@ -193,3 +193,58 @@ async def resolve_all_anomalies(user: dict = Depends(require_operator_or_admin))
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
+
+@router.get("/rca")
+async def get_rca_incidents(current_user: dict = Depends(get_current_user)):
+    """Retrieve correlated anomaly incidents grouped by root causes and their impacts."""
+    conn = get_db_conn()
+    c = conn.cursor()
+    try:
+        # Fetch all active anomalies with device info
+        c.execute("""
+            SELECT a.*, d.name as device_name, d.ip as device_ip
+            FROM network_anomalies a
+            JOIN devices d ON a.device_id = d.id
+            WHERE a.is_active = 1
+            ORDER BY a.detected_at DESC
+        """)
+        anoms = [dict(r) for r in c.fetchall()]
+        conn.close()
+        
+        # Build lookup by ID
+        anom_map = {a["id"]: a for a in anoms}
+        
+        # Separate root causes and child impacts
+        root_causes = []
+        child_map = {}
+        
+        for a in anoms:
+            pid = a.get("parent_anomaly_id")
+            if pid and pid in anom_map:
+                if pid not in child_map:
+                    child_map[pid] = []
+                child_map[pid].append(a)
+            else:
+                root_causes.append(a)
+                
+        incidents = []
+        for rc in root_causes:
+            rc_id = rc["id"]
+            impacts = child_map.get(rc_id, [])
+            incidents.append({
+                "id": rc_id,
+                "root_cause": rc,
+                "impacts": impacts,
+                "impact_count": len(impacts)
+            })
+            
+        def sort_key(inc):
+            sev_score = {"critical": 2, "warning": 1}.get(inc["root_cause"]["severity"], 0)
+            return (sev_score, inc["impact_count"], inc["root_cause"]["detected_at"])
+            
+        incidents.sort(key=sort_key, reverse=True)
+        return incidents
+    except Exception as e:
+        conn.close()
+        raise HTTPException(status_code=500, detail=str(e))
+
