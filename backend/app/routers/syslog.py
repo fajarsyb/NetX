@@ -87,7 +87,7 @@ async def get_syslog_senders(current_user: dict = Depends(get_current_user)):
                 MAX(s.timestamp) as last_seen
             FROM device_syslogs s
             LEFT JOIN devices d ON s.device_id = d.id
-            GROUP BY s.device_id, COALESCE(d.ip, s.sender_ip)
+            GROUP BY s.device_id, COALESCE(d.name, 'Perangkat Tidak Terdaftar'), COALESCE(d.ip, s.sender_ip), s.sender_ip
             ORDER BY last_seen DESC
         """)
         rows = [dict(r) for r in c.fetchall()]
@@ -131,10 +131,11 @@ async def get_syslog_patterns(current_user: dict = Depends(get_current_user)):
     c = conn.cursor()
     try:
         c.execute("""
-            SELECT p.*, COUNT(s.id) as occurrence_count, MAX(s.timestamp) as last_seen
+            SELECT p.pattern_hash, p.template, p.program, p.severity, p.is_blocked, p.is_anomaly, p.created_at,
+                   COUNT(s.id) as occurrence_count, MAX(s.timestamp) as last_seen
             FROM syslog_patterns p
             LEFT JOIN device_syslogs s ON p.pattern_hash = s.pattern_hash
-            GROUP BY p.pattern_hash
+            GROUP BY p.pattern_hash, p.template, p.program, p.severity, p.is_blocked, p.is_anomaly, p.created_at
             ORDER BY occurrence_count DESC, last_seen DESC
         """)
         rows = [dict(r) for r in c.fetchall()]

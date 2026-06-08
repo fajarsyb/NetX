@@ -123,7 +123,7 @@ async def lldp_summary():
         FROM   devices d
         LEFT JOIN lldp_neighbors l ON d.id = l.device_id
         LEFT JOIN device_groups dg ON d.group_id = dg.id
-        GROUP BY d.id
+        GROUP BY d.id, d.name, d.ip, d.device_type, d.group_id, dg.name
         ORDER BY d.name COLLATE NOCASE
     """)
     rows = [dict(r) for r in c.fetchall()]

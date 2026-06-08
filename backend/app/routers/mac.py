@@ -374,7 +374,7 @@ async def mac_summary():
         FROM   devices d
         LEFT JOIN mac_addresses m ON d.id = m.device_id
         LEFT JOIN device_groups dg ON d.group_id = dg.id
-        GROUP BY d.id
+        GROUP BY d.id, d.name, d.ip, d.device_type, d.protocol, d.status, d.group_id, dg.name
         ORDER BY d.name COLLATE NOCASE
     """)
     devices = [dict(r) for r in c.fetchall()]

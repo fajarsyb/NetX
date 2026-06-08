@@ -24,7 +24,7 @@ async def list_groups(current_user: dict = Depends(get_current_user)):
             FROM device_groups g
             LEFT JOIN device_groups p ON g.parent_id = p.id
             LEFT JOIN devices d ON d.group_id = g.id
-            GROUP BY g.id
+            GROUP BY g.id, g.name, g.description, g.parent_id, g.created_at, p.name
             ORDER BY g.name COLLATE NOCASE
         """)
     else:
@@ -38,7 +38,7 @@ async def list_groups(current_user: dict = Depends(get_current_user)):
             LEFT JOIN device_groups p ON g.parent_id = p.id
             LEFT JOIN devices d ON d.group_id = g.id
             WHERE g.name IN ({placeholders})
-            GROUP BY g.id
+            GROUP BY g.id, g.name, g.description, g.parent_id, g.created_at, p.name
             ORDER BY g.name COLLATE NOCASE
         """, allowed_groups)
         

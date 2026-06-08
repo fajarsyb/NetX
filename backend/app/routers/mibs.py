@@ -164,7 +164,7 @@ async def list_mibs(current_user: dict = Depends(get_current_user)):
                COUNT(o.id) as objects_count
         FROM snmp_mibs m
         LEFT JOIN snmp_mib_objects o ON m.id = o.mib_id
-        GROUP BY m.id
+        GROUP BY m.id, m.name, m.description, m.vendor, m.is_active, m.created_at
         ORDER BY m.name COLLATE NOCASE
     """)
     rows = [dict(r) for r in c.fetchall()]

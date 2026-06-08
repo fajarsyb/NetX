@@ -165,7 +165,7 @@ async def arp_summary(current_user: dict = Depends(get_current_user)):
         LEFT JOIN arp_cache a ON d.id = a.device_id
         LEFT JOIN device_groups dg ON d.group_id = dg.id
         {where_clause}
-        GROUP BY d.id
+        GROUP BY d.id, d.name, d.ip, d.device_type, d.protocol, d.status, d.group_id, dg.name
         ORDER BY d.name COLLATE NOCASE
     """, params)
     devices = [dict(r) for r in c.fetchall()]
