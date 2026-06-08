@@ -221,6 +221,86 @@ def analyze_syslog_for_anomalies(device_id: int, severity: int, program: str, me
     finally:
         conn.close()
 
+def save_and_analyze_syslog_db(device_id, ip, facility, severity, program, message, timestamp, raw_msg, template, pattern_hash) -> bool:
+    """
+    Saves syslog message, updates patterns, performs spike and critical pattern detection.
+    Returns True if the log was processed and NOT blocked, False if blocked.
+    """
+    conn = get_db_conn()
+    c = conn.cursor()
+    try:
+        # Check if pattern is blocked or anomaly
+        c.execute("SELECT is_blocked, is_anomaly FROM syslog_patterns WHERE pattern_hash = ?", (pattern_hash,))
+        p_row = c.fetchone()
+        
+        is_blocked = 0
+        is_anomaly = 0
+        if p_row:
+            is_blocked = p_row["is_blocked"]
+            is_anomaly = p_row["is_anomaly"]
+        else:
+            # Register new pattern
+            c.execute("""
+                INSERT INTO syslog_patterns (pattern_hash, template, program, severity, is_blocked, is_anomaly, created_at)
+                VALUES (?, ?, ?, ?, 0, 0, ?)
+            """, (pattern_hash, template, program, severity, timestamp))
+            
+        if is_blocked == 1:
+            conn.commit()
+            return False
+            
+        # Save syslog with pattern_hash
+        c.execute("""
+            INSERT INTO device_syslogs (device_id, sender_ip, facility, severity, program, message, timestamp, raw_message, pattern_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (device_id, ip, facility, severity, program, message, timestamp, raw_msg, pattern_hash))
+        
+        # Spike Detection: count same pattern in last 5 minutes
+        if device_id:
+            five_mins_ago = (datetime.fromisoformat(timestamp) - timedelta(minutes=5)).isoformat()
+            c.execute("""
+                SELECT COUNT(*) as cnt 
+                FROM device_syslogs 
+                WHERE pattern_hash = ? AND device_id = ? AND timestamp >= ?
+            """, (pattern_hash, device_id, five_mins_ago))
+            cnt_row = c.fetchone()
+            recent_count = cnt_row["cnt"] if cnt_row else 0
+            
+            if recent_count >= 50:
+                # Check if there is already an active syslog_spike anomaly for this device and pattern
+                c.execute("""
+                    SELECT id FROM network_anomalies 
+                    WHERE device_id = ? AND anomaly_type = 'syslog_spike' AND details LIKE ? AND is_active = 1
+                """, (device_id, f"%{pattern_hash}%"))
+                if not c.fetchone():
+                    details = f"Lonjakan log terdeteksi untuk pola [{pattern_hash}]. Diterima {recent_count} log dalam 5 menit terakhir. Contoh pesan: {message[:180]}"
+                    c.execute("""
+                        INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
+                        VALUES (?, 'syslog_spike', 'warning', 'Syslog', ?, 1, ?)
+                    """, (device_id, details, timestamp))
+                    
+            if is_anomaly == 1:
+                # Check if there is already an active syslog_critical anomaly for this device and pattern
+                c.execute("""
+                    SELECT id FROM network_anomalies 
+                    WHERE device_id = ? AND anomaly_type = 'syslog_critical' AND details LIKE ? AND is_active = 1
+                """, (device_id, f"%{pattern_hash}%"))
+                if not c.fetchone():
+                    details = f"Log kritis terdeteksi (pola ditandai sebagai anomali) [{pattern_hash}]: {message[:180]}"
+                    c.execute("""
+                        INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
+                        VALUES (?, 'syslog_critical', 'critical', 'Syslog', ?, 1, ?)
+                    """, (device_id, details, timestamp))
+                    
+        conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Error in save_and_analyze_syslog_db: {e}")
+        conn.rollback()
+        return True
+    finally:
+        conn.close()
+
 class SyslogProtocol(asyncio.DatagramProtocol):
     """UDP datagram receiver protocol for Syslog Server."""
     def datagram_received(self, data: bytes, addr: tuple[str, int]):
@@ -240,26 +320,18 @@ class SyslogProtocol(asyncio.DatagramProtocol):
             # Parse log
             facility, severity, program, message, timestamp = parse_syslog_message(raw_msg)
             
-            # Save to database in a background thread
-            def save_to_db():
-                conn = get_db_conn()
-                c = conn.cursor()
-                try:
-                    c.execute("""
-                        INSERT INTO device_syslogs (device_id, sender_ip, facility, severity, program, message, timestamp, raw_message)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (device_id, ip, facility, severity, program, message, timestamp, raw_msg))
-                    conn.commit()
-                except Exception as e:
-                    logger.error(f"Failed to save syslog to database: {e}")
-                    conn.rollback()
-                finally:
-                    conn.close()
+            # Get template and hash
+            template, pattern_hash = get_log_template(message)
             
-            await loop.run_in_executor(None, save_to_db)
+            # Save and analyze in background thread
+            not_blocked = await loop.run_in_executor(
+                None,
+                save_and_analyze_syslog_db,
+                device_id, ip, facility, severity, program, message, timestamp, raw_msg, template, pattern_hash
+            )
             
-            # Trigger real-time anomaly checks in a background thread
-            if device_id:
+            # Trigger real-time anomaly checks only if not blocked and device_id is valid
+            if not_blocked and device_id:
                 await loop.run_in_executor(
                     None, 
                     analyze_syslog_for_anomalies, 

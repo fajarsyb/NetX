@@ -305,3 +305,47 @@ Modul `anomaly_detector.py` di-refaktor secara menyeluruh:
 8. **Tabel Database Baru**:
    - `interface_stats_latest`: Menyimpan counter SNMP terakhir per interface untuk kalkulasi delta.
    - `mac_history_tracking`: Melacak lokasi terakhir setiap MAC address untuk deteksi perpindahan.
+
+---
+
+## 10. Manajemen Profil Threshold & Deteksi Kustom
+
+NetX sekarang mendukung kustomisasi parameter ambang batas (threshold) per perangkat untuk pemicu anomali.
+
+- **Profil Threshold**: Menyimpan setelan kustom untuk:
+  - Broadcast, Multicast, dan Unicast Storm (pps).
+  - Port Flapping: jumlah kejadian flap (`port_flap_warning`/`port_flap_critical`) dalam window waktu pemantauan (`port_flap_window`).
+  - Error rate fisik (CRC errors, framing errors, transmission errors) per detik beserta ambang delta minimal.
+- **Penerapan Dinamis**:
+  - Saat `anomaly_detector.py` melakukan sinkronisasi SNMP, ia memanggil `load_device_thresholds(device_id, conn)` untuk memuat profil kustom yang terkait dengan perangkat (`threshold_profile_id`). Jika tidak diatur, sistem otomatis menggunakan default global.
+
+---
+
+## 11. Korelasi Peristiwa & Analisis Akar Masalah (RCA) Topologi
+
+Fitur ini membantu operator mengidentifikasi kegagalan hulu (root cause) dari sekumpulan alarm/anomali hilir (impact anomalies) yang terjadi secara bersamaan di jaringan.
+
+- **Pembangun Hubungan Topologi**:
+  - Sistem mengumpulkan pemetaan interkoneksi switch dari tabel `lldp_neighbors` dan `cdp_neighbors`.
+  - Port diklasifikasikan dan dibersihkan namanya (misal `ge-0/0/5` atau `port1.0.49`) untuk pencocokan link.
+- **Logika Korelasi**:
+  - Jika perangkat tetangga terdeteksi offline (`device_offline`), semua anomali mati/gangguan port pada port interkoneksi perangkat tetangga tersebut ditandai dengan `parent_anomaly_id` yang mengarah ke akar masalah (`device_offline`).
+  - Jika terjadi port down atau port flapping pada link utama, anomali pada link lawan di switch tetangga akan dikorelasikan sebagai dampak dari anomali utama.
+- **Antarmuka Pengguna**:
+  - Tab **🔍 Analisis Akar Masalah (RCA)** menyajikan pohon dependensi anomali sehingga administrator dapat menyelesaikan akar masalah secara terpusat.
+
+---
+
+## 12. Pengklasteran Pola Syslog & Spike Detection
+
+Mesin syslog NetX kini memiliki kecerdasan buatan berbasis aturan untuk mengelompokkan pesan log mentah menjadi pola terklaster.
+
+- **Ekstraksi Pola (Clustering)**:
+  - Mengubah variabel dinamis (seperti IP, MAC, angka, interface) pada syslog menjadi placeholder `<IP>`, `<MAC>`, `<NUM>`, `<IF>`.
+  - Menghasilkan MD5 hash (`pattern_hash`) dari template tersebut dan menyimpannya di tabel `syslog_patterns`.
+- **Mute Log (Bising)**:
+  - Administrator dapat membisukan pola log bising (`is_blocked = 1`) untuk menghentikan penulisan ke database dan analisis lebih lanjut.
+- **Deteksi Lonjakan (Spike Detection)**:
+  - Jika pola log yang sama diterima lebih dari 50 kali dalam window 5 menit terakhir pada suatu perangkat, sistem memicu anomali bertipe `syslog_spike` (`warning`).
+- **Pola Log Kritis**:
+  - Pola log tertentu dapat ditandai sebagai anomali kritis (`is_anomaly = 1`) untuk langsung melontarkan alarm bertipe `syslog_critical` (`critical`) saat log sejenis masuk.

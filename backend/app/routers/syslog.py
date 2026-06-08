@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import Optional
+from pydantic import BaseModel
 from app.database import get_db_conn
 from app.services.auth import get_current_user, require_operator_or_admin
 
@@ -117,6 +118,79 @@ async def clear_syslogs(user: dict = Depends(require_operator_or_admin)):
         
         conn.commit()
         return {"success": True, "message": f"Berhasil menghapus {deleted_count} log syslog."}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@router.get("/patterns")
+async def get_syslog_patterns(current_user: dict = Depends(get_current_user)):
+    """Retrieve all syslog patterns with counts of occurrences."""
+    conn = get_db_conn()
+    c = conn.cursor()
+    try:
+        c.execute("""
+            SELECT p.*, COUNT(s.id) as occurrence_count, MAX(s.timestamp) as last_seen
+            FROM syslog_patterns p
+            LEFT JOIN device_syslogs s ON p.pattern_hash = s.pattern_hash
+            GROUP BY p.pattern_hash
+            ORDER BY occurrence_count DESC, last_seen DESC
+        """)
+        rows = [dict(r) for r in c.fetchall()]
+        return rows
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+class PatternUpdate(BaseModel):
+    is_blocked: Optional[int] = None
+    is_anomaly: Optional[int] = None
+
+@router.put("/patterns/{pattern_hash}")
+async def update_syslog_pattern(
+    pattern_hash: str,
+    body: PatternUpdate,
+    user: dict = Depends(require_operator_or_admin)
+):
+    """Update block or anomaly state of a syslog pattern."""
+    conn = get_db_conn()
+    c = conn.cursor()
+    try:
+        c.execute("SELECT * FROM syslog_patterns WHERE pattern_hash = ?", (pattern_hash,))
+        row = c.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Pola syslog tidak ditemukan.")
+            
+        updates = []
+        params = []
+        if body.is_blocked is not None:
+            updates.append("is_blocked = ?")
+            params.append(body.is_blocked)
+        if body.is_anomaly is not None:
+            updates.append("is_anomaly = ?")
+            params.append(body.is_anomaly)
+            
+        if not updates:
+            return {"success": True, "message": "Tidak ada perubahan."}
+            
+        params.append(pattern_hash)
+        c.execute(f"UPDATE syslog_patterns SET {', '.join(updates)} WHERE pattern_hash = ?", params)
+        conn.commit()
+        
+        # Log audit
+        from app.services.audit import log_audit
+        log_audit(
+            user["id"],
+            user["username"],
+            "UPDATE_SYSLOG_PATTERN",
+            f"syslog/patterns/{pattern_hash}",
+            f"Mengubah status pola {pattern_hash}: is_blocked={body.is_blocked}, is_anomaly={body.is_anomaly}"
+        )
+        return {"success": True, "message": "Status pola syslog berhasil diperbarui."}
+    except HTTPException as he:
+        raise he
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))

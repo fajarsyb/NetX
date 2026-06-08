@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { X, Network, Eye, EyeOff, TestTube, Key } from 'lucide-react'
-import { devicesApi, groupsApi, credentialsApi } from '../../api/client'
+import { devicesApi, groupsApi, credentialsApi, thresholdsApi } from '../../api/client'
 import { useToast } from '../shared/ToastProvider'
 
 const DEVICE_TYPES = [
@@ -29,7 +29,7 @@ const DEFAULT_PORTS = { ssh: 22, telnet: 23 }
 const initial = {
   name: '', ip: '', protocol: 'ssh', port: 22,
   username: '', password: '', device_type: 'cisco_ios', description: '',
-  group_id: '', credential_id: '',
+  group_id: '', credential_id: '', threshold_profile_id: '',
   custom_arp_cmd: '', custom_lldp_cmd: '', custom_cdp_cmd: '', custom_routing_cmd: '', custom_info_cmd: '',
   snmp_version: 'v2c', snmp_community: 'public', device_role: 'Access Switch',
   hardware_model: '', os_version: '', serial_number: '', mac_address: ''
@@ -82,6 +82,7 @@ export default function AddDeviceModal({ onClose, onSuccess, editDevice = null }
     password: '',  // Don't prefill password for edit
     group_id: editDevice.group_id || '',
     credential_id: editDevice.credential_id || '',
+    threshold_profile_id: editDevice.threshold_profile_id || '',
     device_role: editDevice.device_role || 'Access Switch',
     hardware_model: editDevice.hardware_model || '',
     os_version: editDevice.os_version || '',
@@ -94,6 +95,7 @@ export default function AddDeviceModal({ onClose, onSuccess, editDevice = null }
   const [credentials, setCredentials] = useState([])
   const [saveAsCredential, setSaveAsCredential] = useState(false)
   const [newCredentialName, setNewCredentialName] = useState('')
+  const [thresholdProfiles, setThresholdProfiles] = useState([])
   const [testing, setTesting]     = useState(false)
   const [saving, setSaving]       = useState(false)
   const [testResult, setTestResult] = useState(null)
@@ -102,6 +104,7 @@ export default function AddDeviceModal({ onClose, onSuccess, editDevice = null }
   useEffect(() => {
     groupsApi.list().then(r => setGroups(r.data)).catch(() => {})
     credentialsApi.list().then(r => setCredentials(r.data)).catch(() => {})
+    thresholdsApi.list().then(r => setThresholdProfiles(r.data)).catch(() => {})
   }, [])
 
   const set = (k, v) => {
@@ -180,7 +183,8 @@ export default function AddDeviceModal({ onClose, onSuccess, editDevice = null }
       const payload = { 
         ...finalForm, 
         group_id: finalForm.group_id ? parseInt(finalForm.group_id) : null,
-        credential_id: finalForm.credential_id ? parseInt(finalForm.credential_id) : null
+        credential_id: finalForm.credential_id ? parseInt(finalForm.credential_id) : null,
+        threshold_profile_id: finalForm.threshold_profile_id ? parseInt(finalForm.threshold_profile_id) : null
       }
       
       if (editDevice) {
@@ -368,6 +372,20 @@ export default function AddDeviceModal({ onClose, onSuccess, editDevice = null }
                   ))}
                 </select>
               </div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Profil Threshold Anomali</label>
+              <select className="form-control" value={form.threshold_profile_id || ''}
+                onChange={e => {
+                  const val = e.target.value;
+                  set('threshold_profile_id', val ? parseInt(val) : '');
+                }}>
+                <option value="">(Default Sistem / Global)</option>
+                {thresholdProfiles.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
             </div>
 
             {/* Custom Device Details Section */}

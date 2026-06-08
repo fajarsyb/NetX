@@ -3,7 +3,7 @@ import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import {
   Server, LayoutDashboard, Plus, Network, ChevronRight, ChevronDown,
   Radio, Wifi, RefreshCw, LogOut, Users, FolderGit2, ShieldCheck, Map, Key, Search, Settings, FileCode, AlertTriangle, FileText, Database, Activity,
-  Sun, Moon, GripVertical
+  Sun, Moon, GripVertical, Sliders
 } from 'lucide-react'
 import { arpApi } from '../../api/client'
 import AddDeviceModal from '../Device/AddDeviceModal'
@@ -20,7 +20,7 @@ export default function Sidebar() {
   const { theme, toggleTheme } = useTheme()
   const location = useLocation()
   const [openSettings, setOpenSettings] = useState(() => {
-    return ['/users', '/credentials', '/credential-scan', '/backup', '/db-settings', '/system-health', '/device-backup', '/snmp-tester', '/mibs'].includes(location.pathname)
+    return ['/users', '/credentials', '/credential-scan', '/backup', '/db-settings', '/system-health', '/device-backup', '/snmp-tester', '/mibs', '/thresholds'].includes(location.pathname)
   })
 
   // Resizable Sidebar logic
@@ -169,7 +169,7 @@ export default function Sidebar() {
           {/* Settings Sub-menu */}
           <button
             type="button"
-            className={`nav-link ${['/users', '/credentials', '/credential-scan', '/backup', '/db-settings', '/system-health', '/device-backup', '/snmp-tester', '/mibs'].includes(location.pathname) ? 'active' : ''}`}
+            className={`nav-link ${['/users', '/credentials', '/credential-scan', '/backup', '/db-settings', '/system-health', '/device-backup', '/snmp-tester', '/mibs', '/thresholds'].includes(location.pathname) ? 'active' : ''}`}
             onClick={() => setOpenSettings(prev => !prev)}
             style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
           >
@@ -197,6 +197,13 @@ export default function Sidebar() {
                   >
                     <Key className="nav-icon" />
                     Manajemen Kredensial
+                  </NavLink>
+                  <NavLink
+                    to="/thresholds"
+                    className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                  >
+                    <Sliders className="nav-icon" />
+                    Profil Threshold
                   </NavLink>
                   <NavLink
                     to="/credential-scan"

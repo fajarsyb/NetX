@@ -131,13 +131,25 @@ export const anomaliesApi = {
   resolve:    (id)     => api.post(`/anomalies/${id}/resolve`),
   resolveAll: ()       => api.post('/anomalies/resolve-all'),
   getDeviceSummary: () => api.get('/anomalies/device-summary'),
+  getRca:     ()       => api.get('/anomalies/rca'),
 }
 
 export const syslogApi = {
   list:  (params) => api.get('/syslog', { params }),
   clear: ()       => api.delete('/syslog/clear'),
   getSenders: ()  => api.get('/syslog/senders'),
+  getPatterns: () => api.get('/syslog/patterns'),
+  updatePattern: (hash, data) => api.put(`/syslog/patterns/${hash}`, data),
 }
+
+export const thresholdsApi = {
+  list:   ()         => api.get('/thresholds'),
+  get:    (id)       => api.get(`/thresholds/${id}`),
+  create: (data)     => api.post('/thresholds', data),
+  update: (id, data) => api.put(`/thresholds/${id}`, data),
+  remove: (id)       => api.delete(`/thresholds/${id}`),
+}
+
 
 export const dbSettingsApi = {
   getCurrent:       () => api.get('/db-settings/current'),

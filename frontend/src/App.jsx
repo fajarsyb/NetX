@@ -23,6 +23,7 @@ import ToastProvider from './components/shared/ToastProvider'
 import { AuthProvider } from './context/AuthContext'
 import { ThemeProvider } from './context/ThemeContext'
 import ProtectedRoute from './components/shared/ProtectedRoute'
+import ThresholdProfiles from './pages/ThresholdProfiles'
 
 export default function App() {
   return (
@@ -50,6 +51,7 @@ export default function App() {
                       <Route path="/system-health" element={<SystemHealth />} />
                       <Route path="/device-backup" element={<DeviceBackup />} />
                       <Route path="/devices" element={<DeviceManagement />} />
+                      <Route path="/thresholds" element={<ThresholdProfiles />} />
                       <Route path="/snmp-tester" element={<SnmpTester />} />
                       <Route path="/mibs" element={<MibManagement />} />
                       <Route path="/topology" element={<Topology />} />

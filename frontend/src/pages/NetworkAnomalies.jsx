@@ -19,10 +19,18 @@ export default function NetworkAnomalies() {
   const [resolvingId, setResolvingId] = useState(null)
   const [resolvingAll, setResolvingAll] = useState(false)
 
-  // Tab state: 'active', 'history', or 'senders'
+  // Tab state: 'active', 'history', 'senders', 'rca', 'patterns'
   const [activeTab, setActiveTab] = useState('active')
   const [logSenders, setLogSenders] = useState([])
   const [loadingSenders, setLoadingSenders] = useState(false)
+
+  // RCA & Pattern states
+  const [rcaIncidents, setRcaIncidents] = useState([])
+  const [loadingRca, setLoadingRca] = useState(false)
+  const [syslogPatterns, setSyslogPatterns] = useState([])
+  const [loadingPatterns, setLoadingPatterns] = useState(false)
+  const [updatingPatternHash, setUpdatingPatternHash] = useState(null)
+  const [expandedIncidents, setExpandedIncidents] = useState({})
 
   // --- Tab 1: Active Anomalies States ---
   const [activePage, setActivePage] = useState(1)
@@ -55,7 +63,14 @@ export default function NetworkAnomalies() {
     'mac_flapping': 'MAC Flapping',
     'stp_tcn': 'STP Topology Change',
     'security_auth_fail': 'Security Auth Failure',
-    'port_down': 'Port Link Down'
+    'port_down': 'Port Link Down',
+    'syslog_spike': 'Syslog Pattern Spike',
+    'syslog_critical': 'Critical Syslog Pattern',
+    'device_offline': 'Device Offline',
+    'crc_errors': 'CRC Errors (LAN Cable)',
+    'framing_errors': 'Framing Errors',
+    'transmission_errors': 'Transmission Errors',
+    'speed_drop': 'Link Speed Drop'
   }
 
   // Fetch initial devices list for filters
@@ -104,6 +119,59 @@ export default function NetworkAnomalies() {
     }
   }
 
+  // Fetch RCA incidents
+  const fetchRcaData = async () => {
+    setLoadingRca(true)
+    try {
+      const res = await anomaliesApi.getRca()
+      setRcaIncidents(res.data || [])
+    } catch (err) {
+      toast.error('Gagal mengambil data korelasi akar masalah (RCA).')
+    } finally {
+      setLoadingRca(false)
+    }
+  }
+
+  // Fetch syslog patterns
+  const fetchPatterns = async () => {
+    setLoadingPatterns(true)
+    try {
+      const res = await syslogApi.getPatterns()
+      setSyslogPatterns(res.data || [])
+    } catch (err) {
+      toast.error('Gagal mengambil daftar pola syslog.')
+    } finally {
+      setLoadingPatterns(false)
+    }
+  }
+
+  const handleTogglePatternStatus = async (hash, field, currentVal) => {
+    if (isViewer) return
+    setUpdatingPatternHash(hash)
+    const newVal = currentVal === 1 ? 0 : 1
+    const payload = {
+      [field]: newVal
+    }
+    try {
+      const res = await syslogApi.updatePattern(hash, payload)
+      if (res.data.success) {
+        toast.success(res.data.message || 'Status pola berhasil diperbarui.')
+        fetchPatterns()
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Gagal memperbarui status pola.')
+    } finally {
+      setUpdatingPatternHash(null)
+    }
+  }
+
+  const toggleIncidentExpand = (id) => {
+    setExpandedIncidents(prev => ({
+      ...prev,
+      [id]: !prev[id]
+    }))
+  }
+
   // Debounce search input for history to avoid hammering API
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -133,6 +201,12 @@ export default function NetworkAnomalies() {
   useEffect(() => {
     if (activeTab === 'senders') {
       fetchSenders()
+    } else if (activeTab === 'rca') {
+      fetchRcaData()
+    } else if (activeTab === 'patterns') {
+      fetchPatterns()
+    } else if (activeTab === 'active') {
+      fetchActiveAnomalies()
     }
   }, [activeTab])
 
@@ -159,6 +233,10 @@ export default function NetworkAnomalies() {
       fetchHistoryAnomalies()
     } else if (activeTab === 'senders') {
       fetchSenders()
+    } else if (activeTab === 'rca') {
+      fetchRcaData()
+    } else if (activeTab === 'patterns') {
+      fetchPatterns()
     }
     toast.success('Data berhasil diperbarui.')
   }
@@ -656,10 +734,27 @@ export default function NetworkAnomalies() {
           <span className="badge-tab-count">{activeAnomalies.length}</span>
         </button>
         <button 
+          className={`tab-btn-modern ${activeTab === 'rca' ? 'active' : ''}`}
+          onClick={() => setActiveTab('rca')}
+        >
+          🔍 Analisis Akar Masalah (RCA)
+          {rcaIncidents.length > 0 && (
+            <span className="badge-tab-count" style={{ background: 'var(--danger-dim)', color: 'var(--danger)' }}>
+              {rcaIncidents.length}
+            </span>
+          )}
+        </button>
+        <button 
           className={`tab-btn-modern ${activeTab === 'history' ? 'active' : ''}`}
           onClick={() => setActiveTab('history')}
         >
           Riwayat Log Anomali
+        </button>
+        <button 
+          className={`tab-btn-modern ${activeTab === 'patterns' ? 'active' : ''}`}
+          onClick={() => setActiveTab('patterns')}
+        >
+          📋 Pola Syslog (Clustering)
         </button>
         <button 
           className={`tab-btn-modern ${activeTab === 'senders' ? 'active' : ''}`}
@@ -803,6 +898,14 @@ export default function NetworkAnomalies() {
                                 Port: {cleanInterfaceName(a.interface_name)}
                               </span>
                             )}
+                            {a.parent_anomaly_id && (() => {
+                              const parent = activeAnomalies.find(p => p.id === a.parent_anomaly_id)
+                              return (
+                                <span className="badge" style={{ fontSize: '11px', background: 'rgba(239, 68, 68, 0.08)', color: 'var(--danger)', border: '1px dashed var(--danger)', fontWeight: 600 }}>
+                                  ⚠️ Dampak dari: {parent ? `${parent.device_name} (${ANOMALY_TYPE_LABELS[parent.anomaly_type] || parent.anomaly_type})` : `Akar Masalah #${a.parent_anomaly_id}`}
+                                </span>
+                              )
+                            })()}
                           </div>
                           <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '8px', lineHeight: '1.45' }}>
                             {a.details}
@@ -1042,6 +1145,261 @@ export default function NetworkAnomalies() {
             )}
           </div>
         </>
+      )}
+
+      {/* --- TAB 4: RCA VIEW --- */}
+      {activeTab === 'rca' && (
+        <div className="animate-slide">
+          <div className="card p-0" style={{ overflow: 'hidden' }}>
+            <div className="p-24" style={{ borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                  Analisis Akar Masalah (Root Cause Analysis - RCA)
+                </h3>
+                <p style={{ margin: '4px 0 0 0', fontSize: '12.5px', color: 'var(--text-muted)' }}>
+                  Mengkorelasikan beberapa anomali aktif berdasarkan hubungan topologi uplink dan port interkoneksi fisik (LLDP/CDP).
+                </p>
+              </div>
+              <button className="btn btn-outline-primary btn-sm" onClick={fetchRcaData} disabled={loadingRca}>
+                <RefreshCw size={12} className={loadingRca ? 'spin' : ''} style={{ marginRight: '6px' }} /> Segarkan Data
+              </button>
+            </div>
+
+            {loadingRca ? (
+              <div className="loading-overlay" style={{ padding: '48px' }}>
+                <div className="loading-spinner" />
+                <span>Menganalisis korelasi akar masalah...</span>
+              </div>
+            ) : rcaIncidents.length === 0 ? (
+              <div className="empty-state" style={{ padding: '48px', minHeight: '200px' }}>
+                <CheckCircle size={42} className="text-success" style={{ marginBottom: '16px' }} />
+                <div className="empty-title" style={{ fontSize: '16px' }}>Tidak Ada Korelasi Akar Masalah</div>
+                <div className="empty-desc">Seluruh anomali aktif bersifat independen atau tidak ada gangguan interkoneksi topologi terdeteksi.</div>
+              </div>
+            ) : (
+              <div style={{ padding: '24px' }}>
+                {rcaIncidents.map((incident) => {
+                  const rc = incident.root_cause
+                  const isExpanded = !!expandedIncidents[incident.id]
+                  return (
+                    <div key={incident.id} className="card mb-16" style={{ border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden', padding: 0 }}>
+                      {/* Root Cause Header */}
+                      <div style={{ 
+                        background: 'rgba(79, 142, 247, 0.04)', 
+                        padding: '16px 20px', 
+                        display: 'flex', 
+                        justifyContent: 'space-between', 
+                        alignItems: 'center', 
+                        borderBottom: isExpanded ? '1px solid var(--border)' : 'none',
+                        flexWrap: 'wrap',
+                        gap: '12px'
+                      }}>
+                        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                          <AlertOctagon size={22} style={{ color: rc.severity === 'critical' ? 'var(--danger)' : '#f97316' }} />
+                          <div>
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                              <span style={{ fontWeight: 800, fontSize: '14.5px', color: 'var(--text-primary)' }}>
+                                {rc.device_name} ({rc.device_ip})
+                              </span>
+                              <span className={`badge ${getSeverityBadgeClass(rc.severity)}`} style={{ fontSize: '9px', fontWeight: 800 }}>
+                                {rc.severity.toUpperCase()}
+                              </span>
+                              <span className="badge badge-neutral" style={{ fontSize: '11px', background: 'var(--danger-dim)', color: 'var(--danger)' }}>
+                                ROOT CAUSE (Sumber Masalah)
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '6px' }}>
+                              <strong>{ANOMALY_TYPE_LABELS[rc.anomaly_type] || rc.anomaly_type}</strong>: {rc.details}
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                          {incident.impact_count > 0 && (
+                            <button 
+                              className="btn btn-outline-primary btn-sm"
+                              onClick={() => toggleIncidentExpand(incident.id)}
+                              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                            >
+                              {isExpanded ? 'Sembunyikan' : 'Lihat'} {incident.impact_count} Dampak
+                            </button>
+                          )}
+                          {!isViewer && (
+                            <button 
+                              className="btn btn-outline-success btn-sm"
+                              onClick={() => handleResolve(rc.id)}
+                              disabled={resolvingId === rc.id}
+                            >
+                              Selesaikan
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Impacted Child Anomalies */}
+                      {isExpanded && incident.impacts.length > 0 && (
+                        <div style={{ padding: '16px 20px', background: 'var(--bg-body)' }}>
+                          <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                            Daftar Perangkat/Port Terdampak (Dependent Outages):
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {incident.impacts.map((child) => (
+                              <div key={child.id} style={{ 
+                                display: 'flex', 
+                                justifyContent: 'space-between', 
+                                alignItems: 'center', 
+                                padding: '10px 14px', 
+                                background: 'var(--bg-card)', 
+                                borderLeft: '3px solid var(--danger)', 
+                                borderRadius: '6px' 
+                              }}>
+                                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                  <Info size={16} style={{ color: 'var(--text-muted)' }} />
+                                  <div>
+                                    <span style={{ fontWeight: 700, fontSize: '13px', color: 'var(--text-primary)' }}>
+                                      {child.device_name} ({child.device_ip})
+                                    </span>
+                                    {child.interface_name && child.interface_name !== 'Global' && (
+                                      <span className="badge badge-ssh" style={{ marginLeft: '6px', fontSize: '10.5px' }}>
+                                        Port: {cleanInterfaceName(child.interface_name)}
+                                      </span>
+                                    )}
+                                    <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                      {child.details}
+                                    </div>
+                                  </div>
+                                </div>
+                                {!isViewer && (
+                                  <button 
+                                    className="btn btn-ghost btn-sm"
+                                    onClick={() => handleResolve(child.id)}
+                                    disabled={resolvingId === child.id}
+                                    style={{ fontSize: '11px', height: '28px' }}
+                                  >
+                                    Selesaikan
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* --- TAB 5: SYSLOG PATTERNS VIEW --- */}
+      {activeTab === 'patterns' && (
+        <div className="animate-slide">
+          <div className="card p-0" style={{ overflow: 'hidden' }}>
+            <div className="p-24" style={{ borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                  Klaster & Profil Pola Syslog (Clustering)
+                </h3>
+                <p style={{ margin: '4px 0 0 0', fontSize: '12.5px', color: 'var(--text-muted)' }}>
+                  Mengelompokkan pesan syslog mentah menjadi pola terstruktur. Membisukan log bising atau menandai pola log sebagai anomali kritis.
+                </p>
+              </div>
+              <button className="btn btn-outline-primary btn-sm" onClick={fetchPatterns} disabled={loadingPatterns}>
+                <RefreshCw size={12} className={loadingPatterns ? 'spin' : ''} style={{ marginRight: '6px' }} /> Segarkan Data
+              </button>
+            </div>
+
+            {loadingPatterns ? (
+              <div className="loading-overlay" style={{ padding: '48px' }}>
+                <div className="loading-spinner" />
+                <span>Memuat klaster pola syslog...</span>
+              </div>
+            ) : syslogPatterns.length === 0 ? (
+              <div style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                Belum ada pola syslog tercatat di database.
+              </div>
+            ) : (
+              <div className="table-wrapper">
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ paddingLeft: '24px' }}>Hash & Pola Template</th>
+                      <th>Program</th>
+                      <th style={{ textAlign: 'center' }}>Severity</th>
+                      <th style={{ textAlign: 'center' }}>Kemunculan</th>
+                      <th>Terakhir Dilihat</th>
+                      <th style={{ paddingRight: '24px', textAlign: 'right', width: '240px' }}>Aksi / Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {syslogPatterns.map((p) => (
+                      <tr key={p.pattern_hash} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ paddingLeft: '24px', verticalAlign: 'top', paddingTop: '14px', paddingBottom: '14px' }}>
+                          <span className="mono" style={{ fontSize: '10px', background: 'var(--bg-body)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-muted)' }}>
+                            {p.pattern_hash.slice(0, 8)}
+                          </span>
+                          <div style={{ 
+                            fontSize: '13px', 
+                            color: 'var(--text-primary)', 
+                            fontWeight: 600, 
+                            marginTop: '6px', 
+                            whiteSpace: 'pre-wrap', 
+                            wordBreak: 'break-all',
+                            maxWidth: '500px'
+                          }}>
+                            {p.template}
+                          </div>
+                        </td>
+                        <td style={{ verticalAlign: 'top', paddingTop: '14px' }}>
+                          <span className="badge badge-neutral" style={{ fontSize: '11px' }}>{p.program || 'syslog'}</span>
+                        </td>
+                        <td style={{ textAlign: 'center', verticalAlign: 'top', paddingTop: '14px' }}>
+                          <span className="badge" style={{ 
+                            fontSize: '10px', 
+                            background: p.severity <= 3 ? 'rgba(239, 68, 68, 0.08)' : 'var(--bg-body)', 
+                            color: p.severity <= 3 ? 'var(--danger)' : 'var(--text-secondary)' 
+                          }}>
+                            Lvl {p.severity}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: 'center', verticalAlign: 'top', paddingTop: '14px' }}>
+                          <span style={{ fontWeight: 800, color: 'var(--primary)' }}>
+                            {p.occurrence_count.toLocaleString()}
+                          </span>
+                        </td>
+                        <td style={{ verticalAlign: 'top', paddingTop: '14px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                          {p.last_seen ? formatTime(p.last_seen) : '—'}
+                        </td>
+                        <td style={{ paddingRight: '24px', textAlign: 'right', verticalAlign: 'top', paddingTop: '14px' }}>
+                          <div className="flex-center" style={{ justifyContent: 'flex-end', gap: '8px' }}>
+                            <button
+                              className={`btn btn-sm ${p.is_blocked === 1 ? 'btn-danger-styled' : 'btn-ghost'}`}
+                              onClick={() => handleTogglePatternStatus(p.pattern_hash, 'is_blocked', p.is_blocked)}
+                              disabled={updatingPatternHash === p.pattern_hash || isViewer}
+                              style={{ height: '30px', fontSize: '11px', minWidth: '75px' }}
+                            >
+                              {p.is_blocked === 1 ? 'Bising (Muted)' : 'Mute Log'}
+                            </button>
+                            <button
+                              className={`btn btn-sm ${p.is_anomaly === 1 ? 'btn-outline-primary' : 'btn-ghost'}`}
+                              onClick={() => handleTogglePatternStatus(p.pattern_hash, 'is_anomaly', p.is_anomaly)}
+                              disabled={updatingPatternHash === p.pattern_hash || isViewer}
+                              style={{ height: '30px', fontSize: '11px', minWidth: '85px' }}
+                            >
+                              {p.is_anomaly === 1 ? '⚠️ Anomali' : 'Set Anomali'}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* --- TAB 3: LOG SENDERS VIEW --- */}
