@@ -12,7 +12,7 @@ Sistem NetX terdiri dari dua bagian utama:
 1. **Backend**: FastAPI (Python 3.10+) yang berkomunikasi dengan perangkat jaringan menggunakan Netmiko (SSH/Telnet) dan menyimpan data pada basis data SQLite lokal (`netx.db`).
 2. **Frontend**: Single Page Application (SPA) berbasis React (Vite) yang menyajikan antarmuka premium dengan visualisasi switch faceplate interaktif dan grafis topologi berbasis SVG.
 
-Untuk rincian arsitektur teknis dan detail database, silakan merujuk ke [program_technical_details.md](file:///c:/Code/Auto/NetX/docs/program_technical_details.md) dan [technical_documentation.md](file:///c:/Code/Auto/NetX/docs/technical_documentation.md).
+Untuk rincian arsitektur teknis, detail database (23 tabel), diagram Mermaid interaktif, serta taktik adopsi maksimal, silakan merujuk ke **[Panduan Referensi Sistem NetX](file:///c:/Code/Auto/NetX/docs/comprehensive_system_reference.md)**, serta [program_technical_details.md](file:///c:/Code/Auto/NetX/docs/program_technical_details.md) dan [technical_documentation.md](file:///c:/Code/Auto/NetX/docs/technical_documentation.md).
 
 ---
 

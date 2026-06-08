@@ -2,6 +2,9 @@
 
 Dokumentasi ini menjelaskan secara mendalam implementasi teknis untuk mengintegrasikan perangkat jaringan **Allied Telesis (AW+)** ke dalam sistem manajemen jaringan **NetX**. 
 
+> [!NOTE]
+> Untuk spesifikasi teknis lengkap yang mencakup arsitektur dual-process, skema basis data lengkap (23 tabel), diagram proses Mermaid, serta petunjuk adopsi maksimal, silakan merujuk pada **[Panduan Referensi Sistem NetX](file:///c:/Code/Auto/NetX/docs/comprehensive_system_reference.md)**.
+
 Integrasi ini mencakup penyempurnaan pada backend (konektivitas SSH/Telnet, pemrosesan teks CLI untuk tabel MAC, ARP, dan LLDP) serta pembaruan pada visualisasi visual port di frontend React.
 
 ---

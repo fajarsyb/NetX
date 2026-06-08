@@ -2,6 +2,9 @@
 
 Dokumentasi ini memberikan penjelasan menyeluruh mengenai arsitektur, basis data, alur backend FastAPI, parser vendor, serta struktur antarmuka (frontend) SPA React yang menyusun platform **NetX**.
 
+> [!NOTE]
+> Untuk spesifikasi teknis yang lebih mendalam, skema basis data lengkap (23 tabel), diagram proses Mermaid interaktif, konfigurasi CLI switch, serta taktik adopsi maksimal, silakan merujuk pada **[Panduan Referensi Sistem NetX](file:///c:/Code/Auto/NetX/docs/comprehensive_system_reference.md)**.
+
 ---
 
 ## 1. Arsitektur Sistem Global
