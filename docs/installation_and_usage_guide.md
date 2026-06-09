@@ -372,6 +372,23 @@ NetX mendukung penambahan berkas MIB secara dinamis untuk memperluas kapabilitas
 * **Penyebab 2**: Firewall memblokir port SSH (22) atau Telnet (23). Pastikan akses port tersebut diizinkan di switch dan di jaringan.
 * **Penyebab 3**: Batasan sesi SSH pada switch (misalnya jumlah VTY line penuh). Coba bersihkan sesi VTY aktif pada perangkat Anda.
 
+#### Q: Mengapa pengirim Syslog di Syslog Viewer terdeteksi sebagai IP Docker Gateway `172.18.0.1`?
+* **Penyebab**: Batasan default Docker Desktop di Windows/WSL2. Docker Desktop menggunakan userland-proxy/NAT layer untuk mempublikasikan port UDP, sehingga seluruh paket UDP yang tiba di kontainer syslog ditranslasikan alamat sumbernya menjadi IP Gateway Docker Bridge (`172.18.0.1`).
+* **Solusi**: Anda dapat memilih salah satu dari dua metode pemecahan masalah berikut:
+  1. **Metode A (WSL2 Mirrored Networking - Direkomendasikan)**:
+     Aktifkan mode jaringan mirrored di Windows WSL2 agar WSL mirroring interface jaringan fisik host secara langsung.
+     - Buat file `.wslconfig` di direktori profil user Windows Anda (misalnya `C:\Users\<Username>\.wslconfig`).
+     - Tambahkan baris berikut:
+       ```ini
+       [wsl2]
+       networkingMode=mirrored
+       ```
+     - Jalankan `wsl --shutdown` di terminal Windows Administrator, lalu restart Docker Desktop.
+  2. **Metode B (Jalankan Syslog di Host)**:
+     Matikan kontainer syslog di Docker Compose (`docker compose stop syslog`) dan jalankan skrip syslog server secara lokal di Windows host menggunakan local Python:
+     - Aktifkan virtualenv backend: `venv\Scripts\activate`
+     - Set environment variables (`DB_ENGINE=postgresql`, `DB_HOST=localhost`, dst.) lalu jalankan: `python -m app.services.syslog_server`.
+
 #### Q: Mengapa visualisasi Faceplate Port tidak menampilkan warna Hijau/Ungu?
 * Pastikan Anda telah melakukan **Sync Data** pada perangkat tersebut.
 * Pastikan jenis OS perangkat yang Anda pilih pada form saat menambahkan perangkat sudah tepat (misal: `cisco_ios` untuk Cisco). Parser NetX sangat bergantung pada tipe OS untuk memproses teks CLI secara tepat.
