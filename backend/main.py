@@ -5,7 +5,7 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from app.routers import devices, auth, groups, terminal, topology, snmp, credentials, audit_logs, db_settings, health, thresholds
+from app.routers import devices, auth, groups, terminal, topology, snmp, credentials, audit_logs, db_settings, health, thresholds, shell_notes
 from app.services.auth import get_current_user
 from app.services.health_monitor import start_event_loop_monitor
 from app.core.plugins import plugin_manager
@@ -47,6 +47,7 @@ app.include_router(db_settings.router, dependencies=[Depends(get_current_user)])
 app.include_router(health.router, dependencies=[Depends(get_current_user)])
 app.include_router(thresholds.router, dependencies=[Depends(get_current_user)])
 app.include_router(terminal.router)
+app.include_router(shell_notes.router, dependencies=[Depends(get_current_user)])
 
 # 2. Mount Dynamic Plugin Routers
 for r_info in plugin_manager.get_routers():

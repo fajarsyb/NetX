@@ -1,16 +1,34 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useImperativeHandle, forwardRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { useAuth } from '../../context/AuthContext'
 
-export default function WebCli({ deviceId, isActive = true, height = '500px' }) {
+const WebCli = forwardRef(function WebCli({ deviceId, isActive = true, height = '500px' }, ref) {
   const terminalRef = useRef(null)
   const xtermRef = useRef(null)
   const wsRef = useRef(null)
   const fitAddonRef = useRef(null)
   const { token } = useAuth()
   const [reconnectTrigger, setReconnectTrigger] = useState(0)
+
+  // Expose executeCommand to parent via ref
+  useImperativeHandle(ref, () => ({
+    executeCommand: (cmd) => {
+      const ws = wsRef.current
+      const term = xtermRef.current
+      if (!ws || ws.readyState !== WebSocket.OPEN) return
+      // Send each line followed by Enter
+      const lines = cmd.split('\n').filter(l => l.trim())
+      lines.forEach((line, idx) => {
+        setTimeout(() => {
+          ws.send(line + '\n')
+        }, idx * 80)
+      })
+      // Focus terminal
+      if (term) term.focus()
+    }
+  }))
 
   // Terminal initialization and WebSocket connection
   useEffect(() => {
@@ -152,4 +170,6 @@ export default function WebCli({ deviceId, isActive = true, height = '500px' }) 
       <div ref={terminalRef} style={{ flexGrow: 1, padding: '10px', overflow: 'hidden' }} />
     </div>
   )
-}
+})
+
+export default WebCli

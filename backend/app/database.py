@@ -780,6 +780,43 @@ def init_db():
         );
         """)
 
+        # Shell Notes Folders (PostgreSQL)
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS shell_notes_folders (
+            id          SERIAL PRIMARY KEY,
+            name        VARCHAR(255) NOT NULL,
+            parent_id   INTEGER,
+            created_by  INTEGER,
+            created_at  VARCHAR(100) NOT NULL,
+            FOREIGN KEY (parent_id) REFERENCES shell_notes_folders(id) ON DELETE CASCADE,
+            FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+        );
+        """)
+
+        # Shell Notes Templates (PostgreSQL)
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS shell_notes_templates (
+            id              SERIAL PRIMARY KEY,
+            folder_id       INTEGER,
+            title           VARCHAR(255) NOT NULL,
+            content         TEXT NOT NULL DEFAULT '',
+            description     TEXT DEFAULT '',
+            vendor_hint     VARCHAR(100) DEFAULT '',
+            is_favorite     INTEGER DEFAULT 0,
+            is_shared       INTEGER DEFAULT 0,
+            shared_token    VARCHAR(64) DEFAULT NULL,
+            variables       TEXT DEFAULT '[]',
+            tags            TEXT DEFAULT '[]',
+            created_by      INTEGER,
+            created_at      VARCHAR(100) NOT NULL,
+            updated_at      VARCHAR(100) NOT NULL,
+            FOREIGN KEY (folder_id) REFERENCES shell_notes_folders(id) ON DELETE SET NULL,
+            FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+        );
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_shell_notes_folder ON shell_notes_templates(folder_id);")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_shell_notes_user ON shell_notes_templates(created_by);")
+
         # Alter tables to add columns for PostgreSQL
         try:
             c.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS threshold_profile_id INTEGER REFERENCES threshold_profiles(id) ON DELETE SET NULL;")
@@ -1360,6 +1397,43 @@ def init_db():
             created_at                    TEXT NOT NULL
         );
         """)
+
+        # Shell Notes Folders (SQLite)
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS shell_notes_folders (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL,
+            parent_id   INTEGER,
+            created_by  INTEGER,
+            created_at  TEXT NOT NULL,
+            FOREIGN KEY (parent_id) REFERENCES shell_notes_folders(id) ON DELETE CASCADE,
+            FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+        );
+        """)
+
+        # Shell Notes Templates (SQLite)
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS shell_notes_templates (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            folder_id       INTEGER,
+            title           TEXT NOT NULL,
+            content         TEXT NOT NULL DEFAULT '',
+            description     TEXT DEFAULT '',
+            vendor_hint     TEXT DEFAULT '',
+            is_favorite     INTEGER DEFAULT 0,
+            is_shared       INTEGER DEFAULT 0,
+            shared_token    TEXT DEFAULT NULL,
+            variables       TEXT DEFAULT '[]',
+            tags            TEXT DEFAULT '[]',
+            created_by      INTEGER,
+            created_at      TEXT NOT NULL,
+            updated_at      TEXT NOT NULL,
+            FOREIGN KEY (folder_id) REFERENCES shell_notes_folders(id) ON DELETE SET NULL,
+            FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+        );
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_shell_notes_folder ON shell_notes_templates(folder_id);")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_shell_notes_user ON shell_notes_templates(created_by);")
 
         # Alter tables to add columns for SQLite
         try:

@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
-import { Terminal, Plus, X, Monitor, ShieldAlert } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Terminal, Plus, X, Monitor, ShieldAlert, BookOpen, PanelRight, PanelRightClose } from 'lucide-react'
 import api from '../api/client'
 import WebCli from '../components/Terminal/WebCli'
+import ShellNotes from '../components/Terminal/ShellNotes'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../components/shared/ToastProvider'
 
@@ -11,8 +12,12 @@ export default function TerminalConsole() {
   const [showSelectModal, setShowSelectModal] = useState(false)
   const [devices, setDevices] = useState([])
   const [loadingDevices, setLoadingDevices] = useState(false)
+  const [showNotes, setShowNotes] = useState(true)
   const { user } = useAuth()
   const toast = useToast()
+
+  // Map: tabId -> ref for WebCli
+  const cliRefs = useRef({})
 
   // Load allowed SSH devices
   const fetchDevices = async () => {
@@ -66,10 +71,11 @@ export default function TerminalConsole() {
     const tabIndex = tabs.findIndex(t => t.id === tabId)
     const newTabs = tabs.filter(t => t.id !== tabId)
     setTabs(newTabs)
+    // Cleanup ref
+    delete cliRefs.current[tabId]
 
     if (activeTabId === tabId) {
       if (newTabs.length > 0) {
-        // Set active tab to neighboring tab
         const nextActiveIndex = Math.max(0, tabIndex - 1)
         setActiveTabId(newTabs[nextActiveIndex].id)
       } else {
@@ -84,6 +90,20 @@ export default function TerminalConsole() {
       return
     }
     setShowSelectModal(true)
+  }
+
+  // Execute command on the active terminal from Notes
+  const handleExecuteFromNotes = (cmd) => {
+    if (!activeTabId) {
+      toast.warning('No active terminal tab. Open a device connection first.')
+      return
+    }
+    const ref = cliRefs.current[activeTabId]
+    if (ref?.executeCommand) {
+      ref.executeCommand(cmd)
+    } else {
+      toast.error('Terminal not ready yet.')
+    }
   }
 
   // Check user permission for SSH access
@@ -102,136 +122,177 @@ export default function TerminalConsole() {
   }
 
   return (
-    <div className="page-container animate-fade" style={{ height: 'calc(100vh - 110px)', display: 'flex', flexDirection: 'column' }}>
-      <div className="page-header" style={{ marginBottom: '16px', flexShrink: 0 }}>
+    <div className="page-container animate-fade" style={{ height: 'calc(100vh - 110px)', display: 'flex', flexDirection: 'column', padding: 0 }}>
+      {/* ── Page Header ───────────────────────────────────────── */}
+      <div className="page-header" style={{ marginBottom: '12px', flexShrink: 0, padding: '0 20px' }}>
         <div>
           <div className="page-title">
             <Terminal size={22} style={{ color: 'var(--primary)' }} />
             Web CLI Terminal Console
           </div>
-          <div className="page-subtitle">Sesi SSH Multi-tab interaktif (Maksimal 8 koneksi aktif)</div>
+          <div className="page-subtitle">SSH Multi-tab interactive sessions (max 8 connections)</div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            onClick={() => setShowNotes(n => !n)}
+            className={`btn btn-sm ${showNotes ? 'btn-primary' : 'btn-ghost'}`}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}
+            title={showNotes ? 'Hide Notes Panel' : 'Show Notes Panel'}
+          >
+            {showNotes ? <PanelRightClose size={14} /> : <PanelRight size={14} />}
+            <BookOpen size={14} />
+            Notes
+          </button>
         </div>
       </div>
 
-      {/* Tabs Bar */}
-      <div className="flex" style={{ borderBottom: '1px solid var(--border)', gap: '4px', paddingBottom: '0px', flexShrink: 0, overflowX: 'auto', whiteSpace: 'nowrap' }}>
-        {tabs.map(tab => (
-          <div
-            key={tab.id}
-            onClick={() => setActiveTabId(tab.id)}
-            style={{
-              padding: '8px 16px',
-              borderTopLeftRadius: 'var(--radius-sm)',
-              borderTopRightRadius: 'var(--radius-sm)',
-              background: activeTabId === tab.id ? 'var(--bg-card)' : 'transparent',
-              border: activeTabId === tab.id ? '1px solid var(--border)' : '1px solid transparent',
-              borderBottom: activeTabId === tab.id ? '1px solid var(--bg-card)' : 'none',
-              marginBottom: activeTabId === tab.id ? '-1px' : '0px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '8px',
-              cursor: 'pointer',
-              fontWeight: activeTabId === tab.id ? 600 : 500,
-              fontSize: '13px',
-              color: activeTabId === tab.id ? 'var(--primary)' : 'var(--text-secondary)',
-              transition: 'all 0.15s ease',
-              zIndex: activeTabId === tab.id ? 2 : 1
-            }}
-          >
-            <Monitor size={14} />
-            <span>{tab.name}</span>
-            <button
-              onClick={(e) => closeTab(tab.id, e)}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                padding: '2px',
-                color: 'var(--text-muted)',
-                borderRadius: '50%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                transition: 'all 0.1s ease'
-              }}
-              onMouseEnter={(e) => e.target.style.color = 'var(--danger)'}
-              onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
-            >
-              <X size={12} />
-            </button>
-          </div>
-        ))}
-
-        <button
-          onClick={handleOpenAdd}
-          style={{
-            padding: '8px 12px',
-            borderTopLeftRadius: 'var(--radius-sm)',
-            borderTopRightRadius: 'var(--radius-sm)',
-            background: 'transparent',
-            border: '1px dashed var(--border)',
-            borderBottom: 'none',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '6px',
-            cursor: 'pointer',
-            fontSize: '12px',
-            color: 'var(--text-muted)',
-            marginLeft: '4px',
-            transition: 'all 0.15s ease'
-          }}
-          onMouseEnter={(e) => {
-            e.target.style.borderColor = 'var(--primary)'
-            e.target.style.color = 'var(--primary)'
-          }}
-          onMouseLeave={(e) => {
-            e.target.style.borderColor = 'var(--border)'
-            e.target.style.color = 'var(--text-muted)'
-          }}
-        >
-          <Plus size={13} />
-          Buka Terminal
-        </button>
-      </div>
-
-      {/* Terminal Workspaces Container */}
-      <div style={{ flexGrow: 1, position: 'relative', background: '#0d1117', border: '1px solid var(--border)', borderTop: 'none', borderBottomLeftRadius: 'var(--radius)', borderBottomRightRadius: 'var(--radius)', overflow: 'hidden' }}>
-        {tabs.length === 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: '16px', padding: '24px', textAlign: 'center' }}>
-            <Terminal size={48} style={{ color: 'var(--text-muted)', opacity: 0.5 }} />
-            <div>
-              <div style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>Belum ada terminal aktif.</div>
-              <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>Klik tombol "Buka Terminal" di atas untuk menghubungkan perangkat via SSH.</div>
-            </div>
-            <button className="btn btn-primary" onClick={handleOpenAdd}>
-              <Plus size={14} /> Hubungkan Perangkat
-            </button>
-          </div>
-        ) : (
-          tabs.map(tab => (
-            <div
-              key={tab.id}
-              style={{
-                display: activeTabId === tab.id ? 'block' : 'none',
-                height: '100%',
-                width: '100%'
-              }}
-            >
-              {/* Force xterm container to take full height minus header */}
-              <div style={{ height: '100%', width: '100%' }}>
-                <WebCli deviceId={tab.deviceId} isActive={activeTabId === tab.id} height="100%" />
+      {/* ── Main Content ───────────────────────────────────────── */}
+      <div style={{ flexGrow: 1, display: 'flex', gap: 0, minHeight: 0, padding: '0 20px 20px 20px' }}>
+        {/* ── Terminal Section ──────────────────────────────── */}
+        <div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', minWidth: 0, marginRight: showNotes ? 12 : 0 }}>
+          {/* Tabs Bar */}
+          <div className="flex" style={{ borderBottom: '1px solid var(--border)', gap: '4px', paddingBottom: '0px', flexShrink: 0, overflowX: 'auto', whiteSpace: 'nowrap' }}>
+            {tabs.map(tab => (
+              <div
+                key={tab.id}
+                onClick={() => setActiveTabId(tab.id)}
+                style={{
+                  padding: '8px 16px',
+                  borderTopLeftRadius: 'var(--radius-sm)',
+                  borderTopRightRadius: 'var(--radius-sm)',
+                  background: activeTabId === tab.id ? 'var(--bg-card)' : 'transparent',
+                  border: activeTabId === tab.id ? '1px solid var(--border)' : '1px solid transparent',
+                  borderBottom: activeTabId === tab.id ? '1px solid var(--bg-card)' : 'none',
+                  marginBottom: activeTabId === tab.id ? '-1px' : '0px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  cursor: 'pointer',
+                  fontWeight: activeTabId === tab.id ? 600 : 500,
+                  fontSize: '13px',
+                  color: activeTabId === tab.id ? 'var(--primary)' : 'var(--text-secondary)',
+                  transition: 'all 0.15s ease',
+                  zIndex: activeTabId === tab.id ? 2 : 1
+                }}
+              >
+                <Monitor size={14} />
+                <span>{tab.name}</span>
+                <button
+                  onClick={(e) => closeTab(tab.id, e)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    padding: '2px',
+                    color: 'var(--text-muted)',
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    transition: 'all 0.1s ease'
+                  }}
+                  onMouseEnter={(e) => e.target.style.color = 'var(--danger)'}
+                  onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
+                >
+                  <X size={12} />
+                </button>
               </div>
-            </div>
-          ))
+            ))}
+
+            <button
+              onClick={handleOpenAdd}
+              style={{
+                padding: '8px 12px',
+                borderTopLeftRadius: 'var(--radius-sm)',
+                borderTopRightRadius: 'var(--radius-sm)',
+                background: 'transparent',
+                border: '1px dashed var(--border)',
+                borderBottom: 'none',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                cursor: 'pointer',
+                fontSize: '12px',
+                color: 'var(--text-muted)',
+                marginLeft: '4px',
+                transition: 'all 0.15s ease'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = 'var(--primary)'
+                e.currentTarget.style.color = 'var(--primary)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = 'var(--border)'
+                e.currentTarget.style.color = 'var(--text-muted)'
+              }}
+            >
+              <Plus size={13} />
+              Open Terminal
+            </button>
+          </div>
+
+          {/* Terminal Workspace */}
+          <div style={{ flexGrow: 1, position: 'relative', background: '#0d1117', border: '1px solid var(--border)', borderTop: 'none', borderBottomLeftRadius: 'var(--radius)', borderBottomRightRadius: 'var(--radius)', overflow: 'hidden' }}>
+            {tabs.length === 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: '16px', padding: '24px', textAlign: 'center' }}>
+                <Terminal size={48} style={{ color: 'var(--text-muted)', opacity: 0.5 }} />
+                <div>
+                  <div style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>No active terminals.</div>
+                  <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>Click "Open Terminal" to connect to a device via SSH.</div>
+                </div>
+                <button className="btn btn-primary" onClick={handleOpenAdd}>
+                  <Plus size={14} /> Connect Device
+                </button>
+              </div>
+            ) : (
+              tabs.map(tab => (
+                <div
+                  key={tab.id}
+                  style={{
+                    display: activeTabId === tab.id ? 'block' : 'none',
+                    height: '100%',
+                    width: '100%'
+                  }}
+                >
+                  <div style={{ height: '100%', width: '100%' }}>
+                    <WebCli
+                      ref={el => { if (el) cliRefs.current[tab.id] = el; else delete cliRefs.current[tab.id] }}
+                      deviceId={tab.deviceId}
+                      isActive={activeTabId === tab.id}
+                      height="100%"
+                    />
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* ── Notes Panel ───────────────────────────────────── */}
+        {showNotes && (
+          <div style={{
+            width: 700,
+            minWidth: 560,
+            maxWidth: '45%',
+            flexShrink: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius)',
+            background: 'var(--bg-card)',
+            overflow: 'hidden'
+          }}>
+            <ShellNotes onExecuteCommand={handleExecuteFromNotes} />
+          </div>
         )}
       </div>
 
-      {/* Select Device Modal */}
+      {/* ── Select Device Modal ────────────────────────────── */}
       {showSelectModal && (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowSelectModal(false)}>
           <div className="modal animate-slide" style={{ maxWidth: '480px' }}>
             <div className="modal-header">
-              <div className="modal-title">Hubungkan Perangkat Baru</div>
+              <div className="modal-title">Connect New Device</div>
             </div>
             <div className="modal-body">
               {loadingDevices ? (
@@ -240,11 +301,11 @@ export default function TerminalConsole() {
                 </div>
               ) : devices.length === 0 ? (
                 <div style={{ padding: '16px 8px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-                  Tidak ditemukan perangkat berkoneksi SSH aktif. Pastikan protokol perangkat diset ke SSH.
+                  No SSH devices found. Make sure the device protocol is set to SSH.
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto', paddingRight: '4px' }}>
-                  <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>Pilih Perangkat (Koneksi SSH):</div>
+                  <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>Select Device (SSH):</div>
                   {devices.map(dev => (
                     <div
                       key={dev.id}
@@ -280,9 +341,9 @@ export default function TerminalConsole() {
                                 color: 'var(--warning)',
                                 fontWeight: 500
                               }}
-                              title="Perangkat ini tidak memiliki kredensial login (SSH) terpetakan. Koneksi kemungkinan akan gagal."
+                              title="Device has no SSH credentials mapped."
                             >
-                              Tanpa Kredensial
+                              No Credentials
                             </span>
                           )}
                         </div>
@@ -297,7 +358,7 @@ export default function TerminalConsole() {
               )}
             </div>
             <div className="modal-footer">
-              <button className="btn btn-ghost" onClick={() => setShowSelectModal(false)}>Batal</button>
+              <button className="btn btn-ghost" onClick={() => setShowSelectModal(false)}>Cancel</button>
             </div>
           </div>
         </div>
