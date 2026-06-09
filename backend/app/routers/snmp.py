@@ -12,7 +12,7 @@ def _parse_cli_output(raw: str, device_type: str) -> tuple[str, str, str, str]:
         return "", "", "", ""
     from app.core.drivers import driver_manager
     driver = driver_manager.get_driver(device_type)
-    res = driver.parse_info(raw, device_type)
+    res = driver.parse_info(raw)
     return (
         res.get("os_version") or "",
         res.get("serial_number") or "",

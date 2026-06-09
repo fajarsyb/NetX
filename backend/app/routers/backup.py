@@ -31,26 +31,101 @@ async def list_backups(admin: dict = Depends(require_admin)):
 @router.post("")
 async def create_backup(admin: dict = Depends(require_admin)):
     try:
+        from app.database import DB_ENGINE, get_db_conn
+        
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         zip_name = f"netx_backup_{timestamp}.zip"
         zip_path = os.path.join(BACKUP_DIR, zip_name)
         
-        # 1. Backup the SQLite DB using backup API to avoid locks or half-written WAL
         temp_db_path = os.path.join(BACKUP_DIR, "temp_netx.db")
-        src_conn = sqlite3.connect("data/netx.db")
-        dest_conn = sqlite3.connect(temp_db_path)
-        with dest_conn:
-            src_conn.backup(dest_conn)
-        dest_conn.close()
-        src_conn.close()
         
-        # 2. Compress both db and key
+        # 1. Initialize temporary SQLite DB with NetX schema
+        import app.database
+        old_engine = app.database.DB_ENGINE
+        old_path = app.database.DB_PATH
+        try:
+            app.database.DB_ENGINE = "sqlite"
+            app.database.DB_PATH = temp_db_path
+            app.database.init_db()
+        finally:
+            app.database.DB_ENGINE = old_engine
+            app.database.DB_PATH = old_path
+            
+        # 2. Populate data based on current DB Engine
+        if DB_ENGINE == "postgresql":
+            pg_conn = get_db_conn()
+            pg_cursor = pg_conn.cursor()
+            
+            sqlite_conn = sqlite3.connect(temp_db_path)
+            sqlite_cursor = sqlite_conn.cursor()
+            
+            TABLES_ORDER = [
+                "device_groups",
+                "device_credentials",
+                "threshold_profiles",
+                "users",
+                "audit_logs",
+                "devices",
+                "arp_cache",
+                "arp_history",
+                "lldp_neighbors",
+                "cdp_neighbors",
+                "routing_table",
+                "mac_addresses",
+                "topology_positions",
+                "device_config_backups",
+                "device_backup_schedules",
+                "network_history",
+                "snmp_mibs",
+                "snmp_mib_objects",
+                "device_snmp_objects",
+                "network_anomalies",
+                "interface_stats_latest",
+                "mac_history_tracking",
+                "device_credential_compliance",
+                "syslog_patterns",
+                "device_syslogs"
+            ]
+            
+            for table in TABLES_ORDER:
+                try:
+                    pg_cursor.execute(f'SELECT * FROM "{table}"')
+                    rows = pg_cursor.fetchall()
+                except Exception:
+                    continue
+                    
+                if not rows:
+                    continue
+                    
+                columns = rows[0].keys()
+                cols_str = ", ".join([f'"{c}"' for c in columns])
+                placeholders = ", ".join(["?"] * len(columns))
+                insert_query = f'INSERT INTO "{table}" ({cols_str}) VALUES ({placeholders})'
+                
+                for row in rows:
+                    row_dict = dict(row)
+                    row_data = tuple(row_dict[c] for c in columns)
+                    sqlite_cursor.execute(insert_query, row_data)
+                    
+            sqlite_conn.commit()
+            sqlite_conn.close()
+            pg_conn.close()
+        else:
+            # SQLite fast backup
+            src_conn = sqlite3.connect("data/netx.db")
+            dest_conn = sqlite3.connect(temp_db_path)
+            with dest_conn:
+                src_conn.backup(dest_conn)
+            dest_conn.close()
+            src_conn.close()
+            
+        # 3. Compress both db and key
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
             zipf.write(temp_db_path, "netx.db")
             if os.path.exists("data/secret.key"):
                 zipf.write("data/secret.key", "secret.key")
                 
-        # 3. Clean temp db
+        # 4. Clean temp db
         if os.path.exists(temp_db_path):
             os.remove(temp_db_path)
             
@@ -58,6 +133,11 @@ async def create_backup(admin: dict = Depends(require_admin)):
         return {"success": True, "filename": zip_name, "message": "Pencadangan berhasil."}
         
     except Exception as e:
+        if os.path.exists(temp_db_path):
+            try:
+                os.remove(temp_db_path)
+            except Exception:
+                pass
         raise HTTPException(status_code=500, detail=f"Gagal membuat backup: {str(e)}")
 
 @router.post("/{filename}/restore")

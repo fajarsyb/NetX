@@ -116,7 +116,10 @@ services:
     container_name: netx_syslog
     command: python -m app.services.syslog_server
     ports:
-      - "514:514/udp"
+      - target: 514
+        published: 514
+        protocol: udp
+        mode: host
     environment:
       - DB_ENGINE=postgresql
       - DB_HOST=postgres

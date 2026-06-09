@@ -52,20 +52,23 @@ async def list_juniper_devices(current_user: dict = Depends(get_current_user)):
     conn = get_db_conn()
     c = conn.cursor()
     
-    from app.services.device_backup_service import CONFIG_COMMANDS
-    supported_types = list(CONFIG_COMMANDS.keys())
-    placeholders = ",".join("?" for _ in supported_types)
+    from app.core.drivers import driver_manager
 
-    c.execute(f"""
+    c.execute("""
         SELECT d.id, d.name, d.ip, d.status as device_status, d.last_seen, d.device_type,
                (SELECT MAX(version) FROM device_config_backups WHERE device_id = d.id AND status = 'success') as latest_version,
                (SELECT created_at FROM device_config_backups WHERE device_id = d.id ORDER BY created_at DESC LIMIT 1) as last_backup_time,
                (SELECT status FROM device_config_backups WHERE device_id = d.id ORDER BY created_at DESC LIMIT 1) as last_backup_status
         FROM devices d
-        WHERE d.device_type IN ({placeholders})
         ORDER BY d.name COLLATE NOCASE
-    """, supported_types)
-    rows = [dict(r) for r in c.fetchall()]
+    """)
+    rows = []
+    for r in c.fetchall():
+        d = dict(r)
+        driver = driver_manager.get_driver(d["device_type"])
+        if driver and driver.supports_backup:
+            rows.append(d)
+            
     conn.close()
     return rows
 
