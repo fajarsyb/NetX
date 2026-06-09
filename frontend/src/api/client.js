@@ -20,6 +20,7 @@ export const devicesApi = {
   bulkRefresh:    (data)     => api.post('/devices/bulk-refresh', data),
   getBulkRefreshStatus: (taskId) => api.get(`/devices/bulk-refresh/${taskId}`),
   getPortMap:     (id)       => api.get(`/devices/${id}/port-map`),
+  getPortAnalysis: (id)      => api.get(`/devices/${id}/port-analysis`),
 }
 
 export const groupsApi = {

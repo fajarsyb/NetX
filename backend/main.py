@@ -5,13 +5,10 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from app.routers import devices, arp, lldp, auth, groups, cdp, routing, terminal, topology, snmp, credentials, audit_logs, backup, mac, device_backup, mibs, anomalies, syslog, db_settings, health, thresholds
+from app.routers import devices, auth, groups, terminal, topology, snmp, credentials, audit_logs, db_settings, health, thresholds
 from app.services.auth import get_current_user
-from app.services.device_backup_service import start_device_backup_scheduler
-from app.services.network_history_service import start_network_history_scheduler
-from app.services.anomaly_detector import start_anomaly_detection_scheduler
-from app.services.syslog_server import start_syslog_server
 from app.services.health_monitor import start_event_loop_monitor
+from app.core.plugins import plugin_manager
 import asyncio
 
 # Path to the built frontend (relative to this file)
@@ -38,27 +35,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 1. Mount Core Routers
 app.include_router(auth.router)
 app.include_router(groups.router, dependencies=[Depends(get_current_user)])
 app.include_router(devices.router, dependencies=[Depends(get_current_user)])
-app.include_router(arp.router, dependencies=[Depends(get_current_user)])
-app.include_router(lldp.router, dependencies=[Depends(get_current_user)])
-app.include_router(cdp.router, dependencies=[Depends(get_current_user)])
-app.include_router(routing.router, dependencies=[Depends(get_current_user)])
 app.include_router(topology.router, dependencies=[Depends(get_current_user)])
 app.include_router(snmp.router, dependencies=[Depends(get_current_user)])
 app.include_router(credentials.router, dependencies=[Depends(get_current_user)])
 app.include_router(audit_logs.router, dependencies=[Depends(get_current_user)])
-app.include_router(backup.router, dependencies=[Depends(get_current_user)])
-app.include_router(mac.router, dependencies=[Depends(get_current_user)])
-app.include_router(device_backup.router, dependencies=[Depends(get_current_user)])
-app.include_router(mibs.router, dependencies=[Depends(get_current_user)])
-app.include_router(anomalies.router, dependencies=[Depends(get_current_user)])
-app.include_router(syslog.router, dependencies=[Depends(get_current_user)])
 app.include_router(db_settings.router, dependencies=[Depends(get_current_user)])
 app.include_router(health.router, dependencies=[Depends(get_current_user)])
 app.include_router(thresholds.router, dependencies=[Depends(get_current_user)])
 app.include_router(terminal.router)
+
+# 2. Mount Dynamic Plugin Routers
+for r_info in plugin_manager.get_routers():
+    deps = r_info["dependencies"] if r_info["dependencies"] else [Depends(get_current_user)]
+    app.include_router(r_info["router"], prefix=r_info["prefix"], dependencies=deps)
 
 
 @app.on_event("startup")
@@ -74,19 +67,13 @@ async def startup_event():
     # Start the event loop latency monitor task
     asyncio.create_task(start_event_loop_monitor())
     
-    mode = os.environ.get("NETX_MODE", "api").lower()
-    if mode == "api":
-        logging.getLogger("netx.main").info("NetX running in API-only mode. Background worker and syslog listeners are disabled.")
-        return
-
-    # Start the device configuration backup scheduler in the background
-    asyncio.create_task(start_device_backup_scheduler())
-    # Start the network history tracker in the background
-    asyncio.create_task(start_network_history_scheduler())
-    # Start the network anomaly detection scheduler in the background
-    asyncio.create_task(start_anomaly_detection_scheduler())
-    # Start the syslog UDP server in the background
-    asyncio.create_task(start_syslog_server())
+    # 3. Start Plugin Lifecycle Hooks
+    for plugin in plugin_manager.get_plugins():
+        try:
+            await plugin.on_startup(app)
+            logging.getLogger("netx.main").info(f"Plugin '{plugin.name}' started successfully.")
+        except Exception as e:
+            logging.getLogger("netx.main").error(f"Failed to run startup hooks for plugin '{plugin.name}': {e}")
 
 
 @app.get("/health", tags=["health"])

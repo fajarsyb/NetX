@@ -364,3 +364,59 @@ Mesin syslog NetX kini memiliki kecerdasan buatan berbasis aturan untuk mengelom
   - Jika pola log yang sama diterima lebih dari 50 kali dalam window 5 menit terakhir pada suatu perangkat, sistem memicu anomali bertipe `syslog_spike` (`warning`).
 - **Pola Log Kritis**:
   - Pola log tertentu dapat ditandai sebagai anomali kritis (`is_anomaly = 1`) untuk langsung melontarkan alarm bertipe `syslog_critical` (`critical`) saat log sejenis masuk.
+
+---
+
+## 13. Vendor Driver Framework
+
+Untuk menghindari hardcoding logika vendor pada level servis aplikasi (seperti konektor SSH, parser CLI, backup, dan audit port), NetX menerapkan **Vendor Driver Framework**. 
+
+Setiap vendor diwakili oleh sebuah subclass yang mewarisi kelas dasar `BaseDriver` (`app/drivers/base.py`). Framework ini mendukung 9 vendor utama:
+1. **Cisco**
+2. **Juniper**
+3. **MikroTik**
+4. **Huawei**
+5. **Aruba**
+6. **Ruijie**
+7. **Allied Telesis**
+8. **Ruckus**
+9. **Fortinet**
+
+### A. API Driver & Metode Utama
+Setiap driver mengimplementasikan properti dan metode berikut:
+- **`netmiko_device_type`**: Nama tipe perangkat Netmiko standar (SSH) (misal: `cisco_ios`, `juniper_junos`, `fortinet`, `aruba_os`, dll.).
+- **`get_netmiko_device_type(protocol)`**: Mengembalikan driver Netmiko yang sesuai (misal: menambahkan suffix `_telnet` jika menggunakan protokol Telnet).
+- **Perintah CLI standar**: `arp_command`, `lldp_command`, `cdp_command`, `routing_command`, `info_command`, `mac_table_command`, `backup_command`.
+- **Parser data CLI**: `parse_arp()`, `parse_lldp()`, `parse_cdp()`, `parse_routing()`, `parse_info()`, `parse_mac_table()`, `parse_show_interface_status()`.
+- **Kemampuan Perangkat (Capabilities)**: `supports_lldp`, `supports_cdp`, `supports_arp`, `supports_routing`, `supports_mac_table`, `supports_backup`.
+
+### B. Registrasi dan Resolusi Dinamis
+Modul `DriverManager` (`app/core/drivers.py`) memuat dan mendaftarkan seluruh kelas driver saat startup.
+- Endpoint dan worker memanggil `driver_manager.get_driver(device_type)` untuk mendapatkan objek driver yang tepat.
+- Resolusi vendor saat SNMP discovery disederhanakan menggunakan fungsi `match_driver_by_sys_descr(sys_descr)` yang memindai deskripsi sistem (`sysDescr`) menggunakan pencocokan substring kata kunci.
+
+---
+
+## 14. Port Utilization Analysis & Classification
+
+Fitur **Port Utilization Analysis** dirancang untuk mendeteksi port switch fisik yang tidak terpakai, underutilized, flapping, atau abnormal demi efisiensi kapasitas port dan keamanan infrastruktur.
+
+### A. Pengumpulan Status Real-time & Historis
+1. **Status Fisik Real-time**: Mengambil status operasional, kecepatan port (`speed_mbps`), status admin, VLAN, serta statistik lalu lintas (RX/TX octets) via SNMP (atau fallback ke `show interface status` CLI jika SNMP down).
+2. **Riwayat Aktivitas**: Melacak timestamp `last_link_up_time` dan `last_link_down_time` di database untuk menghitung durasi keaktifan (`uptime`) atau ketidakaktifan (`inactive duration`).
+3. **Korelasi Perangkat Terhubung**: Menggabungkan cache LLDP, CDP, ARP, dan MAC address untuk menampilkan informasi host/switch yang terhubung di port tersebut secara detail.
+
+### B. Klasifikasi Port & Rekomendasi
+Setiap port diklasifikasikan ke dalam kategori analitik berikut:
+- **Unused > 30 Days / > 90 Days**: Port down secara terus-menerus selama rentang waktu tersebut.
+- **Never Used**: Port berstatus down dan belum pernah terekam link up (`last_link_up_time` kosong).
+- **Flapping**: Port yang terdeteksi sering berganti status (down/up) dalam periode pendek (berdasarkan data anomali flapping aktif atau riwayat status).
+- **Low-utilization**: Port aktif (`up`) tetapi memiliki utilisasi bandwidth maksimal di bawah `0.1%`.
+- **High-utilization**: Port aktif dengan utilisasi bandwidth rata-rata `>= 70%`.
+
+### C. Tindakan Rekomendasi (Action Codes)
+Mesin analisis menghasilkan tindakan rekomendasi dinamis per port:
+1. **Safe to disable** (Warna Merah/Orange): Port tidak aktif > 90 hari atau belum pernah digunakan. Disarankan untuk dimatikan secara administratif (`admin down`) untuk mengurangi celah masuk jaringan fisik.
+2. **Candidate for reassignment** (Warna Orange): Port tidak aktif > 30 hari, siap dialokasikan kembali untuk koneksi perangkat baru.
+3. **Monitor closely** (Warna Kuning/Merah): Port berstatus flapping atau utilisasi sangat tinggi.
+4. **Investigate abnormal behavior** (Warna Kuning/Merah): Port mengalami physical errors (CRC, framing, late collisions) di atas ambang toleransi.

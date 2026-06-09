@@ -331,9 +331,10 @@ def parse_arp(output: str, device_type: str) -> List[Dict]:
     """Parse ARP table output for a given device_type."""
     if not output or output.startswith("ERROR:"):
         return []
-    parser = _PARSERS.get(device_type, _generic)
+    from app.core.drivers import driver_manager
+    driver = driver_manager.get_driver(device_type)
     try:
-        result = parser(output)
+        result = driver.parse_arp(output, device_type)
         if not result:
             result = _generic(output)
         return result

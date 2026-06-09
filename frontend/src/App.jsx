@@ -25,6 +25,7 @@ import { ThemeProvider } from './context/ThemeContext'
 import ProtectedRoute from './components/shared/ProtectedRoute'
 import ThresholdProfiles from './pages/ThresholdProfiles'
 import TerminalConsole from './pages/TerminalConsole'
+import PortAnalysis from './pages/PortAnalysis'
 
 function PermissionGuard({ menu, feature, children }) {
   const { user } = useAuth()
@@ -81,6 +82,8 @@ export default function App() {
                       <Routes>
                         <Route path="/" element={<PermissionGuard menu="dashboard"><Dashboard /></PermissionGuard>} />
                         <Route path="/device/:id" element={<DeviceDetail />} />
+                        <Route path="/port-analysis" element={<PermissionGuard menu="devices"><PortAnalysis /></PermissionGuard>} />
+                        <Route path="/device/:id/port-analysis" element={<PermissionGuard menu="devices"><PortAnalysis /></PermissionGuard>} />
                         <Route path="/users" element={<AdminRoute><UserManagement /></AdminRoute>} />
                         <Route path="/groups" element={<PermissionGuard menu="groups"><GroupManagement /></PermissionGuard>} />
                         <Route path="/credentials" element={<PermissionGuard menu="settings" feature="manage_credentials"><CredentialManagement /></PermissionGuard>} />

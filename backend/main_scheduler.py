@@ -24,16 +24,10 @@ logger = logging.getLogger("netx.scheduler")
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 
-# Track periodic schedule timestamps
-last_anomaly_scan = 0.0
-last_history_snapshot = 0.0
-
-# Initial delays (seconds) to let worker/server start smoothly
-ANOMALY_INTERVAL = 300.0  # 5 minutes
-HISTORY_INTERVAL = 600.0  # 10 minutes
+# Track periodic schedule timestamps dynamically
+last_run_times = {}
 
 def schedule_check_tick(redis_client: redis.Redis):
-    global last_anomaly_scan, last_history_snapshot
     now = datetime.now()
     now_str = now.isoformat()
     current_time = time.time()
@@ -57,7 +51,7 @@ def schedule_check_tick(redis_client: redis.Redis):
                 next_run_next = calculate_next_run(schedule["frequency"], schedule["time"], schedule["day_of_week"])
                 
                 c.execute("""
-                    UPDATE device_backup_schedules SET last_run = ?, next_run = ? WHERE id = ?
+                     UPDATE device_backup_schedules SET last_run = ?, next_run = ? WHERE id = ?
                 """, (now_str, next_run_next.isoformat(), schedule["id"]))
                 conn.commit()
                 
@@ -79,36 +73,29 @@ def schedule_check_tick(redis_client: redis.Redis):
         
     conn.close()
 
-    # 2. Check Anomaly Scan Interval
-    if current_time - last_anomaly_scan >= ANOMALY_INTERVAL:
-        logger.info("Triggering network anomaly scan task...")
-        job_payload = {
-            "job_id": f"sched_anomaly_{int(current_time)}",
-            "task_name": "anomaly_scan",
-            "params": {},
-            "created_at": now_str,
-            "retries": 0,
-            "max_retries": 1
-        }
-        redis_client.lpush("queue:default", json.dumps(job_payload))
-        last_anomaly_scan = current_time
+    # 2. Check Plugin-registered Scheduled Tasks
+    from app.core.plugins import plugin_manager
+    for task_def in plugin_manager.get_scheduled_tasks():
+        task_name = task_def["task_name"]
+        interval = task_def["interval"]
+        queue = task_def.get("queue", "default")
+        
+        last_run = last_run_times.get(task_name, 0.0)
+        if current_time - last_run >= interval:
+            logger.info(f"Triggering scheduled plugin task: {task_name}...")
+            job_payload = {
+                "job_id": f"sched_{task_name}_{int(current_time)}",
+                "task_name": task_name,
+                "params": {},
+                "created_at": now_str,
+                "retries": 0,
+                "max_retries": 1
+            }
+            redis_client.lpush(f"queue:{queue}", json.dumps(job_payload))
+            last_run_times[task_name] = current_time
 
-    # 3. Check Network History Snapshot Interval
-    if current_time - last_history_snapshot >= HISTORY_INTERVAL:
-        logger.info("Triggering network history snapshot task...")
-        job_payload = {
-            "job_id": f"sched_history_{int(current_time)}",
-            "task_name": "network_history_snapshot",
-            "params": {},
-            "created_at": now_str,
-            "retries": 0,
-            "max_retries": 1
-        }
-        redis_client.lpush("queue:low", json.dumps(job_payload))
-        last_history_snapshot = current_time
 
 def main():
-    global last_anomaly_scan, last_history_snapshot
     logger.info("Initializing Network Scheduler Daemon...")
     r = redis.from_url(REDIS_URL)
     
@@ -122,8 +109,12 @@ def main():
         
     # Seed timers to delay initial run after startup if needed
     current_time = time.time()
-    last_anomaly_scan = current_time - ANOMALY_INTERVAL + 30.0  # run scan in 30 seconds
-    last_history_snapshot = current_time - HISTORY_INTERVAL + 15.0  # run snapshot in 15 seconds
+    from app.core.plugins import plugin_manager
+    for task_def in plugin_manager.get_scheduled_tasks():
+        task_name = task_def["task_name"]
+        interval = task_def["interval"]
+        # Seed to delay the first run slightly (30 seconds)
+        last_run_times[task_name] = current_time - interval + 30.0
 
     while True:
         try:
@@ -131,6 +122,7 @@ def main():
         except Exception as e:
             logger.error(f"Error in scheduler tick: {e}")
         time.sleep(30)
+
 
 if __name__ == "__main__":
     try:

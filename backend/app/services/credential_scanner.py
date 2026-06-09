@@ -3,7 +3,7 @@ import asyncio
 import logging
 from datetime import datetime
 from app.database import get_db_conn, decrypt_password
-from app.services.connector import test_connection, TELNET_CAPABLE
+from app.services.connector import test_connection
 
 logger = logging.getLogger("netx.credential_scanner")
 
@@ -31,13 +31,10 @@ def _try_login_sync(device, username, password) -> tuple[bool, str]:
     except ImportError:
         return False, "netmiko_not_installed"
 
-    device_type = device["device_type"]
-    if device_type == "allied_telesis":
-        device_type = "allied_telesis_awplus"
-
+    from app.core.drivers import driver_manager
+    driver = driver_manager.get_driver(device["device_type"])
     protocol = device.get("protocol", "ssh").lower()
-    if protocol == "telnet" and device_type in TELNET_CAPABLE:
-        device_type = device_type + "_telnet"
+    device_type = driver.get_netmiko_device_type(protocol)
 
     default_port = 23 if protocol == "telnet" else 22
     

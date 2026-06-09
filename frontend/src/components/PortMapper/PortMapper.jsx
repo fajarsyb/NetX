@@ -1,12 +1,13 @@
 import { useState, useMemo } from 'react'
-import { Search, RefreshCw, Info, Cable, Cpu, Layers } from 'lucide-react'
+import { Search, RefreshCw, Info, Cable, Cpu, Layers, AlertTriangle } from 'lucide-react'
 import VendorBadge from '../Arp/VendorBadge'
 import { useTheme } from '../../context/ThemeContext'
 import { cleanInterfaceName, getPortLabel } from '../../utils/portUtils'
 
-export default function PortMapper({ portMap = [], loading = false, onRefresh }) {
+export default function PortMapper({ portMap = [], loading = false, onRefresh, hardwareModel }) {
   const [search, setSearch] = useState('')
   const [selectedPort, setSelectedPort] = useState(null)
+  const [selectedRole, setSelectedRole] = useState('All')
   const { theme } = useTheme()
 
   // Suffix clean helper for Juniper ports is imported from portUtils.js
@@ -17,6 +18,16 @@ export default function PortMapper({ portMap = [], loading = false, onRefresh })
       a.interface.localeCompare(b.interface, undefined, { numeric: true, sensitivity: 'base' })
     )
   }, [portMap])
+
+  // Helper to determine port role dynamically
+  const getPortRole = (port) => {
+    if (port.role) return port.role;
+    if (port.status?.toLowerCase() === 'down') return 'Unused';
+    if (port.lldp_neighbor || port.cdp_neighbor) return 'Uplink';
+    const vlans = new Set(port.mac_entries?.map(m => m.vlan).filter(v => v && v !== '—')) || new Set();
+    if (vlans.size > 1) return 'Trunk';
+    return 'Access';
+  }
 
   // Filter physical vs virtual/management ports
   const { physicalPorts, virtualPorts } = useMemo(() => {
@@ -47,17 +58,63 @@ export default function PortMapper({ portMap = [], loading = false, onRefresh })
     return { physicalPorts: phys, virtualPorts: virt }
   }, [sortedPorts])
 
+  // Expected ports mismatch calculation
+  const expectedCount = useMemo(() => {
+    if (!hardwareModel) return 0;
+    const m = hardwareModel.toUpperCase();
+    if (m.includes('52')) return 52;
+    if (m.includes('48T') || m.includes('48P') || m.includes('48Y') || m.includes('48S') || m.includes('48')) {
+      if (m.includes('EX3400-48')) return 54;
+      if (m.includes('EX4650-48Y-8C')) return 56;
+      if (m.includes('C9200-48') || m.includes('2960X-48') || m.includes('2960-48')) return 52;
+      return 48;
+    }
+    if (m.includes('24T') || m.includes('24P') || m.includes('24G') || m.includes('24Z') || m.includes('24')) {
+      if (m.includes('EX3400-24')) return 30;
+      if (m.includes('S2910-24')) return 28;
+      if (m.includes('ICX7150-24') || m.includes('ICX7550-24')) return 28;
+      if (m.includes('C9200-24') || m.includes('2960X-24') || m.includes('2960-24')) return 28;
+      return 24;
+    }
+    if (m.includes('28')) return 28;
+    if (m.includes('18')) return 18;
+    if (m.includes('16')) return 16;
+    if (m.includes('12')) return 12;
+    if (m.includes('8')) return 8;
+
+    // Regex check for numbers
+    const numbers = (m.match(/\d+/g) || []).map(Number);
+    for (const p of [48, 24, 52, 28, 12, 8, 16, 96]) {
+      if (numbers.includes(p)) return p;
+    }
+    return 0;
+  }, [hardwareModel]);
+
+  const actualCount = physicalPorts.length;
+  const isCountMismatch = expectedCount > 0 && actualCount !== expectedCount;
+
+  // Apply Role Filter to physical ports for faceplate visualization
+  const filteredPhysicalPorts = useMemo(() => {
+    if (selectedRole === 'All') return physicalPorts;
+    return physicalPorts.filter(p => getPortRole(p) === selectedRole);
+  }, [physicalPorts, selectedRole]);
+
   // Layout odd/even physical ports
   const { topRow, bottomRow } = useMemo(() => {
-    const top = physicalPorts.filter((_, idx) => idx % 2 === 0)
-    const bottom = physicalPorts.filter((_, idx) => idx % 2 !== 0)
+    const top = filteredPhysicalPorts.filter((_, idx) => idx % 2 === 0)
+    const bottom = filteredPhysicalPorts.filter((_, idx) => idx % 2 !== 0)
     return { topRow: top, bottomRow: bottom }
-  }, [physicalPorts])
+  }, [filteredPhysicalPorts])
 
   // Filtered list for the table
   const filtered = useMemo(() => {
     const q = search.toLowerCase()
     return sortedPorts.filter(p => {
+      // Role Filter Check
+      if (selectedRole !== 'All' && getPortRole(p) !== selectedRole) {
+        return false;
+      }
+
       if (!q) return true
       
       const matchIface = p.interface.toLowerCase().includes(q) || 
@@ -79,7 +136,7 @@ export default function PortMapper({ portMap = [], loading = false, onRefresh })
 
       return matchIface || matchNeighbor || matchMacs
     })
-  }, [sortedPorts, search])
+  }, [sortedPorts, search, selectedRole])
 
   // getPortLabel is imported from portUtils.js
 
@@ -142,6 +199,31 @@ export default function PortMapper({ portMap = [], loading = false, onRefresh })
 
   return (
     <div className="animate-slide">
+      {/* Count Mismatch Warning Banner */}
+      {isCountMismatch && (
+        <div 
+          style={{
+            background: 'rgba(239, 68, 68, 0.1)',
+            border: '1px solid rgba(239, 68, 68, 0.3)',
+            borderRadius: '8px',
+            padding: '12px 16px',
+            marginBottom: '20px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            color: 'var(--danger)'
+          }}
+        >
+          <AlertTriangle size={20} />
+          <div>
+            <strong style={{ fontSize: '13.5px' }}>Peringatan Spesifikasi Hardware:</strong>
+            <p style={{ margin: '2px 0 0 0', fontSize: '12.5px', color: 'var(--text-primary)' }}>
+              Jumlah port fisik terdeteksi ({actualCount}) tidak sesuai dengan spesifikasi model hardware ({hardwareModel} mengharapkan {expectedCount} port).
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Physical Faceplate View Panel */}
       {physicalPorts.length > 0 && (
         <div className="card p-24 mb-24" style={{ 
@@ -294,6 +376,18 @@ export default function PortMapper({ portMap = [], loading = false, onRefresh })
                     <span className={`badge badge-${activeDetail.status === 'up' ? 'online' : 'offline'}`} style={{ padding: '2px 8px', fontSize: '10px' }}>
                       {activeDetail.status?.toUpperCase()}
                     </span>
+                    <span 
+                      style={{ 
+                        fontSize: '10px', 
+                        fontWeight: 700, 
+                        color: getPortRole(activeDetail) === 'Uplink' ? '#a855f7' : getPortRole(activeDetail) === 'Trunk' ? '#3b82f6' : getPortRole(activeDetail) === 'Access' ? '#10b981' : '#6b7280',
+                        background: getPortRole(activeDetail) === 'Uplink' ? 'rgba(168, 85, 247, 0.1)' : getPortRole(activeDetail) === 'Trunk' ? 'rgba(59, 130, 246, 0.1)' : getPortRole(activeDetail) === 'Access' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(107, 114, 128, 0.1)',
+                        padding: '2px 6px',
+                        borderRadius: '4px'
+                      }}
+                    >
+                      {getPortRole(activeDetail)}
+                    </span>
                     <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>{activeDetail.speed}</span>
                   </div>
                 </div>
@@ -367,13 +461,36 @@ export default function PortMapper({ portMap = [], loading = false, onRefresh })
       {/* Search and Table Section */}
       <div className="card">
         <div className="p-20" style={{ borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-          <div className="search-box" style={{ width: '320px' }}>
-            <Search className="search-icon" />
-            <input
-              placeholder="Cari port, MAC, IP, vendor, neighbor..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+            <div className="search-box" style={{ width: '300px' }}>
+              <Search className="search-icon" />
+              <input
+                placeholder="Cari port, MAC, IP, vendor, neighbor..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+            
+            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', alignItems: 'center', background: 'var(--bg-secondary)', padding: '2px', borderRadius: '6px', border: '1px solid var(--border)' }}>
+              {['All', 'Access', 'Trunk', 'Uplink', 'Unused'].map((role) => (
+                <button
+                  key={role}
+                  className={`btn btn-sm ${selectedRole === role ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => setSelectedRole(role)}
+                  style={{ 
+                    padding: '4px 10px', 
+                    fontSize: '11px', 
+                    height: '26px', 
+                    minHeight: 'auto',
+                    border: 'none',
+                    background: selectedRole === role ? 'var(--primary)' : 'transparent',
+                    color: selectedRole === role ? '#ffffff' : 'var(--text-primary)'
+                  }}
+                >
+                  {role}
+                </button>
+              ))}
+            </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
             <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
@@ -401,8 +518,8 @@ export default function PortMapper({ portMap = [], loading = false, onRefresh })
               <thead>
                 <tr>
                   <th style={{ paddingLeft: '20px', width: '22%' }}>Port & Deskripsi</th>
-                  <th style={{ width: '12%' }}>Status</th>
-                  <th style={{ width: '38%' }}>Connected Host (MAC, IP, Vendor)</th>
+                  <th style={{ width: '15%' }}>Status / Peran</th>
+                  <th style={{ width: '35%' }}>Connected Host (MAC, IP, Vendor)</th>
                   <th style={{ paddingRight: '20px', width: '28%' }}>Neighbor Uplink (LLDP/CDP)</th>
                 </tr>
               </thead>
@@ -441,17 +558,35 @@ export default function PortMapper({ portMap = [], loading = false, onRefresh })
 
                       {/* Status / Speed */}
                       <td style={{ verticalAlign: 'top', paddingBottom: '12px', paddingTop: '12px' }}>
-                        <span className={`badge badge-${isUp ? 'online' : 'offline'}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', fontSize: '11px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          <span className={`badge badge-${isUp ? 'online' : 'offline'}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', fontSize: '10px', width: 'max-content' }}>
+                            <span 
+                              className="status-dot" 
+                              style={{ 
+                                background: isUp ? 'var(--success)' : 'var(--danger)',
+                                boxShadow: isUp ? '0 0 6px var(--success)' : 'none',
+                                width: '6px', height: '6px'
+                              }} 
+                            />
+                            {port.status?.toUpperCase()}
+                          </span>
+                          
+                          {/* Role Badge */}
                           <span 
-                            className="status-dot" 
                             style={{ 
-                              background: isUp ? 'var(--success)' : 'var(--danger)',
-                              boxShadow: isUp ? '0 0 6px var(--success)' : 'none',
-                              width: '6px', height: '6px'
-                            }} 
-                          />
-                          {port.status?.toUpperCase()}
-                        </span>
+                              display: 'inline-flex', 
+                              fontSize: '10px', 
+                              fontWeight: 700, 
+                              color: getPortRole(port) === 'Uplink' ? '#a855f7' : getPortRole(port) === 'Trunk' ? '#3b82f6' : getPortRole(port) === 'Access' ? '#10b981' : '#6b7280',
+                              background: getPortRole(port) === 'Uplink' ? 'rgba(168, 85, 247, 0.1)' : getPortRole(port) === 'Trunk' ? 'rgba(59, 130, 246, 0.1)' : getPortRole(port) === 'Access' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(107, 114, 128, 0.1)',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              width: 'max-content'
+                            }}
+                          >
+                            {getPortRole(port)}
+                          </span>
+                        </div>
                         <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', fontWeight: 600 }}>{port.speed}</div>
                       </td>
 

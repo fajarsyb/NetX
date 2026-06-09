@@ -113,8 +113,9 @@ class PostgreSQLCursorWrapper:
                     device_id, interface_name, in_broadcast, out_broadcast,
                     in_multicast, out_multicast, in_unicast, out_unicast,
                     oper_status, stp_top_changes, status_changes_history, updated_at,
-                    in_errors, out_errors, crc_errors, frame_errors, link_speed
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    in_errors, out_errors, crc_errors, frame_errors, link_speed,
+                    last_link_up_time, last_link_down_time, in_octets, out_octets
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (device_id, interface_name) DO UPDATE SET
                     in_broadcast = EXCLUDED.in_broadcast,
                     out_broadcast = EXCLUDED.out_broadcast,
@@ -130,7 +131,11 @@ class PostgreSQLCursorWrapper:
                     out_errors = EXCLUDED.out_errors,
                     crc_errors = EXCLUDED.crc_errors,
                     frame_errors = EXCLUDED.frame_errors,
-                    link_speed = EXCLUDED.link_speed
+                    link_speed = EXCLUDED.link_speed,
+                    last_link_up_time = EXCLUDED.last_link_up_time,
+                    last_link_down_time = EXCLUDED.last_link_down_time,
+                    in_octets = EXCLUDED.in_octets,
+                    out_octets = EXCLUDED.out_octets
             """
 
         import time as pytime
@@ -147,8 +152,17 @@ class PostgreSQLCursorWrapper:
         if is_insert:
             try:
                 temp_c = self.real_cursor.connection.cursor()
-                temp_c.execute("SELECT lastval();")
-                self._lastrowid = temp_c.fetchone()[0]
+                temp_c.execute("SAVEPOINT lastval_sp;")
+                try:
+                    temp_c.execute("SELECT lastval();")
+                    self._lastrowid = temp_c.fetchone()[0]
+                    temp_c.execute("RELEASE SAVEPOINT lastval_sp;")
+                except Exception:
+                    try:
+                        temp_c.execute("ROLLBACK TO SAVEPOINT lastval_sp;")
+                    except Exception:
+                        pass
+                    self._lastrowid = None
                 temp_c.close()
             except Exception:
                 self._lastrowid = None
@@ -676,6 +690,10 @@ def init_db():
             crc_errors      BIGINT DEFAULT 0,
             frame_errors    BIGINT DEFAULT 0,
             link_speed      BIGINT DEFAULT 0,
+            last_link_up_time VARCHAR(100) DEFAULT NULL,
+            last_link_down_time VARCHAR(100) DEFAULT NULL,
+            in_octets       BIGINT DEFAULT 0,
+            out_octets      BIGINT DEFAULT 0,
             PRIMARY KEY (device_id, interface_name),
             FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
         );
@@ -779,6 +797,18 @@ def init_db():
             c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS permissions TEXT DEFAULT NULL;")
         except Exception:
             pass
+
+        # Add new columns to interface_stats_latest for PG
+        for col in ["last_link_up_time", "last_link_down_time"]:
+            try:
+                c.execute(f"ALTER TABLE interface_stats_latest ADD COLUMN IF NOT EXISTS {col} VARCHAR(100) DEFAULT NULL;")
+            except Exception:
+                pass
+        for col in ["in_octets", "out_octets"]:
+            try:
+                c.execute(f"ALTER TABLE interface_stats_latest ADD COLUMN IF NOT EXISTS {col} BIGINT DEFAULT 0;")
+            except Exception:
+                pass
 
         # Create default admin user if none exists in PostgreSQL
 
@@ -1217,6 +1247,10 @@ def init_db():
             stp_top_changes INTEGER DEFAULT 0,
             status_changes_history TEXT DEFAULT '[]',
             updated_at      TEXT NOT NULL,
+            last_link_up_time TEXT DEFAULT NULL,
+            last_link_down_time TEXT DEFAULT NULL,
+            in_octets       BIGINT DEFAULT 0,
+            out_octets      BIGINT DEFAULT 0,
             PRIMARY KEY (device_id, interface_name),
             FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
         );
@@ -1272,6 +1306,18 @@ def init_db():
 
         # Add new columns to interface_stats_latest table for port health diagnostics
         for col in ["in_errors", "out_errors", "crc_errors", "frame_errors", "link_speed"]:
+            try:
+                c.execute(f"ALTER TABLE interface_stats_latest ADD COLUMN {col} BIGINT DEFAULT 0;")
+            except Exception:
+                pass
+
+        # Add new columns for Port Utilization Analysis
+        for col in ["last_link_up_time", "last_link_down_time"]:
+            try:
+                c.execute(f"ALTER TABLE interface_stats_latest ADD COLUMN {col} TEXT DEFAULT NULL;")
+            except Exception:
+                pass
+        for col in ["in_octets", "out_octets"]:
             try:
                 c.execute(f"ALTER TABLE interface_stats_latest ADD COLUMN {col} BIGINT DEFAULT 0;")
             except Exception:

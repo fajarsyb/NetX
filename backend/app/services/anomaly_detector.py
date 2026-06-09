@@ -6,6 +6,7 @@ from app.database import get_db_conn
 from pysnmp.hlapi.v3arch.asyncio import (
     SnmpEngine, get_cmd, next_cmd, CommunityData, UdpTransportTarget, ContextData, ObjectType, ObjectIdentity
 )
+from app.routers.snmp import is_physical_interface
 
 logger = logging.getLogger("netx.anomaly_detector")
 
@@ -302,6 +303,10 @@ async def scan_device_anomalies(device: dict):
             walk_oid(ip, community, mp_model, '1.3.6.1.2.1.2.2.1.20', snmp_engine=snmp_engine),    # out_errors (ifOutErrors)
             walk_oid(ip, community, mp_model, '1.3.6.1.2.1.10.7.2.1.3', snmp_engine=snmp_engine),  # crc_errors (dot3StatsFCSErrors)
             walk_oid(ip, community, mp_model, '1.3.6.1.2.1.10.7.2.1.2', snmp_engine=snmp_engine),  # frame_errors (dot3StatsAlignmentErrors)
+            get_scalar_oid(ip, community, mp_model, '1.3.6.1.2.1.1.3.0', snmp_engine=snmp_engine), # sysUpTime
+            walk_oid(ip, community, mp_model, '1.3.6.1.2.1.2.2.1.9', snmp_engine=snmp_engine),     # ifLastChange
+            walk_oid(ip, community, mp_model, '1.3.6.1.2.1.2.2.1.10', snmp_engine=snmp_engine),    # in_octets (ifInOctets)
+            walk_oid(ip, community, mp_model, '1.3.6.1.2.1.2.2.1.16', snmp_engine=snmp_engine),    # out_octets (ifOutOctets)
         ]
         res = await asyncio.gather(*tasks)
     except Exception as e:
@@ -313,7 +318,7 @@ async def scan_device_anomalies(device: dict):
         except Exception:
             pass
         
-    descrs, statuses, in_broad, out_broad, in_multi, out_multi, in_uni, out_uni, stp_tc, speeds, high_speeds, in_errors, out_errors, crc_errors, frame_errors = res
+    descrs, statuses, in_broad, out_broad, in_multi, out_multi, in_uni, out_uni, stp_tc, speeds, high_speeds, in_errors, out_errors, crc_errors, frame_errors, sys_uptime, last_changes, in_octets, out_octets = res
     
     if not descrs:
         logger.warning(f"Device {device['name']} did not return any interface descriptors via SNMP.")
@@ -370,12 +375,7 @@ async def scan_device_anomalies(device: dict):
                 continue
                 
             # Skip Null / Loopback / Virtual / Management / LAGs / Subinterfaces
-            name_lower = if_name.lower()
-            if '.' in name_lower or any(name_lower.startswith(x) for x in (
-                   'null', 'loopback', 'vlan', 'mgmt', 'management', 'port-channel', 'po', 
-                   'bridge', 'bdi', 'tunnel', 'tu', 'lo', 'virtual', 'vl', 'stack', 'portchannel',
-                   'wlan', 'veth', 'docker'
-               )):
+            if not is_physical_interface(if_name):
                 c.execute("""
                     UPDATE network_anomalies 
                     SET is_active = 0, resolved_at = ? 
@@ -415,6 +415,61 @@ async def scan_device_anomalies(device: dict):
             speed_mbps = speed_bps // 1000000
 
             prev = prev_stats.get(if_name)
+            
+            # Calculate uptime/inactive timestamps
+            try:
+                sys_uptime_ticks = int(sys_uptime) if sys_uptime else 0
+            except ValueError:
+                sys_uptime_ticks = 0
+                
+            try:
+                if_last_change = int(last_changes.get(idx, 0))
+            except ValueError:
+                if_last_change = 0
+
+            # Calculate absolute timestamp of last status change
+            if sys_uptime_ticks >= if_last_change and sys_uptime_ticks > 0:
+                seconds_since_change = (sys_uptime_ticks - if_last_change) / 100.0
+                last_change_dt = now - timedelta(seconds=seconds_since_change)
+                last_change_iso = last_change_dt.isoformat()
+            else:
+                last_change_iso = None
+
+            # Get previous timestamps
+            prev_up = prev.get("last_link_up_time") if prev else None
+            prev_down = prev.get("last_link_down_time") if prev else None
+
+            # Determine up/down timestamps based on current and previous oper_status
+            last_link_up = prev_up
+            last_link_down = prev_down
+
+            if oper_status == 'up':
+                if (not prev) or (prev.get("oper_status") != 'up'):
+                    last_link_up = now_iso
+                elif not last_link_up and last_change_iso:
+                    last_link_up = last_change_iso
+            elif oper_status == 'down':
+                if (not prev) or (prev.get("oper_status") != 'down'):
+                    last_link_down = now_iso
+                elif not last_link_down and last_change_iso:
+                    last_link_down = last_change_iso
+
+            # Fallback if both are still None but we have last_change_iso
+            if last_change_iso:
+                if oper_status == 'up' and not last_link_up:
+                    last_link_up = last_change_iso
+                elif oper_status == 'down' and not last_link_down:
+                    last_link_down = last_change_iso
+
+            # Get traffic in/out octets
+            try:
+                curr_in_oct = int(in_octets.get(idx, 0))
+            except ValueError:
+                curr_in_oct = 0
+            try:
+                curr_out_oct = int(out_octets.get(idx, 0))
+            except ValueError:
+                curr_out_oct = 0
             
             prev_rx_err = 0
             prev_tx_err = 0
@@ -705,12 +760,14 @@ async def scan_device_anomalies(device: dict):
                     device_id, interface_name, in_broadcast, out_broadcast,
                     in_multicast, out_multicast, in_unicast, out_unicast,
                     oper_status, stp_top_changes, status_changes_history, updated_at,
-                    in_errors, out_errors, crc_errors, frame_errors, link_speed
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    in_errors, out_errors, crc_errors, frame_errors, link_speed,
+                    last_link_up_time, last_link_down_time, in_octets, out_octets
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 device_id, if_name, ib, ob, im, om, iu, ou,
                 oper_status, current_stp_tc, json.dumps(changes_hist), now_iso,
-                rx_err, tx_err, crc_err, frame_err, speed_mbps
+                rx_err, tx_err, crc_err, frame_err, speed_mbps,
+                last_link_up, last_link_down, curr_in_oct, curr_out_oct
             ))
         conn.commit()
     except Exception as e:

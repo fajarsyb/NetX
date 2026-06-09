@@ -1,9 +1,7 @@
 import logging
 import os
 import asyncio
-from app.services.device_backup_service import backup_device_config, execute_schedule_backups
-from app.services.network_history_service import record_network_history_snapshot
-from app.services.anomaly_detector import run_anomaly_detection
+
 
 logger = logging.getLogger("netx.worker.handlers")
 
@@ -12,53 +10,59 @@ async def handle_job(task_name: str, params: dict):
     
     # Define system/mock user context
     user_context = {"id": params.get("user_id", 1), "username": params.get("username", "system")}
+    from app.core.plugins import plugin_manager
+    import inspect
 
     if task_name == "device_backup":
-        device_id = params["device_id"]
-        only_if_changed = params.get("only_if_changed", False)
-        result = await backup_device_config(
-            device_id=device_id,
-            only_if_changed=only_if_changed,
+        handler = plugin_manager.get_task_handler(task_name)
+        if not handler:
+            raise ValueError(f"No plugin registered for task: {task_name}")
+        result = await handler(
+            device_id=params["device_id"],
+            only_if_changed=params.get("only_if_changed", False),
             user_id=user_context["id"],
             username=user_context["username"]
         )
-        logger.info(f"Backup job for device {device_id} completed: {result}")
+        logger.info(f"Backup job for device {params['device_id']} completed: {result}")
         return result
 
     elif task_name == "device_backup_schedule":
-        schedule_id = params["schedule_id"]
-        # Fake schedule dict to pass to execute_schedule_backups
+        handler = plugin_manager.get_task_handler(task_name)
+        if not handler:
+            raise ValueError(f"No plugin registered for task: {task_name}")
         schedule = {
-            "id": schedule_id,
-            "name": f"Schedule #{schedule_id}",
+            "id": params["schedule_id"],
+            "name": f"Schedule #{params['schedule_id']}",
             "device_ids": params["device_ids"]
         }
-        await execute_schedule_backups(schedule)
-        logger.info(f"Scheduled backup job completed for schedule {schedule_id}")
+        await handler(schedule)
+        logger.info(f"Scheduled backup job completed for schedule {params['schedule_id']}")
 
     elif task_name == "network_history_snapshot":
-        record_network_history_snapshot()
+        handler = plugin_manager.get_task_handler(task_name)
+        if not handler:
+            raise ValueError(f"No plugin registered for task: {task_name}")
+        if inspect.iscoroutinefunction(handler):
+            await handler()
+        else:
+            handler()
         logger.info("Network history snapshot completed.")
 
     elif task_name == "anomaly_scan":
-        await run_anomaly_detection()
+        handler = plugin_manager.get_task_handler(task_name)
+        if not handler:
+            raise ValueError(f"No plugin registered for task: {task_name}")
+        if inspect.iscoroutinefunction(handler):
+            await handler()
+        else:
+            handler()
         logger.info("Anomaly detection scan completed.")
 
-    elif task_name == "refresh_arp":
-        from app.routers.arp import refresh_arp_logic
-        return await refresh_arp_logic(params["device_id"], user=user_context)
-
-    elif task_name == "refresh_lldp":
-        from app.routers.lldp import refresh_lldp_logic
-        return await refresh_lldp_logic(params["device_id"], user=user_context)
-
-    elif task_name == "refresh_cdp":
-        from app.routers.cdp import refresh_cdp_logic
-        return await refresh_cdp_logic(params["device_id"], user=user_context)
-
-    elif task_name == "refresh_mac":
-        from app.routers.mac import refresh_mac_table_logic
-        return await refresh_mac_table_logic(params["device_id"], user=user_context)
+    elif task_name in ("refresh_arp", "refresh_lldp", "refresh_cdp", "refresh_mac"):
+        handler = plugin_manager.get_task_handler(task_name)
+        if not handler:
+            raise ValueError(f"No plugin registered for task: {task_name}")
+        return await handler(params["device_id"], user=user_context)
 
     elif task_name == "detect_snmp_info":
         from app.routers.snmp import detect_snmp_info

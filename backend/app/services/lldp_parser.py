@@ -705,9 +705,10 @@ def parse_lldp(output: str, device_type: str) -> List[Dict]:
     """Parse LLDP neighbor output for a given device_type."""
     if not output or output.startswith("ERROR:"):
         return []
-    parser = _PARSERS.get(device_type, _generic_lldp)
+    from app.core.drivers import driver_manager
+    driver = driver_manager.get_driver(device_type)
     try:
-        result = parser(output)
+        result = driver.parse_lldp(output, device_type)
         if not result:
             result = _generic_lldp(output)
     except Exception:

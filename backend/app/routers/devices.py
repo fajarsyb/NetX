@@ -751,8 +751,10 @@ async def get_device_port_map(device_id: int, current_user: dict = Depends(get_c
             "cdp_neighbor": None
         }
 
+    from app.routers.snmp import is_physical_interface
+
     def get_or_create_port(original_name: str):
-        if not original_name:
+        if not original_name or not is_physical_interface(original_name):
             return None
         norm = norm_iface(original_name)
         if norm not in ports:
@@ -813,6 +815,24 @@ async def get_device_port_map(device_id: int, current_user: dict = Depends(get_c
             }
             if p["status"] in ("unknown", "down"):
                 p["status"] = "up"
+
+    # Calculate Port Roles
+    for p in ports.values():
+        status = p["status"]
+        if status == 'down':
+            p["role"] = "Unused"
+        elif p.get("lldp_neighbor") or p.get("cdp_neighbor"):
+            p["role"] = "Uplink"
+        else:
+            vlans = set()
+            for m in p.get("mac_entries", []):
+                v = m.get("vlan")
+                if v and v != "—":
+                    vlans.add(v)
+            if len(vlans) > 1:
+                p["role"] = "Trunk"
+            else:
+                p["role"] = "Access"
 
     # Sort naturally
     import re

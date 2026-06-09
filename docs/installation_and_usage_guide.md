@@ -463,3 +463,61 @@ Dashboard ini dilengkapi dengan log alert otomatis yang akan mencantumkan kompon
 -   **Peringatan Latensi DB**: Muncul jika latensi query rata-rata > 100 ms (Warning) atau > 300 ms (Critical/Degraded).
 -   **Peringatan Event Loop**: Muncul jika lag loop asinkron > 150 ms (Warning) atau > 500 ms (Critical/Degraded).
 -   **Peringatan Disk Space**: Muncul jika kapasitas ruang penyimpanan kosong < 15% (Warning) atau < 5% (Critical/Degraded).
+
+---
+
+## 10. Sinkronisasi Waktu (NTP) & Penyelarasan Timezone
+
+Untuk memastikan akurasi data analitik port, deteksi flapping, serta runtutan kejadian log syslog secara real-time, seluruh komponen NetX harus diselaraskan waktunya.
+
+### A. Penyelarasan Timezone Kontainer
+Dalam deployment menggunakan Docker Compose, seluruh kontainer (`postgres`, `redis`, `api`, `worker`, `scheduler`, `syslog`) diselaraskan ke zona waktu lokal menggunakan variabel lingkungan `TZ`:
+```yaml
+environment:
+  - TZ=Asia/Jakarta
+```
+Hal ini memastikan timestamp log, waktu backup terjadwal, dan pencatatan riwayat anomali tercatat sesuai dengan waktu operasional lokal (`WIB`, UTC+7).
+
+### B. Sinkronisasi Waktu Host (NTP)
+Apabila waktu pada mesin server Anda mengalami deviasi (drift), Anda harus menyinkronkannya ke server waktu internet (NTP).
+
+#### Pada Windows (melalui PowerShell Administrator):
+Untuk menyinkronkan jam lokal Windows menggunakan layanan Windows Time (w32time) dan pool NTP publik:
+1. Buka PowerShell sebagai **Administrator**.
+2. Daftarkan server NTP dan lakukan sinkronisasi paksa:
+   ```powershell
+   # Hentikan layanan jika sedang aktif
+   Stop-Service w32time -ErrorAction SilentlyContinue
+   
+   # Konfigurasi pool server NTP
+   w32tm /config /manualpeerlist:"0.id.pool.ntp.org,0x8 1.id.pool.ntp.org,0x8 2.id.pool.ntp.org,0x8 pool.ntp.org,0x8" /syncfromflags:manual /reliable:yes /update
+   
+   # Mulai ulang layanan dan jalankan sinkronisasi
+   Start-Service w32time
+   w32tm /resync /force
+   
+   # Periksa status sinkronisasi waktu
+   w32tm /query /status
+   ```
+
+#### Pada Linux (systemd-timesyncd):
+1. Pastikan systemd-timesyncd aktif:
+   ```bash
+   sudo systemctl enable --now systemd-timesyncd
+   ```
+2. Lakukan sinkronisasi waktu:
+   ```bash
+   timedatectl set-ntp true
+   ```
+3. Cek status waktu sistem:
+   ```bash
+   timedatectl status
+   ```
+
+### C. Troubleshooting Deviasi Waktu Docker
+Jika waktu di dalam kontainer Docker tetap tertinggal dibanding waktu host (biasanya terjadi di Windows WSL2 setelah PC masuk mode tidur/sleep):
+1. Jalankan sinkronisasi jam hardware VM WSL2 dari shell host Anda:
+   ```bash
+   wsl --shutdown
+   ```
+2. Docker Desktop akan otomatis memulai ulang WSL dengan waktu yang tersinkronisasi kembali secara presisi.

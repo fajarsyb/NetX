@@ -3,7 +3,7 @@ import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import {
   Server, LayoutDashboard, Plus, Network, ChevronRight, ChevronDown,
   Radio, Wifi, RefreshCw, LogOut, Users, FolderGit2, ShieldCheck, Map, Key, Search, Settings, FileCode, AlertTriangle, FileText, Database, Activity,
-  Sun, Moon, GripVertical, Sliders, Terminal
+  Sun, Moon, GripVertical, Sliders, Terminal, Layers
 } from 'lucide-react'
 import { arpApi } from '../../api/client'
 import AddDeviceModal from '../Device/AddDeviceModal'
@@ -129,6 +129,16 @@ export default function Sidebar() {
             >
               <Map className="nav-icon" />
               Network Topology
+            </NavLink>
+          )}
+
+          {hasMenu('devices') && (
+            <NavLink
+              to="/port-analysis"
+              className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+            >
+              <Layers className="nav-icon" />
+              Port Analysis
             </NavLink>
           )}
 

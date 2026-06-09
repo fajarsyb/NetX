@@ -8,6 +8,7 @@ services:
       POSTGRES_DB: netx
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: RxVUDCKZDM3MG9rckvFe
+      TZ: Asia/Jakarta
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
@@ -26,6 +27,8 @@ services:
     command: redis-server --appendonly yes
     ports:
       - "6379:6379"
+    environment:
+      - TZ=Asia/Jakarta
     volumes:
       - redisdata:/data
     healthcheck:
@@ -50,6 +53,7 @@ services:
       - DB_PASSWORD=RxVUDCKZDM3MG9rckvFe
       - REDIS_URL=redis://redis:6379/0
       - NETX_MODE=api
+      - TZ=Asia/Jakarta
     ports:
       - "8000:8000"
     depends_on:
@@ -75,6 +79,7 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - NETX_MODE=worker
       - MAX_CONCURRENT_SSH=20
+      - TZ=Asia/Jakarta
     depends_on:
       redis:
         condition: service_healthy
@@ -96,6 +101,7 @@ services:
       - DB_USER=postgres
       - DB_PASSWORD=RxVUDCKZDM3MG9rckvFe
       - REDIS_URL=redis://redis:6379/0
+      - TZ=Asia/Jakarta
     depends_on:
       redis:
         condition: service_healthy
@@ -119,6 +125,7 @@ services:
       - DB_USER=postgres
       - DB_PASSWORD=RxVUDCKZDM3MG9rckvFe
       - REDIS_URL=redis://redis:6379/0
+      - TZ=Asia/Jakarta
     depends_on:
       postgres:
         condition: service_healthy

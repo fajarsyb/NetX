@@ -13,6 +13,16 @@ def parse_routing(output: str, device_type: str) -> List[Dict]:
     if not output or output.startswith("ERROR:"):
         return routes
 
+    from app.core.drivers import driver_manager
+    driver = driver_manager.get_driver(device_type)
+    if driver.name != "generic":
+        try:
+            res = driver.parse_routing(output, device_type)
+            if res:
+                return res
+        except Exception:
+            pass
+
     for line in output.splitlines():
         line = line.strip()
         if not line or line.startswith("Codes:") or line.startswith("Gateway"):

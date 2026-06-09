@@ -10,276 +10,27 @@ from app.services.connector import get_info_raw
 def _parse_cli_output(raw: str, device_type: str) -> tuple[str, str, str, str]:
     if not raw or raw.startswith("ERROR:"):
         return "", "", "", ""
-        
-    os_version = ""
-    serial_number = ""
-    mac_address = ""
-    hardware_model = ""
-
-    # Check for MAC in raw output (common format across all devices if any command outputs it)
-    # Match cisco dot format (xxxx.xxxx.xxxx) or colon format
-    m_match = re.search(r"([0-9a-fA-F]{4}\.[0-9a-fA-F]{4}\.[0-9a-fA-F]{4})", raw)
-    if m_match:
-        cleaned = m_match.group(1).replace('.', '').upper()
-        mac_address = ":".join(cleaned[i:i+2] for i in range(0, 12, 2))
-    else:
-        m_match = re.search(r"([0-9a-fA-F]{2}[:\-][0-9a-fA-F]{2}[:\-][0-9a-fA-F]{2}[:\-][0-9a-fA-F]{2}[:\-][0-9a-fA-F]{2}[:\-][0-9a-fA-F]{2})", raw)
-        if m_match:
-            mac_address = m_match.group(1).replace('-', ':').upper()
-
-    if "cisco" in device_type.lower():
-        # Parse OS version
-        v_match = re.search(r"Version\s+([0-9a-zA-Z\.\(\)\-\_]+)", raw)
-        if v_match:
-            os_version = v_match.group(1)
-
-        # Parse Serial Number
-        s_match = re.search(r"System Serial Number\s*:\s*(\S+)", raw)
-        if s_match:
-            serial_number = s_match.group(1)
-        else:
-            s_match = re.search(r"Processor board ID\s+(\S+)", raw)
-            if s_match:
-                serial_number = s_match.group(1)
-
-        # Parse Hardware Model
-        h_match = re.search(r"Model [nN]umber\s*:\s*(\S+)", raw)
-        if h_match:
-            hardware_model = h_match.group(1)
-        else:
-            h_match = re.search(r"cisco\s+(\S+)\s+processor", raw, re.IGNORECASE)
-            if h_match:
-                hardware_model = h_match.group(1)
-
-    elif "juniper" in device_type.lower():
-        # Junos Version
-        v_match = re.search(r"Junos:\s*(\S+)", raw)
-        if v_match:
-            os_version = v_match.group(1)
-        else:
-            v_match = re.search(r"kernel JUNOS\s*(\S+)", raw)
-            if v_match:
-                os_version = v_match.group(1)
-
-        # Model
-        m_match = re.search(r"Model:\s*(\S+)", raw)
-        if m_match:
-            hardware_model = m_match.group(1).upper()
-        else:
-            # check Chassis line in show chassis hardware
-            for line in raw.splitlines():
-                if "chassis" in line.lower() and not "description" in line.lower():
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        hardware_model = parts[-1].upper()
-                        break
-
-        # Serial Number
-        # From show chassis hardware Chassis line
-        for line in raw.splitlines():
-            if line.strip().startswith("Chassis"):
-                parts = line.split()
-                if len(parts) >= 2:
-                    for p in parts[1:]:
-                        if re.match(r"^[A-Z0-9]{8,20}$", p):
-                            serial_number = p
-                            break
-                break
-
-        if not serial_number:
-            s_match = re.search(r"Chassis\s+\S+\s+(\S+)", raw)
-            if s_match:
-                serial_number = s_match.group(1)
-
-        # MAC Address
-        # From show chassis mac-addresses
-        mac_match = re.search(r"Base address\s+([0-9a-fA-F:]{17})", raw)
-        if mac_match:
-            mac_address = mac_match.group(1).upper()
-
-    elif "ruijie" in device_type.lower():
-        # Serial Number
-        s_match = re.search(r"System serial number\s*:\s*(\S+)", raw)
-        if s_match:
-            serial_number = s_match.group(1)
-        else:
-            s_match = re.search(r"Serial number\s*:\s*(\S+)", raw)
-            if s_match:
-                serial_number = s_match.group(1)
-
-        # OS Version
-        v_match = re.search(r"System software version\s*:\s*([^\n]+)", raw)
-        if v_match:
-            os_version = v_match.group(1).strip()
-            # clean S29_RGOS prefix if present
-            os_version = os_version.replace("S29_RGOS", "").strip()
-
-        # Model
-        m_match = re.search(r"Slot 0\s*:\s*(\S+)", raw)
-        if m_match:
-            hardware_model = m_match.group(1)
-        else:
-            m_match = re.search(r"System description\s*:\s*Ruijie.*?Switch.*?\(([^)]+)\)", raw)
-            if m_match:
-                hardware_model = m_match.group(1)
-
-    elif "ruckus" in device_type.lower():
-        # Parse SW version
-        v_match = re.search(r"SW:\s+Version\s+(\S+)", raw, re.IGNORECASE)
-        if v_match:
-            os_version = v_match.group(1)
-        else:
-            v_match = re.search(r"Version\s+([0-9a-zA-Z\.\(\)\-\_]+)", raw)
-            if v_match:
-                os_version = v_match.group(1)
-
-        # Parse Serial Number
-        s_match = re.search(r"Serial(?:#| Number)?\s*[:\s]\s*(\S+)", raw, re.IGNORECASE)
-        if s_match:
-            serial_number = s_match.group(1)
-
-        # Parse Hardware Model
-        h_match = re.search(r"HW:\s+([^\r\n]+)", raw, re.IGNORECASE)
-        if h_match:
-            hardware_model = h_match.group(1).strip()
-            if hardware_model.lower().startswith("stackable "):
-                hardware_model = hardware_model[10:].strip()
-            if hardware_model.lower().endswith(" switch"):
-                hardware_model = hardware_model[:-7].strip()
-        else:
-            h_match = re.search(r"(ICX\d{3,4}(?:-[A-Za-z0-9\-]+)?)", raw)
-            if h_match:
-                hardware_model = h_match.group(1)
-
-    elif "allied" in device_type.lower():
-        # Parse OS Version
-        v_match = re.search(r"Software Version\s*:\s*(\S+)", raw, re.IGNORECASE)
-        if v_match:
-            os_version = v_match.group(1)
-        else:
-            v_match = re.search(r"AlliedWare Plus.*?v(\S+)", raw, re.IGNORECASE)
-            if v_match:
-                os_version = v_match.group(1)
-                
-        # Parse from show system "Base" stack/member status lines:
-        # e.g., Base 1 Base AT-x530L-28GPX 1.1.2 AG1825B0098
-        # or Base 1 AT-x530L-28GPX 1.1.2 AG1825B0098
-        base_match = re.search(r"Base\s+\d+\s+(?:Base\s+)?(\S+)\s+\S+\s+(\S+)", raw, re.IGNORECASE)
-        if base_match:
-            hardware_model = base_match.group(1)
-            serial_number = base_match.group(2)
-
-        # Fallbacks/alternatives for Serial Number
-        if not serial_number:
-            s_match = re.search(r"Serial Number\s*:\s*(\S+)", raw, re.IGNORECASE)
-            if s_match:
-                serial_number = s_match.group(1)
-
-        # Fallbacks/alternatives for Hardware Model
-        if not hardware_model:
-            h_match = re.search(r"Chassis\s*:\s*(\S+)", raw, re.IGNORECASE)
-            if h_match:
-                hardware_model = h_match.group(1)
-
-        # Parse base MAC Address specifically
-        mac_match = re.search(r"MAC Address\s*:\s*([0-9a-fA-F:\.\-]{14,17})", raw, re.IGNORECASE)
-        if mac_match:
-            cleaned = re.sub(r"[.\-:]", "", mac_match.group(1)).upper()
-            if len(cleaned) == 12:
-                mac_address = ":".join(cleaned[i:i+2] for i in range(0, 12, 2))
-
-    else:
-        # Generic fallback
-        v_match = re.search(r"Version\s*[:\s]\s*(\S+)", raw, re.IGNORECASE)
-        if v_match:
-            os_version = v_match.group(1)
-
-        s_match = re.search(r"Serial\s*(?:Number)?\s*[:\s]\s*(\S+)", raw, re.IGNORECASE)
-        if s_match:
-            serial_number = s_match.group(1)
-
-    return os_version, serial_number, mac_address, hardware_model
+    from app.core.drivers import driver_manager
+    driver = driver_manager.get_driver(device_type)
+    res = driver.parse_info(raw, device_type)
+    return (
+        res.get("os_version") or "",
+        res.get("serial_number") or "",
+        res.get("mac_address") or "",
+        res.get("hardware_model") or ""
+    )
 
 
 def _parse_sys_descr(sys_descr: str, device_type: str) -> tuple[str, str]:
-    os_version = ""
-    hardware_model = ""
-    
     if not sys_descr:
         return "", ""
-        
-    if "juniper" in device_type.lower() or "juniper" in sys_descr.lower():
-        v_match = re.search(r"JUNOS\s+([0-9a-zA-Z\.\-\_]+)", sys_descr, re.IGNORECASE)
-        if v_match:
-            os_version = v_match.group(1)
-        m_match = re.search(r"Inc\.\s+(\S+)", sys_descr, re.IGNORECASE)
-        if m_match:
-            hardware_model = m_match.group(1).upper()
-        else:
-            m_match = re.search(r"Networks,\s+Inc\.\s+([a-zA-Z0-9\-]+)", sys_descr)
-            if m_match:
-                hardware_model = m_match.group(1).upper()
-                
-    elif "cisco" in device_type.lower() or "cisco" in sys_descr.lower():
-        v_match = re.search(r"Version\s+([0-9a-zA-Z\.\(\)\-\_]+)", sys_descr)
-        if v_match:
-            os_version = v_match.group(1)
-        m_match = re.search(r"Software,\s+(\S+)\s+Software", sys_descr)
-        if m_match:
-            hardware_model = m_match.group(1)
-            
-    elif "ruijie" in device_type.lower() or "ruijie" in sys_descr.lower():
-        m_match = re.search(r"\(([^)]+)\)", sys_descr)
-        if m_match:
-            hardware_model = m_match.group(1)
-        v_match = re.search(r"Version\s*[:\s]\s*(\S+)", sys_descr, re.IGNORECASE)
-        if v_match:
-            os_version = v_match.group(1)
-            
-    elif "ruckus" in device_type.lower() or "ruckus" in sys_descr.lower() or "fastiron" in sys_descr.lower():
-        v_match = re.search(r"Version\s+([0-9a-zA-Z\.\-\_]+)", sys_descr, re.IGNORECASE)
-        if v_match:
-            os_version = v_match.group(1)
-        m_match = re.search(r"(ICX\d{3,4}(?:-[A-Za-z0-9\-]+)?)", sys_descr)
-        if m_match:
-            hardware_model = m_match.group(1)
-            hardware_model = re.sub(r"[,\s]+$", "", hardware_model)
-        else:
-            m_match = re.search(r"Inc\.\s+(\S+)", sys_descr, re.IGNORECASE)
-            if m_match:
-                val = m_match.group(1)
-                val = re.sub(r"[,\s]+$", "", val)
-                if val.lower() not in ("wireless", "fastiron"):
-                    hardware_model = val
-
-    elif "allied" in device_type.lower() or "allied" in sys_descr.lower():
-        # Example: "Allied Telesis Switch x930-28GTX, Software Version: AW+ v5.5.2-1.4"
-        v_match = re.search(r"Software Version\s*:\s*(?:AW\+\s+)?v?(\S+)", sys_descr, re.IGNORECASE)
-        if v_match:
-            os_version = v_match.group(1)
-        else:
-            v_match = re.search(r"Version\s+AW\+\s+v?(\S+)", sys_descr, re.IGNORECASE)
-            if v_match:
-                os_version = v_match.group(1)
-            else:
-                v_match = re.search(r"Version\s*[:\s]\s*(\S+)", sys_descr, re.IGNORECASE)
-                if v_match:
-                    os_version = v_match.group(1)
-
-        h_match = re.search(r"Switch\s+(\S+)", sys_descr, re.IGNORECASE)
-        if h_match:
-            hardware_model = h_match.group(1).rstrip(',')
-        else:
-            h_match = re.search(r"Allied Telesis\s+(\S+)", sys_descr, re.IGNORECASE)
-            if h_match:
-                hardware_model = h_match.group(1).rstrip(',')
-
-    else:
-        v_match = re.search(r"Version\s+([0-9a-zA-Z\.\-\_]+)", sys_descr, re.IGNORECASE)
-        if v_match:
-            os_version = v_match.group(1)
-            
-    return os_version, hardware_model
+    from app.core.drivers import driver_manager
+    driver = driver_manager.match_driver_by_sys_descr(sys_descr, device_type)
+    res = driver.parse_snmp_sys_descr(sys_descr)
+    return (
+        res.get("os_version") or "",
+        res.get("hardware_model") or ""
+    )
 
 
 async def walk_first_val(ip: str, community: str, mp_model: int, oid_str: str) -> str:
@@ -667,38 +418,45 @@ def get_expected_speed_mbps(if_name: str) -> int:
         
     return 0
 
-def is_physical_interface(if_name: str) -> bool:
+def is_physical_interface(if_name: str, device_type: str = "") -> bool:
     """Checks if the interface is a physical device port (not virtual/logical/mgmt)."""
-    name_lower = if_name.lower()
-    if '.' in name_lower:
-        return False
-    skips = ('null', 'loopback', 'vlan', 'mgmt', 'management', 'port-channel', 'po', 
-             'bridge', 'bdi', 'tunnel', 'tu', 'lo', 'virtual', 'vl', 'stack', 'portchannel',
-             'wlan', 'veth', 'docker')
-    if any(name_lower.startswith(x) for x in skips):
-        return False
-    if not name_lower or name_lower.isnumeric():
-        return False
-    return True
+    from app.core.drivers import driver_manager
+    driver = driver_manager.get_driver(device_type)
+    return driver.is_physical_interface(if_name)
+
+
+def parse_show_interface_status(cli_output: str, device_type: str = "ruijie") -> list[dict]:
+    """
+    Parses 'show interface status' output.
+    Returns list of dicts with: name, status, admin_status, speed, speed_mbps, vlan, duplex
+    """
+    from app.core.drivers import driver_manager
+    driver = driver_manager.get_driver(device_type)
+    return driver.parse_show_interface_status(cli_output)
+
 
 @router.get("/interfaces/{device_id}")
 async def get_snmp_interfaces(device_id: int):
     # Fetch device
     conn = get_db_conn()
     c = conn.cursor()
-    c.execute("SELECT ip, snmp_version, snmp_community FROM devices WHERE id = ?", (device_id,))
+    c.execute("SELECT * FROM devices WHERE id = ?", (device_id,))
     row = c.fetchone()
     conn.close()
 
     if not row:
         raise HTTPException(status_code=404, detail="Device tidak ditemukan.")
 
-    ip = row["ip"]
-    version = row["snmp_version"] or "v2c"
-    community = row["snmp_community"]
+    device_dict = dict(row)
+    ip = device_dict["ip"]
+    version = device_dict["snmp_version"] or "v2c"
+    community = device_dict["snmp_community"]
 
     if not community:
-        raise HTTPException(status_code=400, detail="SNMP Community belum dikonfigurasi untuk perangkat ini.")
+        # Check if we can do CLI fallback directly if community is not configured
+        protocol = device_dict.get("protocol", "ssh").lower()
+        if protocol not in ("ssh", "telnet"):
+            raise HTTPException(status_code=400, detail="SNMP Community belum dikonfigurasi untuk perangkat ini.")
 
     mp_model = 1 if version == "v2c" else 0
 
@@ -772,7 +530,70 @@ async def get_snmp_interfaces(device_id: int):
     descrs, statuses, speeds, high_speeds, macs, aliases, mtus, types, in_octets_t1, out_octets_t1, hc_in_t1, hc_out_t1, in_errors_t1, out_errors_t1, crc_errors_t1, frame_errors_t1, in_discards_t1, out_discards_t1, late_collisions_t1, admin_statuses = res
 
     if not descrs:
-        raise HTTPException(status_code=400, detail="Gagal mengambil tabel interface via SNMP (Timeout atau port 161 tertutup).")
+        # Check if we can fall back to CLI
+        protocol = device_dict.get("protocol", "ssh").lower()
+        if protocol in ("ssh", "telnet"):
+            try:
+                username, password = get_device_credentials(device_dict)
+                if username and password:
+                    from app.services.connector import connect_and_run
+                    # Run show interface status
+                    cli_output = await connect_and_run(device_dict, password, "show interface status")
+                    if cli_output and not cli_output.startswith("ERROR:"):
+                        cli_interfaces = parse_show_interface_status(cli_output, device_dict.get("device_type", ""))
+                        if cli_interfaces:
+                            # Map to list_ifs format
+                            list_ifs = []
+                            for idx, item in enumerate(cli_interfaces, 1):
+                                list_ifs.append({
+                                    "index": idx,
+                                    "name": item["name"],
+                                    "status": item["status"],
+                                    "admin_status": item["admin_status"],
+                                    "speed": item["speed"],
+                                    "speed_mbps": item["speed_mbps"],
+                                    "mac": "",
+                                    "alias": "",
+                                    "mtu": 1500,
+                                    "type": "ethernetCsmacd",
+                                    "rx_rate": "0 bps",
+                                    "tx_rate": "0 bps",
+                                    "rx_util": "0.00%",
+                                    "tx_util": "0.00%",
+                                    "rx_util_val": 0.0,
+                                    "tx_util_val": 0.0,
+                                    "rx_err": 0,
+                                    "tx_err": 0,
+                                    "crc_err": 0,
+                                    "frame_err": 0,
+                                    "in_discards": 0,
+                                    "out_discards": 0,
+                                    "late_collisions": 0,
+                                    "rx_err_rate": 0.0,
+                                    "tx_err_rate": 0.0,
+                                    "crc_err_rate": 0.0,
+                                    "frame_err_rate": 0.0,
+                                    "in_disc_rate": 0.0,
+                                    "out_disc_rate": 0.0,
+                                    "late_coll_rate": 0.0,
+                                    "speed_drop_warning": None,
+                                    "health_status": "excellent",
+                                    "health_score": 100,
+                                    "issues": []
+                                })
+                            # Sort and return
+                            def natural_sort_key(s):
+                                return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', s["name"])]
+                            try:
+                                list_ifs.sort(key=natural_sort_key)
+                            except:
+                                list_ifs.sort(key=lambda x: x["name"])
+                            return list_ifs
+            except Exception as cli_exc:
+                import logging
+                logging.getLogger("netx.snmp").error(f"Ruijie/CLI fallback failed for {ip}: {cli_exc}")
+        
+        raise HTTPException(status_code=400, detail="Gagal mengambil tabel interface via SNMP (Timeout atau port 161 tertutup) dan CLI fallback tidak tersedia.")
 
     # Step 2: Sleep exactly 1.0 second to measure delta
     await asyncio.sleep(1.0)

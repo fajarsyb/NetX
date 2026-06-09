@@ -76,10 +76,14 @@ def parse_cdp(output: str, device_type: str) -> List[Dict]:
     """Parse CDP neighbor output."""
     if not output or output.startswith("ERROR:"):
         return []
-    
-    # Basically all CDP is Cisco format since it's a Cisco proprietary protocol 
-    # (even if emulated by Ruijie or HP)
-    result = _cisco_cdp(output)
+    from app.core.drivers import driver_manager
+    driver = driver_manager.get_driver(device_type)
+    try:
+        result = driver.parse_cdp(output, device_type)
+        if not result:
+            result = _cisco_cdp(output)
+    except Exception:
+        result = _cisco_cdp(output)
 
     # Post-process to ensure physical ports across all vendors
     for n in result:

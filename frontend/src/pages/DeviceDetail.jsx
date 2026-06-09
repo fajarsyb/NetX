@@ -16,6 +16,8 @@ import WebCli from '../components/Terminal/WebCli'
 import AddDeviceModal from '../components/Device/AddDeviceModal'
 import PortMapper from '../components/PortMapper/PortMapper'
 import { cleanInterfaceName } from '../utils/portUtils'
+import PortAnalysis from './PortAnalysis'
+
 
 // ─── Stat card ─────────────────────────────────────────────────────────────
 function StatCard({ label, value, color = 'blue', icon }) {
@@ -30,6 +32,7 @@ function StatCard({ label, value, color = 'blue', icon }) {
 // ─── Tab definitions ───────────────────────────────────────────────────────
 const TABS = [
   { id: 'port-mapper', label: '🔌 Port Mapper' },
+  { id: 'port-analysis', label: '📊 Port Analysis' },
   { id: 'arp',     label: '📡 ARP Table' },
   { id: 'lldp',    label: '🔗 LLDP' },
   { id: 'cdp',     label: '🤝 CDP' },
@@ -95,6 +98,9 @@ export default function DeviceDetail() {
   const [l2Data,        setL2Data]        = useState(null)
   const [l2Loading,     setL2Loading]     = useState(false)
 
+  // Port Analysis state
+  const [portAnalysisSummary, setPortAnalysisSummary] = useState(null)
+
   // Load device info
   useEffect(() => {
     devicesApi.get(id).then(r => setDevice(r.data)).catch(() => navigate('/'))
@@ -130,6 +136,10 @@ export default function DeviceDetail() {
 
     devicesApi.getPortMap(id).then(r => {
       setPortMap(r.data || [])
+    }).catch(() => {})
+
+    devicesApi.getPortAnalysis(id).then(r => {
+      setPortAnalysisSummary(r.data.summary)
     }).catch(() => {})
   }, [id])
 
@@ -495,6 +505,7 @@ export default function DeviceDetail() {
               borderRadius:'10px', padding:'0 6px', fontSize:'11px', fontWeight:700
             }}>
               {t.id === 'port-mapper' ? portMap.length :
+               t.id === 'port-analysis' ? (portAnalysisSummary?.total_ports || '—') :
                t.id === 'arp' ? arpStats.total : 
                t.id === 'lldp' ? lldpStats.total : 
                t.id === 'cdp' ? cdpStats.total : 
@@ -516,8 +527,14 @@ export default function DeviceDetail() {
 
       {/* ── PORT MAPPER TAB ──────────────────────────────────────────────── */}
       {tab === 'port-mapper' && (
-        <PortMapper portMap={portMap} loading={portMapLoading} onRefresh={handlePortMapRefresh} />
+        <PortMapper portMap={portMap} loading={portMapLoading} onRefresh={handlePortMapRefresh} hardwareModel={device?.hardware_model} />
       )}
+
+      {/* ── PORT ANALYSIS TAB ────────────────────────────────────────────── */}
+      {tab === 'port-analysis' && (
+        <PortAnalysis deviceId={id} />
+      )}
+
 
       {/* ── ARP TAB ──────────────────────────────────────────────────────── */}
       {tab === 'arp' && (

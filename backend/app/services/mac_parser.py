@@ -25,6 +25,16 @@ def parse_mac_table(output: str, device_type: str) -> List[Dict]:
     if not output or output.startswith("ERROR:") or "% Invalid" in output:
         return []
 
+    from app.core.drivers import driver_manager
+    driver = driver_manager.get_driver(device_type)
+    if driver.name != "generic":
+        try:
+            res = driver.parse_mac_table(output, device_type)
+            if res:
+                return res
+        except Exception:
+            pass
+
     entries = []
     lines = output.splitlines()
 

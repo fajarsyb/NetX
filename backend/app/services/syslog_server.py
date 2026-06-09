@@ -38,49 +38,78 @@ def get_log_template(message: str) -> tuple[str, str]:
     return template, pattern_hash
 
 
-# Cache mapping sender IP -> device_id
-# None represents an unregistered device
+# Cache mapping sender IP / hostname -> device info
+# None represents unregistered devices
 IP_TO_DEVICE_CACHE = {}
+HOSTNAME_TO_DEVICE_CACHE = {}
 CACHE_LAST_CLEARED = datetime.now()
 
 def clear_ip_cache():
-    """Clears the IP-to-device mapping cache to pick up updates."""
-    global IP_TO_DEVICE_CACHE, CACHE_LAST_CLEARED
+    """Clears the IP-to-device and hostname mapping cache to pick up updates."""
+    global IP_TO_DEVICE_CACHE, HOSTNAME_TO_DEVICE_CACHE, CACHE_LAST_CLEARED
     IP_TO_DEVICE_CACHE.clear()
+    HOSTNAME_TO_DEVICE_CACHE.clear()
     CACHE_LAST_CLEARED = datetime.now()
-    logger.debug("IP to Device cache cleared.")
+    logger.debug("IP and Hostname to Device cache cleared.")
 
-def resolve_device_id_by_ip(ip: str) -> int | None:
-    """Resolves device_id from sender IP with caching."""
-    global IP_TO_DEVICE_CACHE, CACHE_LAST_CLEARED
+def resolve_device(ip: str, hostname: str | None) -> tuple[int | None, str]:
+    """
+    Resolves device_id and actual device IP by comparing with both socket IP and parsed hostname.
+    Returns (device_id, ip_to_log)
+    """
+    global IP_TO_DEVICE_CACHE, HOSTNAME_TO_DEVICE_CACHE, CACHE_LAST_CLEARED
     
     # Auto-expire cache after 5 minutes
     if datetime.now() - CACHE_LAST_CLEARED > timedelta(minutes=5):
         clear_ip_cache()
         
-    if ip in IP_TO_DEVICE_CACHE:
-        return IP_TO_DEVICE_CACHE[ip]
+    # 1. Search by hostname in devices name/ip first
+    if hostname and hostname != "-":
+        if hostname in HOSTNAME_TO_DEVICE_CACHE:
+            return HOSTNAME_TO_DEVICE_CACHE[hostname]
+            
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute("SELECT id, ip FROM devices WHERE name = ? OR ip = ?", (hostname, hostname))
+        row = c.fetchone()
+        conn.close()
         
-    conn = get_db_conn()
-    c = conn.cursor()
-    c.execute("SELECT id FROM devices WHERE ip = ?", (ip,))
-    row = c.fetchone()
-    conn.close()
-    
-    device_id = row["id"] if row else None
-    IP_TO_DEVICE_CACHE[ip] = device_id
-    return device_id
+        if row:
+            res = (row["id"], row["ip"])
+            HOSTNAME_TO_DEVICE_CACHE[hostname] = res
+            return res
+        else:
+            HOSTNAME_TO_DEVICE_CACHE[hostname] = (None, ip)
 
-def parse_syslog_message(raw_msg: str) -> tuple[int, int, str, str, str]:
+    # 2. Lookup by socket sender IP
+    if ip:
+        if ip in IP_TO_DEVICE_CACHE:
+            device_id = IP_TO_DEVICE_CACHE[ip]
+            return device_id, ip
+            
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute("SELECT id FROM devices WHERE ip = ?", (ip,))
+        row = c.fetchone()
+        conn.close()
+        
+        device_id = row["id"] if row else None
+        IP_TO_DEVICE_CACHE[ip] = device_id
+        return device_id, ip
+
+    return None, ip
+
+def parse_syslog_message(raw_msg: str) -> tuple[int, int, str, str, str, str | None]:
     """
     Parses a raw syslog message.
-    Returns (facility, severity, program, message, timestamp)
+    Returns (facility, severity, program, message, timestamp, hostname)
     """
     facility = 1  # user-level messages default
     severity = 5  # notice default
     program = "syslog"
     message = raw_msg
     timestamp = datetime.now().isoformat()
+    hostname = None
     
     # Parse priority <PRI> (e.g. <30> or <189>)
     pri_match = re.match(r"^<(\d+)>", raw_msg)
@@ -94,29 +123,61 @@ def parse_syslog_message(raw_msg: str) -> tuple[int, int, str, str, str]:
         except ValueError:
             pass
             
-    # Try to extract program/tag (Cisco style %LINK-3-UPDOWN: or %SYS-5-CONFIG_I: or similar)
-    # Common format: %TAG: or TAG: or TAG[PID]:
-    tag_match = re.search(r"%([A-Z0-9_\-]+)(?:-\d+-[A-Z0-9_\-]+)?\s*:", message)
-    if tag_match:
-        program = tag_match.group(1)
-    else:
-        # Generic program tag (e.g. "sshd[1234]:")
-        generic_match = re.search(r"(\b[a-zA-Z0-9_\-]+)(?:\[\d+\])?\s*:", message)
-        if generic_match:
-            candidate = generic_match.group(1)
-            # Avoid matching timestamps or common text like "Interface" as program
-            if candidate.lower() not in ("interface", "port", "vlan", "state", "changed", "oct", "nov", "dec", "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep"):
-                program = candidate
-                
-    # Clean up timestamp strings if they are printed in the syslog message body
-    # e.g. "82: *Oct 11 22:14:14.123: %LINK..." -> Strip prefixes
-    clean_msg = message
-    time_prefix_match = re.search(r"^\d+:\s*(?:\*\w{3}\s+\d+\s+\d+:\d+:\d+(?:\.\d+)?:\s*)?%[A-Z0-9_]+", message)
-    if time_prefix_match:
-        # It's a Cisco formatted message with sequence and timestamp
-        pass
+    # Check if the message matches RFC 5424 format:
+    # VERSION TIMESTAMP HOSTNAME APP-NAME PROCID MSGID STRUCTURED-DATA [MSG]
+    rfc5424_match = re.match(
+        r"^([1-9]\d*)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(-|(?:\[.+?\])+)(?:\s+(.*))?$",
+        message
+    )
+    if rfc5424_match:
+        ts_str = rfc5424_match.group(2)
+        host_str = rfc5424_match.group(3)
+        app_name = rfc5424_match.group(4)
+        msg_body = rfc5424_match.group(8) or ""
         
-    return facility, severity, program, message, timestamp
+        if host_str != "-":
+            hostname = host_str
+            
+        if app_name != "-":
+            program = app_name
+            
+        if ts_str != "-":
+            try:
+                datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                timestamp = ts_str
+            except ValueError:
+                pass
+        message = msg_body
+    else:
+        # Check if the message matches RFC 3164 (legacy) with a hostname, e.g. "Jun  7 22:23:32 AT48-LT-9A dhclient: ..."
+        # BSD timestamp typically looks like "Mmm dd hh:mm:ss" or "yyyy Mmm dd hh:mm:ss"
+        rfc3164_match = re.match(
+            r"^(?:\d{4}\s+)?(?:[A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2})\s+(\S+)\s+(.*)$",
+            message
+        )
+        if rfc3164_match:
+            host_str = rfc3164_match.group(1)
+            msg_body = rfc3164_match.group(2)
+            
+            if host_str != "-":
+                hostname = host_str
+            message = msg_body
+
+        # Try to extract program/tag (Cisco style %LINK-3-UPDOWN: or %SYS-5-CONFIG_I: or similar)
+        # Common format: %TAG: or TAG: or TAG[PID]:
+        tag_match = re.search(r"%([A-Z0-9_\-]+)(?:-\d+-[A-Z0-9_\-]+)?\s*:", message)
+        if tag_match:
+            program = tag_match.group(1)
+        else:
+            # Generic program tag (e.g. "sshd[1234]:")
+            generic_match = re.search(r"(\b[a-zA-Z0-9_\-]+)(?:\[\d+\])?\s*:", message)
+            if generic_match:
+                candidate = generic_match.group(1)
+                # Avoid matching timestamps or common text like "Interface" as program
+                if candidate.lower() not in ("interface", "port", "vlan", "state", "changed", "oct", "nov", "dec", "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep"):
+                    program = candidate
+                
+    return facility, severity, program, message, timestamp, hostname
 
 def analyze_syslog_for_anomalies(device_id: int, severity: int, program: str, message: str, now_iso: str):
     """Parses syslog text to detect network anomalies in real-time."""
@@ -314,20 +375,20 @@ class SyslogProtocol(asyncio.DatagramProtocol):
         try:
             loop = asyncio.get_running_loop()
             
-            # Resolve device_id by IP in a background thread to avoid blocking the event loop
-            device_id = await loop.run_in_executor(None, resolve_device_id_by_ip, ip)
+            # Parse log first to get hostname
+            facility, severity, program, message, timestamp, hostname = parse_syslog_message(raw_msg)
             
-            # Parse log
-            facility, severity, program, message, timestamp = parse_syslog_message(raw_msg)
+            # Resolve device_id and actual ip in a background thread to avoid blocking the event loop
+            device_id, actual_ip = await loop.run_in_executor(None, resolve_device, ip, hostname)
             
             # Get template and hash
             template, pattern_hash = get_log_template(message)
             
-            # Save and analyze in background thread
+            # Save and analyze in background thread (using actual_ip instead of socket ip)
             not_blocked = await loop.run_in_executor(
                 None,
                 save_and_analyze_syslog_db,
-                device_id, ip, facility, severity, program, message, timestamp, raw_msg, template, pattern_hash
+                device_id, actual_ip, facility, severity, program, message, timestamp, raw_msg, template, pattern_hash
             )
             
             # Trigger real-time anomaly checks only if not blocked and device_id is valid

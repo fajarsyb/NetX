@@ -8,27 +8,7 @@ from app.services.connector import connect_and_run
 logger = logging.getLogger("netx.device_backup_service")
 
 
-# ─── CONFIGURATION COMMANDS PER DEVICE TYPE ─────────────────────────────────
-CONFIG_COMMANDS = {
-    "cisco_ios":        "show running-config",
-    "cisco_xe":         "show running-config",
-    "cisco_nxos":       "show running-config",
-    "cisco_asa":        "show running-config",
-    "mikrotik_routeros":"export",
-    "juniper_junos":    "show configuration | display set",
-    "hp_procurve":      "show running-config",
-    "hp_comware":       "display current-configuration",
-    "ruckus_fastiron":  "show running-config",
-    "huawei":           "display current-configuration",
-    "fortinet":         "show",
-    "aruba_os":         "show running-config",
-    "extreme_exos":     "show configuration",
-    "dell_os10":        "show running-configuration",
-    "paloalto_panos":   "show config running",
-    "allied_telesis":   "show running-config",
-    "vyos":             "show configuration",
-    "ruijie_os":        "show running-config",
-}
+# Configuration commands are resolved dynamically using the Vendor Driver Framework.
 
 
 def calculate_next_run(frequency: str, time_str: str = "", day_of_week: int = 0) -> datetime:
@@ -83,7 +63,9 @@ async def backup_device_config(device_id: int, only_if_changed: bool = False, us
 
     # Check device type support
     device_type = device.get("device_type", "")
-    if device_type not in CONFIG_COMMANDS:
+    from app.core.drivers import driver_manager
+    driver = driver_manager.get_driver(device_type)
+    if not driver.supports_backup or not driver.backup_command:
         return {"success": False, "error": f"Tipe perangkat '{device_type}' tidak didukung untuk backup konfigurasi."}
 
     username_cred, password = get_device_credentials(device)
@@ -99,7 +81,7 @@ async def backup_device_config(device_id: int, only_if_changed: bool = False, us
 
     try:
         # Run command via Netmiko connector
-        command = CONFIG_COMMANDS[device_type]
+        command = driver.backup_command
         output = await connect_and_run(device, password, command)
 
         if output.startswith("ERROR:"):
@@ -193,11 +175,14 @@ async def execute_schedule_backups(schedule: dict):
 
     conn = get_db_conn()
     c = conn.cursor()
+    from app.core.drivers import driver_manager
     if device_target == "all":
-        supported_types = list(CONFIG_COMMANDS.keys())
-        placeholders = ",".join("?" for _ in supported_types)
-        c.execute(f"SELECT id FROM devices WHERE device_type IN ({placeholders})", supported_types)
-        device_ids = [row["id"] for row in c.fetchall()]
+        c.execute("SELECT id, device_type FROM devices")
+        device_ids = []
+        for row in c.fetchall():
+            drv = driver_manager.get_driver(row["device_type"])
+            if drv and drv.supports_backup and drv.backup_command:
+                device_ids.append(row["id"])
     else:
         try:
             device_ids = [int(x.strip()) for x in device_target.split(",") if x.strip()]
