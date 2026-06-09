@@ -3,7 +3,7 @@ import { X, RefreshCw, CheckCircle2, AlertCircle, Play, Info, Search } from 'luc
 import { devicesApi, groupsApi } from '../../api/client'
 import { useToast } from '../shared/ToastProvider'
 
-export default function BulkRefreshModal({ onClose, onSuccess }) {
+export default function BulkRefreshModal({ onClose, onSuccess, preselectedIds = null }) {
   const [devices, setDevices] = useState([])
   const [groups, setGroups] = useState([])
   const [selectedGroup, setSelectedGroup] = useState('')
@@ -33,11 +33,14 @@ export default function BulkRefreshModal({ onClose, onSuccess }) {
     // Load devices and groups
     devicesApi.list().then(res => {
       setDevices(res.data)
-      // Default to check all devices
       const initialDevs = {}
-      res.data.forEach(d => {
-        initialDevs[d.id] = true
-      })
+      if (preselectedIds && preselectedIds.length > 0) {
+        // Pre-select only the passed ids
+        preselectedIds.forEach(id => { initialDevs[id] = true })
+      } else {
+        // Default: check all devices
+        res.data.forEach(d => { initialDevs[d.id] = true })
+      }
       setSelectedDevices(initialDevs)
     }).catch(() => toast.error('Gagal mengambil data perangkat.'))
 

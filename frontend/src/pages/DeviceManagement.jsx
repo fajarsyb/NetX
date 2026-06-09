@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Server, Plus, Trash2, Edit2, Play, RefreshCw, Search, Download, Upload, ChevronLeft, ChevronRight } from 'lucide-react'
+import {
+  Server, Plus, Trash2, Edit2, Play, RefreshCw, Search, Download, Upload,
+  ChevronLeft, ChevronRight, CheckSquare, Square, X, Zap, CheckCheck, Layers
+} from 'lucide-react'
 import { devicesApi, groupsApi } from '../api/client'
 import { useToast } from '../components/shared/ToastProvider'
 import { useAuth } from '../context/AuthContext'
@@ -19,9 +22,19 @@ export default function DeviceManagement() {
   const [page, setPage] = useState(1)
   const limit = 20
 
+  // ── Bulk selection state ──────────────────────────────────────────────────
+  const [selectedIds, setSelectedIds] = useState(new Set())
+  const [showBulkBar, setShowBulkBar] = useState(false)
+  const [bulkRefreshing, setBulkRefreshing] = useState(false)
+  const [bulkProgress, setBulkProgress] = useState(null)  // { current, total, done }
+
   useEffect(() => {
     setPage(1)
   }, [search, selectedGroup])
+
+  useEffect(() => {
+    setShowBulkBar(selectedIds.size > 0)
+  }, [selectedIds])
   
   // Modal states
   const [showAddModal, setShowAddModal] = useState(false)
@@ -64,7 +77,6 @@ export default function DeviceManagement() {
       } else {
         toast.error(res.data.message)
       }
-      // Reload devices to update status and last seen
       const devRes = await devicesApi.list()
       setDevices(devRes.data)
     } catch (err) {
@@ -79,6 +91,7 @@ export default function DeviceManagement() {
     try {
       await devicesApi.remove(id)
       toast.success('Perangkat berhasil dihapus.')
+      setSelectedIds(prev => { const s = new Set(prev); s.delete(id); return s })
       fetchData()
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Gagal menghapus perangkat.')
@@ -102,17 +115,10 @@ export default function DeviceManagement() {
     }
   }
 
-  const openAdd = () => {
-    setEditDevice(null)
-    setShowAddModal(true)
-  }
+  const openAdd = () => { setEditDevice(null); setShowAddModal(true) }
+  const openEdit = (d) => { setEditDevice(d); setShowAddModal(true) }
 
-  const openEdit = (d) => {
-    setEditDevice(d)
-    setShowAddModal(true)
-  }
-
-  // Filter devices by search term and selected group
+  // ── Filtering + Pagination ────────────────────────────────────────────────
   const filteredDevices = devices.filter(d => {
     const s = search.toLowerCase()
     const matchSearch = d.name.toLowerCase().includes(s) || 
@@ -129,6 +135,76 @@ export default function DeviceManagement() {
   const startIndex = (page - 1) * limit
   const paginatedDevices = filteredDevices.slice(startIndex, startIndex + limit)
   const totalPages = Math.ceil(filteredDevices.length / limit) || 1
+
+  // ── Bulk selection helpers ────────────────────────────────────────────────
+  const toggleRow = (id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  const isPageAllSelected = paginatedDevices.length > 0 && paginatedDevices.every(d => selectedIds.has(d.id))
+  const isPagePartialSelected = paginatedDevices.some(d => selectedIds.has(d.id)) && !isPageAllSelected
+
+  const togglePageAll = () => {
+    if (isPageAllSelected) {
+      setSelectedIds(prev => {
+        const next = new Set(prev)
+        paginatedDevices.forEach(d => next.delete(d.id))
+        return next
+      })
+    } else {
+      setSelectedIds(prev => {
+        const next = new Set(prev)
+        paginatedDevices.forEach(d => next.add(d.id))
+        return next
+      })
+    }
+  }
+
+  const selectAll = () => setSelectedIds(new Set(filteredDevices.map(d => d.id)))
+  const clearSelection = () => setSelectedIds(new Set())
+
+  // ── Bulk Refresh Inline ───────────────────────────────────────────────────
+  const handleBulkRefreshSelected = async (components = ['info', 'arp', 'lldp', 'cdp', 'mac']) => {
+    if (selectedIds.size === 0) { toast.warning('Pilih minimal 1 perangkat.'); return }
+    setBulkRefreshing(true)
+    setBulkProgress({ current: 0, total: selectedIds.size, done: false })
+    try {
+      const res = await devicesApi.bulkRefresh({
+        device_ids: Array.from(selectedIds),
+        components,
+      })
+      if (!res.data.success) { toast.error('Gagal memulai bulk refresh.'); setBulkRefreshing(false); return }
+      toast.success(`Bulk refresh dimulai untuk ${selectedIds.size} perangkat...`)
+      const taskId = res.data.task_id
+      // Poll until done
+      const poll = setInterval(async () => {
+        try {
+          const sr = await devicesApi.getBulkRefreshStatus(taskId)
+          setBulkProgress({ current: sr.data.current, total: sr.data.total, done: false })
+          if (sr.data.status === 'completed' || sr.data.status === 'failed') {
+            clearInterval(poll)
+            setBulkRefreshing(false)
+            setBulkProgress(p => ({ ...p, done: true }))
+            toast.success('Bulk refresh selesai!')
+            fetchData()
+            setTimeout(() => setBulkProgress(null), 3000)
+          }
+        } catch {
+          clearInterval(poll)
+          setBulkRefreshing(false)
+          setBulkProgress(null)
+        }
+      }, 1200)
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Gagal memulai bulk refresh.')
+      setBulkRefreshing(false)
+      setBulkProgress(null)
+    }
+  }
 
   const STATUS_DOT_STYLE = {
     online:  { background: 'var(--success)', boxShadow: '0 0 6px var(--success)' },
@@ -166,20 +242,17 @@ export default function DeviceManagement() {
         </div>
       </div>
 
-      {/* Filter Card */}
+      {/* ── Filter Card ────────────────────────────────────── */}
       <div className="card mb-16" style={{ padding: '16px 20px' }}>
         <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
-          {/* Search Box */}
           <div className="search-box" style={{ flex: '1 1 240px' }}>
             <Search className="search-icon" />
             <input 
-              placeholder="Cari nama atau IP device..." 
+              placeholder="Cari nama, IP, model, serial..." 
               value={search} 
               onChange={e => setSearch(e.target.value)} 
             />
           </div>
-
-          {/* Group Filter */}
           <div style={{ flex: '0 0 200px' }}>
             <select 
               className="form-control"
@@ -193,10 +266,121 @@ export default function DeviceManagement() {
               ))}
             </select>
           </div>
+          {/* Select All helpers */}
+          {!isViewer && filteredDevices.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={selectAll}
+                style={{ fontSize: 11, padding: '4px 10px', display: 'flex', alignItems: 'center', gap: 4 }}
+                title="Pilih semua perangkat terfilter"
+              >
+                <CheckCheck size={13} /> Pilih Semua ({filteredDevices.length})
+              </button>
+              {selectedIds.size > 0 && (
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={clearSelection}
+                  style={{ fontSize: 11, padding: '4px 10px', display: 'flex', alignItems: 'center', gap: 4, color: 'var(--text-muted)' }}
+                >
+                  <X size={12} /> Hapus Pilihan
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Table Card */}
+      {/* ── Bulk Action Bar ───────────────────────────────── */}
+      {showBulkBar && !isViewer && (
+        <div style={{
+          position: 'sticky',
+          top: 70,
+          zIndex: 50,
+          background: 'linear-gradient(135deg, #1a2a4a, #132035)',
+          border: '1px solid var(--primary)',
+          borderRadius: 10,
+          padding: '10px 20px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 14,
+          marginBottom: 16,
+          boxShadow: '0 4px 20px rgba(79,142,247,0.2)',
+          flexWrap: 'wrap',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
+            <Layers size={16} style={{ color: 'var(--primary)' }} />
+            <span style={{ fontWeight: 700, color: 'var(--primary)', fontSize: 14 }}>
+              {selectedIds.size} perangkat dipilih
+            </span>
+            {bulkProgress && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 8 }}>
+                <div style={{ width: 120, height: 6, background: 'var(--border)', borderRadius: 3, overflow: 'hidden' }}>
+                  <div style={{
+                    width: `${bulkProgress.total > 0 ? Math.round((bulkProgress.current / bulkProgress.total) * 100) : 0}%`,
+                    height: '100%',
+                    background: bulkProgress.done ? 'var(--success)' : 'var(--primary)',
+                    transition: 'width 0.4s ease',
+                    borderRadius: 3,
+                  }} />
+                </div>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                  {bulkProgress.done ? '✓ Selesai' : `${bulkProgress.current}/${bulkProgress.total}`}
+                </span>
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              className="btn btn-sm btn-primary"
+              disabled={bulkRefreshing}
+              onClick={() => handleBulkRefreshSelected(['info'])}
+              style={{ fontSize: 11, padding: '5px 12px' }}
+              title="Refresh Hardware Info saja"
+            >
+              {bulkRefreshing ? <RefreshCw size={12} className="animate-spin" /> : <Zap size={12} />}
+              Info
+            </button>
+            <button
+              className="btn btn-sm btn-primary"
+              disabled={bulkRefreshing}
+              onClick={() => handleBulkRefreshSelected(['arp', 'mac'])}
+              style={{ fontSize: 11, padding: '5px 12px' }}
+              title="Refresh ARP + MAC Table"
+            >
+              {bulkRefreshing ? <RefreshCw size={12} className="animate-spin" /> : <Zap size={12} />}
+              ARP + MAC
+            </button>
+            <button
+              className="btn btn-sm btn-primary"
+              disabled={bulkRefreshing}
+              onClick={() => handleBulkRefreshSelected(['info', 'arp', 'lldp', 'cdp', 'mac'])}
+              style={{ fontSize: 11, padding: '5px 12px', background: 'linear-gradient(135deg,#10b981,#059669)' }}
+              title="Refresh semua komponen"
+            >
+              {bulkRefreshing ? <RefreshCw size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+              Refresh Semua
+            </button>
+            <button
+              className="btn btn-sm btn-ghost"
+              onClick={() => setShowBulkModal(true)}
+              style={{ fontSize: 11, padding: '5px 12px' }}
+              title="Buka dialog penyegaran massal lanjutan"
+            >
+              <RefreshCw size={12} /> Lanjutan...
+            </button>
+            <button
+              className="btn btn-sm btn-ghost"
+              onClick={clearSelection}
+              style={{ fontSize: 11, padding: '5px 10px' }}
+            >
+              <X size={12} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Table Card ────────────────────────────────────── */}
       <div className="card">
         {loading ? (
           <div className="loading-overlay" style={{ minHeight: '300px' }}>
@@ -215,6 +399,22 @@ export default function DeviceManagement() {
               <table>
                 <thead>
                   <tr>
+                    {!isViewer && (
+                      <th style={{ width: 40, textAlign: 'center', padding: '10px 8px' }}>
+                        <button
+                          onClick={togglePageAll}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: isPageAllSelected ? 'var(--primary)' : 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                          title={isPageAllSelected ? 'Deselect page' : 'Select page'}
+                        >
+                          {isPageAllSelected
+                            ? <CheckSquare size={15} style={{ color: 'var(--primary)' }} />
+                            : isPagePartialSelected
+                              ? <CheckSquare size={15} style={{ color: 'var(--warning)', opacity: 0.7 }} />
+                              : <Square size={15} />
+                          }
+                        </button>
+                      </th>
+                    )}
                     <th>Nama Device</th>
                     <th>IP Address</th>
                     <th>Kategori</th>
@@ -229,8 +429,29 @@ export default function DeviceManagement() {
                 <tbody>
                   {paginatedDevices.map(d => {
                     const st = d.status || 'unknown'
+                    const isSelected = selectedIds.has(d.id)
                     return (
-                      <tr key={d.id}>
+                      <tr
+                        key={d.id}
+                        style={{
+                          background: isSelected ? 'rgba(79,142,247,0.06)' : undefined,
+                          borderLeft: isSelected ? '2px solid var(--primary)' : '2px solid transparent',
+                          transition: 'background 0.1s, border-color 0.1s',
+                        }}
+                      >
+                        {!isViewer && (
+                          <td style={{ width: 40, textAlign: 'center', padding: '10px 8px' }}>
+                            <button
+                              onClick={() => toggleRow(d.id)}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: isSelected ? 'var(--primary)' : 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                            >
+                              {isSelected
+                                ? <CheckSquare size={15} style={{ color: 'var(--primary)' }} />
+                                : <Square size={15} />
+                              }
+                            </button>
+                          </td>
+                        )}
                         <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
                           <span 
                             onClick={() => navigate(`/device/${d.id}`)}
@@ -310,8 +531,15 @@ export default function DeviceManagement() {
 
             {/* Pagination Controls */}
             <div className="flex-between mt-16" style={{ padding: '12px 16px', borderTop: '1px solid var(--border)' }}>
-              <div className="text-muted" style={{ fontSize: '12.5px' }}>
-                Menampilkan perangkat ke-{filteredDevices.length === 0 ? 0 : startIndex + 1} s.d. {Math.min(page * limit, filteredDevices.length)} dari {filteredDevices.length} perangkat
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div className="text-muted" style={{ fontSize: '12.5px' }}>
+                  Menampilkan ke-{filteredDevices.length === 0 ? 0 : startIndex + 1} s.d. {Math.min(page * limit, filteredDevices.length)} dari {filteredDevices.length} perangkat
+                </div>
+                {selectedIds.size > 0 && (
+                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--primary)', background: 'var(--primary-dim)', padding: '2px 8px', borderRadius: 10 }}>
+                    {selectedIds.size} dipilih
+                  </span>
+                )}
               </div>
               <div className="flex-center gap-12">
                 <button 
@@ -349,6 +577,7 @@ export default function DeviceManagement() {
         <BulkRefreshModal 
           onClose={() => setShowBulkModal(false)}
           onSuccess={() => { fetchData(); }}
+          preselectedIds={selectedIds.size > 0 ? Array.from(selectedIds) : null}
         />
       )}
 
