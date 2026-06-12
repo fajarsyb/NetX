@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import Sidebar from './components/Layout/Sidebar'
 import Dashboard from './pages/Dashboard'
 import DeviceDetail from './pages/DeviceDetail'
@@ -66,50 +66,69 @@ function AdminRoute({ children }) {
   return children
 }
 
+function AppContent() {
+  const location = useLocation()
+  const isTerminalPage = location.pathname === '/terminal'
+
+  return (
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      <Route path="*" element={
+        <ProtectedRoute>
+          <div className="app-layout">
+            <Sidebar />
+            <main className="main-content" style={{ position: 'relative', height: '100%' }}>
+              {/* Persist Terminal Console across navigation */}
+              <div style={{ display: isTerminalPage ? 'block' : 'none', height: '100%' }}>
+                <PermissionGuard menu="terminal">
+                  <TerminalConsole isPageActive={isTerminalPage} />
+                </PermissionGuard>
+              </div>
+
+              {/* Standard routes content (only rendered when not on terminal page) */}
+              <div style={{ display: !isTerminalPage ? 'block' : 'none', height: '100%' }}>
+                <Routes>
+                  <Route path="/" element={<PermissionGuard menu="dashboard"><Dashboard /></PermissionGuard>} />
+                  <Route path="/device/:id" element={<DeviceDetail />} />
+                  <Route path="/port-analysis" element={<PermissionGuard menu="devices"><PortAnalysis /></PermissionGuard>} />
+                  <Route path="/device/:id/port-analysis" element={<PermissionGuard menu="devices"><PortAnalysis /></PermissionGuard>} />
+                  <Route path="/users" element={<AdminRoute><UserManagement /></AdminRoute>} />
+                  <Route path="/groups" element={<PermissionGuard menu="groups"><GroupManagement /></PermissionGuard>} />
+                  <Route path="/credentials" element={<PermissionGuard menu="settings" feature="manage_credentials"><CredentialManagement /></PermissionGuard>} />
+                  <Route path="/credential-scan" element={<PermissionGuard menu="settings" feature="manage_credentials"><CredentialScan /></PermissionGuard>} />
+                  <Route path="/audit-logs" element={<PermissionGuard menu="audit_logs"><AuditLogs /></PermissionGuard>} />
+                  <Route path="/backup" element={<PermissionGuard menu="settings" feature="backup_db"><BackupManagement /></PermissionGuard>} />
+                  <Route path="/db-settings" element={<PermissionGuard menu="settings" feature="postgresql_config"><DatabaseSettings /></PermissionGuard>} />
+                  <Route path="/system-health" element={<AdminRoute><SystemHealth /></AdminRoute>} />
+                  <Route path="/device-backup" element={<PermissionGuard menu="settings" feature="device_backup"><DeviceBackup /></PermissionGuard>} />
+                  <Route path="/devices" element={<PermissionGuard menu="devices"><DeviceManagement /></PermissionGuard>} />
+                  <Route path="/thresholds" element={<PermissionGuard menu="settings" feature="threshold_profiles"><ThresholdProfiles /></PermissionGuard>} />
+                  <Route path="/snmp-tester" element={<PermissionGuard menu="settings" feature="snmp_tester"><SnmpTester /></PermissionGuard>} />
+                  <Route path="/mibs" element={<PermissionGuard menu="settings" feature="mibs"><MibManagement /></PermissionGuard>} />
+                  <Route path="/topology" element={<PermissionGuard menu="topology"><Topology /></PermissionGuard>} />
+                  <Route path="/mac-investigation" element={<Navigate to="/investigation" replace />} />
+                  <Route path="/investigation" element={<PermissionGuard menu="investigation"><MacInvestigation /></PermissionGuard>} />
+                  <Route path="/anomalies" element={<PermissionGuard menu="anomalies"><NetworkAnomalies /></PermissionGuard>} />
+                  <Route path="/syslog" element={<PermissionGuard menu="syslog"><SyslogViewer /></PermissionGuard>} />
+                  <Route path="/terminal" element={<div />} />
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+              </div>
+            </main>
+          </div>
+        </ProtectedRoute>
+      } />
+    </Routes>
+  )
+}
+
 export default function App() {
   return (
     <BrowserRouter>
       <ToastProvider>
         <ThemeProvider>
           <AuthProvider>
-            <Routes>
-              <Route path="/login" element={<Login />} />
-              <Route path="*" element={
-                <ProtectedRoute>
-                  <div className="app-layout">
-                    <Sidebar />
-                    <main className="main-content">
-                      <Routes>
-                        <Route path="/" element={<PermissionGuard menu="dashboard"><Dashboard /></PermissionGuard>} />
-                        <Route path="/device/:id" element={<DeviceDetail />} />
-                        <Route path="/port-analysis" element={<PermissionGuard menu="devices"><PortAnalysis /></PermissionGuard>} />
-                        <Route path="/device/:id/port-analysis" element={<PermissionGuard menu="devices"><PortAnalysis /></PermissionGuard>} />
-                        <Route path="/users" element={<AdminRoute><UserManagement /></AdminRoute>} />
-                        <Route path="/groups" element={<PermissionGuard menu="groups"><GroupManagement /></PermissionGuard>} />
-                        <Route path="/credentials" element={<PermissionGuard menu="settings" feature="manage_credentials"><CredentialManagement /></PermissionGuard>} />
-                        <Route path="/credential-scan" element={<PermissionGuard menu="settings" feature="manage_credentials"><CredentialScan /></PermissionGuard>} />
-                        <Route path="/audit-logs" element={<PermissionGuard menu="audit_logs"><AuditLogs /></PermissionGuard>} />
-                        <Route path="/backup" element={<PermissionGuard menu="settings" feature="backup_db"><BackupManagement /></PermissionGuard>} />
-                        <Route path="/db-settings" element={<PermissionGuard menu="settings" feature="postgresql_config"><DatabaseSettings /></PermissionGuard>} />
-                        <Route path="/system-health" element={<AdminRoute><SystemHealth /></AdminRoute>} />
-                        <Route path="/device-backup" element={<PermissionGuard menu="settings" feature="device_backup"><DeviceBackup /></PermissionGuard>} />
-                        <Route path="/devices" element={<PermissionGuard menu="devices"><DeviceManagement /></PermissionGuard>} />
-                        <Route path="/thresholds" element={<PermissionGuard menu="settings" feature="threshold_profiles"><ThresholdProfiles /></PermissionGuard>} />
-                        <Route path="/snmp-tester" element={<PermissionGuard menu="settings" feature="snmp_tester"><SnmpTester /></PermissionGuard>} />
-                        <Route path="/mibs" element={<PermissionGuard menu="settings" feature="mibs"><MibManagement /></PermissionGuard>} />
-                        <Route path="/topology" element={<PermissionGuard menu="topology"><Topology /></PermissionGuard>} />
-                        <Route path="/mac-investigation" element={<Navigate to="/investigation" replace />} />
-                        <Route path="/investigation" element={<PermissionGuard menu="investigation"><MacInvestigation /></PermissionGuard>} />
-                        <Route path="/anomalies" element={<PermissionGuard menu="anomalies"><NetworkAnomalies /></PermissionGuard>} />
-                        <Route path="/syslog" element={<PermissionGuard menu="syslog"><SyslogViewer /></PermissionGuard>} />
-                        <Route path="/terminal" element={<PermissionGuard menu="terminal"><TerminalConsole /></PermissionGuard>} />
-                        <Route path="*" element={<Navigate to="/" replace />} />
-                      </Routes>
-                    </main>
-                  </div>
-                </ProtectedRoute>
-              } />
-            </Routes>
+            <AppContent />
           </AuthProvider>
         </ThemeProvider>
       </ToastProvider>

@@ -6,7 +6,7 @@ import ShellNotes from '../components/Terminal/ShellNotes'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../components/shared/ToastProvider'
 
-export default function TerminalConsole() {
+export default function TerminalConsole({ isPageActive = true }) {
   const [tabs, setTabs] = useState([])
   const [activeTabId, setActiveTabId] = useState(null)
   const [showSelectModal, setShowSelectModal] = useState(false)
@@ -319,7 +319,7 @@ export default function TerminalConsole() {
                       isDirectSerial={tab.isDirectSerial}
                       serialPort={tab.serialPort}
                       baudRate={tab.baudRate}
-                      isActive={activeTabId === tab.id}
+                      isActive={activeTabId === tab.id && isPageActive}
                       height="100%"
                     />
                   </div>
