@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Terminal, Plus, X, Monitor, ShieldAlert, BookOpen, PanelRight, PanelRightClose, Search } from 'lucide-react'
+import { Terminal, Plus, X, Monitor, ShieldAlert, BookOpen, PanelRight, PanelRightClose, Search, RefreshCw } from 'lucide-react'
 import api from '../api/client'
 import WebCli from '../components/Terminal/WebCli'
 import ShellNotes from '../components/Terminal/ShellNotes'
@@ -52,6 +52,16 @@ export default function TerminalConsole() {
       console.warn('Gagal mengambil daftar serial port:', err)
     }
   }
+
+  useEffect(() => {
+    if (serialPorts.length > 0) {
+      if (!selectedPort || !serialPorts.some(p => p.port === selectedPort)) {
+        setSelectedPort(serialPorts[0].port)
+      }
+    } else {
+      setSelectedPort('')
+    }
+  }, [serialPorts])
 
   useEffect(() => {
     fetchDevices()
@@ -134,6 +144,9 @@ export default function TerminalConsole() {
       return
     }
     setSearchQuery('')
+    setModalTab('device')
+    setSelectedPort('')
+    fetchSerialPorts()
     setShowSelectModal(true)
   }
 
@@ -469,13 +482,13 @@ export default function TerminalConsole() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                   <div className="form-group">
                     <label className="form-label" style={{ fontSize: '12.5px', fontWeight: 600 }}>Select COM / tty Port *</label>
-                    <div style={{ display: 'flex', gap: '8px' }}>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                       <select
                         className="form-control"
                         value={selectedPort}
                         onChange={e => setSelectedPort(e.target.value)}
                         required
-                        style={{ fontSize: '12.5px' }}
+                        style={{ fontSize: '12.5px', flexGrow: 1 }}
                       >
                         <option value="">-- Pilih Serial Port --</option>
                         {serialPorts.map(p => (
@@ -483,6 +496,17 @@ export default function TerminalConsole() {
                         ))}
                         <option value="custom">Input Manual...</option>
                       </select>
+                      
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={fetchSerialPorts}
+                        title="Re-scan / Deteksi Ulang Port Serial"
+                        style={{ padding: '8px', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '38px', width: '38px' }}
+                      >
+                        <RefreshCw size={14} />
+                      </button>
+
                       {(!serialPorts.some(p => p.port === selectedPort) || selectedPort === 'custom') && (
                         <input
                           className="form-control"
@@ -490,7 +514,7 @@ export default function TerminalConsole() {
                           value={selectedPort === 'custom' ? '' : selectedPort}
                           onChange={e => setSelectedPort(e.target.value)}
                           required
-                          style={{ fontSize: '12.5px' }}
+                          style={{ fontSize: '12.5px', flexGrow: 1 }}
                         />
                       )}
                     </div>

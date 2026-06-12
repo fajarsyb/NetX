@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, Network, Eye, EyeOff, TestTube, Key } from 'lucide-react'
+import { X, Network, Eye, EyeOff, TestTube, Key, RefreshCw } from 'lucide-react'
 import { devicesApi, groupsApi, credentialsApi, thresholdsApi } from '../../api/client'
 import { useToast } from '../shared/ToastProvider'
 
@@ -118,8 +118,14 @@ export default function AddDeviceModal({ onClose, onSuccess, editDevice = null }
       if (k === 'protocol') {
         if (v === 'serial') {
           updated.port = 9600
+          if (serialPorts.length > 0) {
+            updated.ip = serialPorts[0].port
+          } else {
+            updated.ip = ''
+          }
         } else {
           updated.port = DEFAULT_PORTS[v] || 22
+          updated.ip = ''
         }
       }
       return updated
@@ -231,12 +237,13 @@ export default function AddDeviceModal({ onClose, onSuccess, editDevice = null }
               <div className="form-group">
                 <label className="form-label">{form.protocol === 'serial' ? 'Serial Port *' : 'IP Address *'}</label>
                 {form.protocol === 'serial' ? (
-                  <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                     <select 
                       className="form-control"
                       value={form.ip}
                       onChange={e => set('ip', e.target.value)}
                       required
+                      style={{ flexGrow: 1 }}
                     >
                       <option value="">-- Pilih Serial Port --</option>
                       {serialPorts.map(p => (
@@ -244,6 +251,26 @@ export default function AddDeviceModal({ onClose, onSuccess, editDevice = null }
                       ))}
                       <option value="custom">Input Manual...</option>
                     </select>
+
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => {
+                        devicesApi.getSerialPorts()
+                          .then(r => {
+                            setSerialPorts(r.data || []);
+                            if (r.data && r.data.length > 0 && (!form.ip || !r.data.some(p => p.port === form.ip))) {
+                              set('ip', r.data[0].port);
+                            }
+                          })
+                          .catch(() => {});
+                      }}
+                      title="Re-scan / Deteksi Ulang Port Serial"
+                      style={{ padding: '8px', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '38px', width: '38px' }}
+                    >
+                      <RefreshCw size={14} />
+                    </button>
+
                     {(!serialPorts.some(p => p.port === form.ip) || form.ip === 'custom') && (
                       <input 
                         className="form-control" 
@@ -251,6 +278,7 @@ export default function AddDeviceModal({ onClose, onSuccess, editDevice = null }
                         value={form.ip === 'custom' ? '' : form.ip}
                         onChange={e => set('ip', e.target.value)} 
                         required 
+                        style={{ flexGrow: 1 }}
                       />
                     )}
                   </div>
