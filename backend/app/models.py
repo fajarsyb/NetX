@@ -4,9 +4,9 @@ from typing import Optional
 
 class DeviceCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
-    ip: str = Field(..., min_length=7)
+    ip: str = Field(..., min_length=3)
     protocol: str = Field(default="ssh")
-    port: int = Field(default=22, ge=1, le=65535)
+    port: int = Field(default=22, ge=1, le=1000000)
     username: Optional[str] = ""
     password: Optional[str] = ""
     device_type: str = Field(..., min_length=1)

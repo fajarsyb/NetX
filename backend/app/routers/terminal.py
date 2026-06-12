@@ -8,6 +8,52 @@ from app.database import get_db_conn, decrypt_password, get_device_credentials
 logger = logging.getLogger("netx.terminal")
 router = APIRouter(prefix="/api/terminal", tags=["terminal"])
 
+@router.get("/serial-ports")
+def list_serial_ports():
+    import serial.tools.list_ports
+    try:
+        ports = serial.tools.list_ports.comports()
+        return [{"port": p.device, "description": p.description} for p in ports]
+    except Exception as e:
+        logger.error(f"Error listing serial ports: {e}")
+        return []
+
+async def forward_serial_out(ser, websocket):
+    """Read from serial port and send to websocket."""
+    try:
+        while True:
+            # Check if bytes are available on the serial port
+            if ser.in_waiting > 0:
+                data = ser.read(4096)
+                if not data:
+                    break
+                await websocket.send_text(data.decode("utf-8", errors="replace"))
+            else:
+                await asyncio.sleep(0.01)
+    except Exception as e:
+        logger.error(f"Error in forward_serial_out: {e}")
+    finally:
+        try:
+            await websocket.close()
+        except Exception:
+            pass
+
+async def forward_serial_in(websocket, ser):
+    """Read from websocket and write to serial port."""
+    try:
+        while True:
+            data = await websocket.receive_text()
+            ser.write(data.encode("utf-8"))
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.error(f"Error in forward_serial_in: {e}")
+    finally:
+        try:
+            ser.close()
+        except Exception:
+            pass
+
 async def forward_out(channel: paramiko.Channel, websocket: WebSocket):
     """Read from paramiko channel and send to websocket."""
     try:
@@ -153,9 +199,33 @@ async def websocket_terminal(websocket: WebSocket, device_id: int, token: str):
         username, password = get_device_credentials(device)
         device["username"] = username
 
-        if device.get("protocol", "ssh").lower() != "ssh":
-            await websocket.send_text("\r\n[Error] Web CLI saat ini hanya didukung untuk perangkat protokol SSH.\r\n")
+        protocol = device.get("protocol", "ssh").lower()
+        if protocol not in ("ssh", "serial"):
+            await websocket.send_text("\r\n[Error] Web CLI saat ini hanya didukung untuk protokol SSH dan Serial.\r\n")
             return
+
+        if protocol == "serial":
+            port_name = device["ip"]
+            baud_rate = device.get("port", 9600) or 9600
+            await websocket.send_text(f"Connecting to Serial Port {port_name} @ {baud_rate} baud...\r\n")
+            try:
+                import serial
+                ser = await asyncio.to_thread(
+                    serial.Serial,
+                    port=port_name,
+                    baudrate=baud_rate,
+                    timeout=0.1
+                )
+                await websocket.send_text("Connected to serial port! Console ready.\r\n\r\n")
+                task_out = asyncio.create_task(forward_serial_out(ser, websocket))
+                task_in = asyncio.create_task(forward_serial_in(websocket, ser))
+                await asyncio.gather(task_out, task_in)
+                return
+            except Exception as e:
+                err_msg = f"Gagal membuka serial port {port_name}: {e}"
+                logger.error(err_msg)
+                await websocket.send_text(f"\r\n[Error] {err_msg}\r\n")
+                return
 
         await websocket.send_text(f"Connecting to {device['ip']} via SSH...\r\n")
 

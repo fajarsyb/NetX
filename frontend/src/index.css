@@ -418,6 +418,7 @@ body {
 .badge-unknown { background: var(--bg-hover);      color: var(--text-muted); }
 .badge-ssh     { background: var(--primary-dim);   color: var(--primary); }
 .badge-telnet  { background: var(--purple-glow);   color: var(--purple); }
+.badge-serial  { background: rgba(168,85,247,0.15); color: #a855f7; }
 
 .status-dot {
   width: 7px; height: 7px;

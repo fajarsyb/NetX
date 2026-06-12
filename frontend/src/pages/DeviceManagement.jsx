@@ -589,32 +589,36 @@ export default function DeviceManagement() {
                         {!isViewer && (
                           <td style={{ textAlign: 'right' }}>
                             <div className="flex-center" style={{ justifyContent: 'flex-end', gap: '8px' }}>
-                              <button 
-                                className="btn btn-ghost btn-sm" 
-                                style={{ color: 'var(--accent)' }}
-                                onClick={() => handleTestConnection(d.id)}
-                                disabled={testingDevices[d.id]}
-                                title="Test Koneksi (SSH/Telnet)"
-                              >
-                                {testingDevices[d.id] ? (
-                                  <RefreshCw size={14} className="animate-spin" />
-                                ) : (
-                                  <Play size={13} />
-                                )}
-                              </button>
-                              <button 
-                                className="btn btn-ghost btn-sm" 
-                                style={{ color: 'var(--primary)' }}
-                                onClick={() => handlePingDevice(d.id)}
-                                disabled={pingingDevices[d.id]}
-                                title="Ping Device"
-                              >
-                                {pingingDevices[d.id] ? (
-                                  <RefreshCw size={14} className="animate-spin" />
-                                ) : (
-                                  <Wifi size={13} />
-                                )}
-                              </button>
+                              {d.protocol !== 'serial' && (
+                                <>
+                                  <button 
+                                    className="btn btn-ghost btn-sm" 
+                                    style={{ color: 'var(--accent)' }}
+                                    onClick={() => handleTestConnection(d.id)}
+                                    disabled={testingDevices[d.id]}
+                                    title="Test Koneksi (SSH/Telnet)"
+                                  >
+                                    {testingDevices[d.id] ? (
+                                      <RefreshCw size={14} className="animate-spin" />
+                                    ) : (
+                                      <Play size={13} />
+                                    )}
+                                  </button>
+                                  <button 
+                                    className="btn btn-ghost btn-sm" 
+                                    style={{ color: 'var(--primary)' }}
+                                    onClick={() => handlePingDevice(d.id)}
+                                    disabled={pingingDevices[d.id]}
+                                    title="Ping Device"
+                                  >
+                                    {pingingDevices[d.id] ? (
+                                      <RefreshCw size={14} className="animate-spin" />
+                                    ) : (
+                                      <Wifi size={13} />
+                                    )}
+                                  </button>
+                                </>
+                              )}
                               <button className="btn btn-ghost btn-sm" onClick={() => openEdit(d)} title="Edit Device">
                                 <Edit2 size={13} />
                               </button>

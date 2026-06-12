@@ -33,6 +33,7 @@ export const devicesApi = {
   getPingHistory: (id)       => api.get(`/devices/${id}/ping/history`),
   bulkPing:       (data)     => api.post('/devices/bulk-ping', data),
   getBulkPingStatus: (taskId) => api.get(`/devices/bulk-ping/${taskId}`),
+  getSerialPorts: ()         => api.get('/terminal/serial-ports'),
 }
 
 export const groupsApi = {

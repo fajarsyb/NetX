@@ -13,7 +13,19 @@ async def handle_job(task_name: str, params: dict):
     from app.core.plugins import plugin_manager
     import inspect
 
+    def is_serial_device(device_id: int) -> bool:
+        from app.database import get_db_conn
+        conn = get_db_conn()
+        c = conn.cursor()
+        c.execute("SELECT protocol FROM devices WHERE id = ?", (device_id,))
+        row = c.fetchone()
+        conn.close()
+        return bool(row and row["protocol"] == "serial")
+
     if task_name == "device_backup":
+        if is_serial_device(params["device_id"]):
+            logger.info(f"Skipping backup for serial device {params['device_id']}")
+            return {"success": True, "skipped": True, "message": "Serial device skipped from background backup"}
         handler = plugin_manager.get_task_handler(task_name)
         if not handler:
             raise ValueError(f"No plugin registered for task: {task_name}")
@@ -59,6 +71,9 @@ async def handle_job(task_name: str, params: dict):
         logger.info("Anomaly detection scan completed.")
 
     elif task_name in ("refresh_arp", "refresh_lldp", "refresh_cdp", "refresh_mac", "refresh_l2"):
+        if is_serial_device(params["device_id"]):
+            logger.info(f"Skipping {task_name} for serial device {params['device_id']}")
+            return {"success": True, "skipped": True, "message": f"Serial device skipped from {task_name}"}
         handler = plugin_manager.get_task_handler(task_name)
         if not handler:
             raise ValueError(f"No plugin registered for task: {task_name}")
@@ -66,6 +81,9 @@ async def handle_job(task_name: str, params: dict):
 
 
     elif task_name == "detect_snmp_info":
+        if is_serial_device(params["device_id"]):
+            logger.info(f"Skipping SNMP detection for serial device {params['device_id']}")
+            return {"success": True, "skipped": True, "message": "Serial device skipped from SNMP detection"}
         from app.routers.snmp import detect_snmp_info
         return await detect_snmp_info(params["device_id"], method=params.get("method", "auto"))
 
@@ -133,7 +151,7 @@ async def run_ping_all_devices():
     
     conn = get_db_conn()
     c = conn.cursor()
-    c.execute("SELECT id, ip FROM devices")
+    c.execute("SELECT id, ip FROM devices WHERE protocol != 'serial'")
     devices = c.fetchall()
     conn.close()
     
@@ -181,8 +199,8 @@ async def handle_bulk_ping(params: dict):
     
     conn = get_db_conn()
     c = conn.cursor()
-    c.execute("SELECT id, name, ip FROM devices")
-    devices_dict = {row["id"]: {"name": row["name"], "ip": row["ip"]} for row in c.fetchall()}
+    c.execute("SELECT id, name, ip, protocol FROM devices")
+    devices_dict = {row["id"]: {"name": row["name"], "ip": row["ip"], "protocol": row["protocol"]} for row in c.fetchall()}
     conn.close()
     
     results = status_entry["results"]
@@ -192,10 +210,23 @@ async def handle_bulk_ping(params: dict):
     
     async def ping_one(dev_id):
         nonlocal completed_steps
-        dev_info = devices_dict.get(dev_id, {"name": f"Device {dev_id}", "ip": None})
+        dev_info = devices_dict.get(dev_id, {"name": f"Device {dev_id}", "ip": None, "protocol": None})
         dev_name = dev_info["name"]
         ip = dev_info["ip"]
+        protocol = dev_info.get("protocol")
         
+        if protocol == "serial":
+            results[str(dev_id)] = {
+                "name": dev_name,
+                "success": True,
+                "skipped": True,
+                "message": "Serial device skipped from pinging"
+            }
+            completed_steps += 1
+            status_entry["current"] = completed_steps
+            await r.setex(f"bulk_ping:{task_id}", 86400, json.dumps(status_entry))
+            return
+            
         if not ip:
             results[str(dev_id)] = {
                 "name": dev_name,
@@ -267,18 +298,27 @@ async def handle_bulk_refresh(params: dict):
 
     conn = get_db_conn()
     c = conn.cursor()
-    c.execute("SELECT id, name, device_type FROM devices")
-    device_info = {row["id"]: {"name": row["name"], "device_type": row["device_type"]} for row in c.fetchall()}
+    c.execute("SELECT id, name, device_type, protocol FROM devices")
+    device_info = {row["id"]: {"name": row["name"], "device_type": row["device_type"], "protocol": row["protocol"]} for row in c.fetchall()}
     conn.close()
 
     completed_steps = 0
     user_context = {"id": user_id, "username": username}
 
     for dev_id in device_ids:
-        dev_data = device_info.get(dev_id, {"name": f"Device {dev_id}", "device_type": "cisco_ios"})
+        dev_data = device_info.get(dev_id, {"name": f"Device {dev_id}", "device_type": "cisco_ios", "protocol": "ssh"})
         dev_name = dev_data["name"]
         dev_type = dev_data["device_type"] or ""
+        protocol = dev_data.get("protocol", "ssh")
         results[str(dev_id)] = {"name": dev_name}
+
+        if protocol == "serial":
+            for comp in components:
+                results[str(dev_id)][comp] = {"success": True, "skipped": True, "message": "Serial device skipped from background refresh"}
+                completed_steps += 1
+            status_entry["current"] = completed_steps
+            await r.setex(f"bulk_refresh:{task_id}", 86400, json.dumps(status_entry))
+            continue
 
         for comp in components:
             try:

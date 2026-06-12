@@ -101,12 +101,14 @@ export default function AddDeviceModal({ onClose, onSuccess, editDevice = null }
   const [testing, setTesting]     = useState(false)
   const [saving, setSaving]       = useState(false)
   const [testResult, setTestResult] = useState(null)
+  const [serialPorts, setSerialPorts] = useState([])
   const toast = useToast()
 
   useEffect(() => {
     groupsApi.list().then(r => setGroups(r.data)).catch(() => {})
     credentialsApi.list().then(r => setCredentials(r.data)).catch(() => {})
     thresholdsApi.list().then(r => setThresholdProfiles(r.data)).catch(() => {})
+    devicesApi.getSerialPorts().then(r => setSerialPorts(r.data)).catch(() => {})
   }, [])
 
   const set = (k, v) => {
@@ -114,7 +116,11 @@ export default function AddDeviceModal({ onClose, onSuccess, editDevice = null }
       const updated = { ...f, [k]: v }
       // Auto-set port when protocol changes
       if (k === 'protocol') {
-        updated.port = DEFAULT_PORTS[v] || 22
+        if (v === 'serial') {
+          updated.port = 9600
+        } else {
+          updated.port = DEFAULT_PORTS[v] || 22
+        }
       }
       return updated
     })
@@ -123,14 +129,14 @@ export default function AddDeviceModal({ onClose, onSuccess, editDevice = null }
 
   const handleTest = async () => {
     if (!form.ip) {
-      toast.error('Isi IP Address terlebih dahulu.')
+      toast.error(form.protocol === 'serial' ? 'Isi Serial Port terlebih dahulu.' : 'Isi IP Address terlebih dahulu.')
       return
     }
-    if (!form.credential_id && !form.username) {
+    if (form.protocol !== 'serial' && !form.credential_id && !form.username) {
       toast.error('Isi username terlebih dahulu.')
       return
     }
-    if (!form.credential_id && !form.password && !editDevice) {
+    if (form.protocol !== 'serial' && !form.credential_id && !form.password && !editDevice) {
       toast.error('Isi password terlebih dahulu.')
       return
     }
@@ -156,11 +162,11 @@ export default function AddDeviceModal({ onClose, onSuccess, editDevice = null }
       toast.error('Harap isi semua field yang diperlukan.')
       return
     }
-    if (!form.credential_id && !form.username) {
+    if (form.protocol !== 'serial' && !form.credential_id && !form.username) {
       toast.error('Harap isi username.')
       return
     }
-    if (!form.credential_id && !form.password && !editDevice) {
+    if (form.protocol !== 'serial' && !form.credential_id && !form.password && !editDevice) {
       toast.error('Harap isi password.')
       return
     }
@@ -223,9 +229,35 @@ export default function AddDeviceModal({ onClose, onSuccess, editDevice = null }
                   onChange={e => set('name', e.target.value)} required />
               </div>
               <div className="form-group">
-                <label className="form-label">IP Address *</label>
-                <input className="form-control" placeholder="192.168.1.1" value={form.ip}
-                  onChange={e => set('ip', e.target.value)} required />
+                <label className="form-label">{form.protocol === 'serial' ? 'Serial Port *' : 'IP Address *'}</label>
+                {form.protocol === 'serial' ? (
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <select 
+                      className="form-control"
+                      value={form.ip}
+                      onChange={e => set('ip', e.target.value)}
+                      required
+                    >
+                      <option value="">-- Pilih Serial Port --</option>
+                      {serialPorts.map(p => (
+                        <option key={p.port} value={p.port}>{p.port} ({p.description})</option>
+                      ))}
+                      <option value="custom">Input Manual...</option>
+                    </select>
+                    {(!serialPorts.some(p => p.port === form.ip) || form.ip === 'custom') && (
+                      <input 
+                        className="form-control" 
+                        placeholder="/dev/ttyUSB0 atau COM3" 
+                        value={form.ip === 'custom' ? '' : form.ip}
+                        onChange={e => set('ip', e.target.value)} 
+                        required 
+                      />
+                    )}
+                  </div>
+                ) : (
+                  <input className="form-control" placeholder="192.168.1.1" value={form.ip}
+                    onChange={e => set('ip', e.target.value)} required />
+                )}
               </div>
             </div>
 
@@ -261,99 +293,120 @@ export default function AddDeviceModal({ onClose, onSuccess, editDevice = null }
                   onChange={e => set('protocol', e.target.value)}>
                   <option value="ssh">SSH</option>
                   <option value="telnet">Telnet</option>
+                  <option value="serial">Serial Console</option>
                 </select>
               </div>
               <div className="form-group">
-                <label className="form-label">Port *</label>
-                <input className="form-control" type="number" min="1" max="65535"
-                  value={form.port} onChange={e => set('port', parseInt(e.target.value))} required />
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Kredensial Tersimpan (Opsional)</label>
-              <select 
-                className="form-control" 
-                value={form.credential_id || ''}
-                onChange={e => {
-                  const val = e.target.value;
-                  set('credential_id', val ? parseInt(val) : '');
-                  if (val) {
-                    const selected = credentials.find(c => c.id === parseInt(val));
-                    if (selected) {
-                      set('username', selected.username);
-                      set('password', '');
-                    }
-                  } else {
-                    set('username', '');
-                    set('password', '');
-                  }
-                }}
-              >
-                <option value="">(Input Manual / Buat Kredensial Baru)</option>
-                {credentials.map(c => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} ({c.username})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="form-row">
-              <div className="form-group">
-                <label className="form-label">Username *</label>
-                <input className="form-control" placeholder="admin" value={form.username}
-                  onChange={e => set('username', e.target.value)} required={!form.credential_id} disabled={!!form.credential_id} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Password *</label>
-                <div style={{ position:'relative' }}>
-                  <input
-                    className="form-control"
-                    type={showPass ? 'text' : 'password'}
-                    placeholder={form.credential_id ? '(Menggunakan Kredensial Tersimpan)' : (editDevice ? '(kosong = tidak berubah)' : '••••••••')}
-                    value={form.password}
-                    onChange={e => set('password', e.target.value)}
-                    required={!editDevice && !form.credential_id}
-                    disabled={!!form.credential_id}
-                    style={{ paddingRight: '36px' }}
-                  />
-                  {!form.credential_id && (
-                    <button type="button"
-                      onClick={() => setShowPass(s => !s)}
-                      style={{ position:'absolute', right:'8px', top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)' }}
-                    >
-                      {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {!form.credential_id && (
-              <div style={{ padding: '10px 14px', background: 'var(--bg-card-2)', borderRadius: '8px', border: '1px solid var(--border)', marginBottom: '16px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px' }}>
-                  <input 
-                    type="checkbox" 
-                    checked={saveAsCredential} 
-                    onChange={e => setSaveAsCredential(e.target.checked)} 
-                  />
-                  <span>Simpan kredensial ini sebagai template</span>
-                </label>
-                
-                {saveAsCredential && (
-                  <div className="form-group" style={{ marginTop: '10px', marginBottom: '0' }}>
-                    <label className="form-label" style={{ fontSize: '12px' }}>Nama Template Kredensial *</label>
-                    <input 
-                      className="form-control" 
-                      placeholder="Template Kredensial Cisco Switch" 
-                      value={newCredentialName}
-                      onChange={e => setNewCredentialName(e.target.value)} 
-                      required={saveAsCredential}
-                    />
-                  </div>
+                <label className="form-label">{form.protocol === 'serial' ? 'Baud Rate *' : 'Port *'}</label>
+                {form.protocol === 'serial' ? (
+                  <select 
+                    className="form-control" 
+                    value={form.port} 
+                    onChange={e => set('port', parseInt(e.target.value))}
+                    required
+                  >
+                    <option value={9600}>9600</option>
+                    <option value={115200}>115200</option>
+                    <option value={38400}>38400</option>
+                    <option value={57600}>57600</option>
+                    <option value={19200}>19200</option>
+                    <option value={4800}>4800</option>
+                  </select>
+                ) : (
+                  <input className="form-control" type="number" min="1" max="65535"
+                    value={form.port} onChange={e => set('port', parseInt(e.target.value))} required />
                 )}
               </div>
+            </div>
+
+            {form.protocol !== 'serial' && (
+              <>
+                <div className="form-group">
+                  <label className="form-label">Kredensial Tersimpan (Opsional)</label>
+                  <select 
+                    className="form-control" 
+                    value={form.credential_id || ''}
+                    onChange={e => {
+                      const val = e.target.value;
+                      set('credential_id', val ? parseInt(val) : '');
+                      if (val) {
+                        const selected = credentials.find(c => c.id === parseInt(val));
+                        if (selected) {
+                          set('username', selected.username);
+                          set('password', '');
+                        }
+                      } else {
+                        set('username', '');
+                        set('password', '');
+                      }
+                    }}
+                  >
+                    <option value="">(Input Manual / Buat Kredensial Baru)</option>
+                    {credentials.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.username})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">Username *</label>
+                    <input className="form-control" placeholder="admin" value={form.username}
+                      onChange={e => set('username', e.target.value)} required={!form.credential_id} disabled={!!form.credential_id} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Password *</label>
+                    <div style={{ position:'relative' }}>
+                      <input
+                        className="form-control"
+                        type={showPass ? 'text' : 'password'}
+                        placeholder={form.credential_id ? '(Menggunakan Kredensial Tersimpan)' : (editDevice ? '(kosong = tidak berubah)' : '••••••••')}
+                        value={form.password}
+                        onChange={e => set('password', e.target.value)}
+                        required={!editDevice && !form.credential_id}
+                        disabled={!!form.credential_id}
+                        style={{ paddingRight: '36px' }}
+                      />
+                      {!form.credential_id && (
+                        <button type="button"
+                          onClick={() => setShowPass(s => !s)}
+                          style={{ position:'absolute', right:'8px', top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)' }}
+                        >
+                          {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {!form.credential_id && (
+                  <div style={{ padding: '10px 14px', background: 'var(--bg-card-2)', borderRadius: '8px', border: '1px solid var(--border)', marginBottom: '16px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={saveAsCredential} 
+                        onChange={e => setSaveAsCredential(e.target.checked)} 
+                      />
+                      <span>Simpan kredensial ini sebagai template</span>
+                    </label>
+                    
+                    {saveAsCredential && (
+                      <div className="form-group" style={{ marginTop: '10px', marginBottom: '0' }}>
+                        <label className="form-label" style={{ fontSize: '12px' }}>Nama Template Kredensial *</label>
+                        <input 
+                          className="form-control" 
+                          placeholder="Template Kredensial Cisco Switch" 
+                          value={newCredentialName}
+                          onChange={e => setNewCredentialName(e.target.value)} 
+                          required={saveAsCredential}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
             )}
 
             <div className="form-row">

@@ -131,5 +131,16 @@ def _test_sync(device_dict: dict, password: str) -> dict:
 
 async def test_connection(device_dict: dict, password: str) -> dict:
     """Test SSH/Telnet connectivity to a device."""
+    if device_dict.get("protocol") == "serial":
+        port_name = device_dict["ip"]
+        baud_rate = device_dict.get("port", 9600) or 9600
+        try:
+            import serial
+            ser = serial.Serial(port=port_name, baudrate=baud_rate, timeout=1)
+            ser.close()
+            return {"success": True, "message": f"Serial port {port_name} opened successfully."}
+        except Exception as e:
+            return {"success": False, "message": f"Gagal membuka serial port {port_name}: {e}"}
+
     return await asyncio.to_thread(_test_sync, device_dict, password)
 
