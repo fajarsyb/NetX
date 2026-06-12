@@ -17,6 +17,12 @@ export default function TerminalConsole() {
   const { user } = useAuth()
   const toast = useToast()
 
+  // Direct serial variables
+  const [modalTab, setModalTab] = useState('device') // 'device' or 'serial'
+  const [serialPorts, setSerialPorts] = useState([])
+  const [selectedPort, setSelectedPort] = useState('')
+  const [selectedBaud, setSelectedBaud] = useState(9600)
+
   // Map: tabId -> ref for WebCli
   const cliRefs = useRef({})
 
@@ -38,8 +44,18 @@ export default function TerminalConsole() {
     }
   }
 
+  const fetchSerialPorts = async () => {
+    try {
+      const res = await api.get('/terminal/serial-ports')
+      setSerialPorts(res.data || [])
+    } catch (err) {
+      console.warn('Gagal mengambil daftar serial port:', err)
+    }
+  }
+
   useEffect(() => {
     fetchDevices()
+    fetchSerialPorts()
     
     // Check if redirect has device_id to auto-open
     const queryParams = new URLSearchParams(window.location.search)
@@ -63,6 +79,30 @@ export default function TerminalConsole() {
       id: newTabId,
       deviceId,
       name: deviceName || `Device #${deviceId}`
+    }
+
+    setTabs([...tabs, newTab])
+    setActiveTabId(newTabId)
+    setShowSelectModal(false)
+  }
+
+  const addDirectSerialTab = (port, baud) => {
+    if (tabs.length >= 8) {
+      toast.warning('Maksimal 8 tab terminal aktif dapat dibuka secara bersamaan.')
+      return
+    }
+    if (!port || port === 'custom') {
+      toast.error('Pilih atau input serial port terlebih dahulu.')
+      return
+    }
+
+    const newTabId = `tab_${Date.now()}_${Math.floor(Math.random() * 1000)}`
+    const newTab = {
+      id: newTabId,
+      isDirectSerial: true,
+      serialPort: port,
+      baudRate: baud,
+      name: `Serial: ${port}`
     }
 
     setTabs([...tabs, newTab])
@@ -263,6 +303,9 @@ export default function TerminalConsole() {
                     <WebCli
                       ref={el => { if (el) cliRefs.current[tab.id] = el; else delete cliRefs.current[tab.id] }}
                       deviceId={tab.deviceId}
+                      isDirectSerial={tab.isDirectSerial}
+                      serialPort={tab.serialPort}
+                      baudRate={tab.baudRate}
                       isActive={activeTabId === tab.id}
                       height="100%"
                     />
@@ -300,42 +343,50 @@ export default function TerminalConsole() {
               <div className="modal-title">Connect New Device</div>
             </div>
             <div className="modal-body">
-              {loadingDevices ? (
-                <div style={{ display: 'flex', justifyContent: 'center', padding: '24px' }}>
-                  <div className="loading-spinner" />
-                </div>
-              ) : devices.length === 0 ? (
-                <div style={{ padding: '16px 8px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-                  No SSH or Serial devices found. Make sure the device protocol is set to SSH or Serial.
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <div className="search-box" style={{ width: '100%' }}>
-                    <Search className="search-icon" size={14} />
-                    <input 
-                      placeholder="Cari nama, IP, atau tipe..." 
-                      value={searchQuery} 
-                      onChange={e => setSearchQuery(e.target.value)} 
-                      style={{ fontSize: '12.5px' }}
-                    />
+              {/* Tab Selector inside Modal */}
+              <div className="flex" style={{ borderBottom: '1px solid var(--border)', marginBottom: '16px', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setModalTab('device')}
+                  className={`btn btn-sm ${modalTab === 'device' ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{ flex: 1, fontSize: '12.5px', padding: '6px' }}
+                >
+                  Registered Devices
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModalTab('serial')}
+                  className={`btn btn-sm ${modalTab === 'serial' ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{ flex: 1, fontSize: '12.5px', padding: '6px' }}
+                >
+                  Direct Serial Port (COM/tty)
+                </button>
+              </div>
+
+              {modalTab === 'device' ? (
+                loadingDevices ? (
+                  <div style={{ display: 'flex', justifyContent: 'center', padding: '24px' }}>
+                    <div className="loading-spinner" />
                   </div>
-                  <div>
-                    <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>Select Device (SSH / Serial):</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '250px', overflowY: 'auto', paddingRight: '4px' }}>
-                      {devices.filter(dev => {
-                        const q = searchQuery.toLowerCase().trim()
-                        if (!q) return true
-                        return (
-                          (dev.name || '').toLowerCase().includes(q) ||
-                          (dev.ip || '').toLowerCase().includes(q) ||
-                          (dev.device_type || '').toLowerCase().includes(q)
-                        )
-                      }).length === 0 ? (
-                        <div style={{ padding: '16px 8px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-                          Tidak ada perangkat yang cocok dengan pencarian.
-                        </div>
-                      ) : (
-                        devices.filter(dev => {
+                ) : devices.length === 0 ? (
+                  <div style={{ padding: '16px 8px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                    No SSH or Serial devices found. Make sure the device protocol is set to SSH or Serial.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div className="search-box" style={{ width: '100%' }}>
+                      <Search className="search-icon" size={14} />
+                      <input 
+                        placeholder="Cari nama, IP, atau tipe..." 
+                        value={searchQuery} 
+                        onChange={e => setSearchQuery(e.target.value)} 
+                        style={{ fontSize: '12.5px' }}
+                      />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>Select Device (SSH / Serial):</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '250px', overflowY: 'auto', paddingRight: '4px' }}>
+                        {devices.filter(dev => {
                           const q = searchQuery.toLowerCase().trim()
                           if (!q) return true
                           return (
@@ -343,61 +394,134 @@ export default function TerminalConsole() {
                             (dev.ip || '').toLowerCase().includes(q) ||
                             (dev.device_type || '').toLowerCase().includes(q)
                           )
-                        }).map(dev => (
-                          <div
-                            key={dev.id}
-                            onClick={() => addTab(dev.id, dev.name)}
-                            className="flex-between"
-                            style={{
-                              padding: '10px 14px',
-                              background: 'var(--bg-card-2)',
-                              border: '1px solid var(--border)',
-                              borderRadius: 'var(--radius-sm)',
-                              cursor: 'pointer',
-                              transition: 'all 0.15s ease'
-                            }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.borderColor = 'var(--primary)'
-                              e.currentTarget.style.background = 'var(--bg-hover)'
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.borderColor = 'var(--border)'
-                              e.currentTarget.style.background = 'var(--bg-card-2)'
-                            }}
-                          >
-                            <div>
-                              <div style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                {dev.name}
-                                {dev.protocol !== 'serial' && !(dev.credential_id || dev.username) && (
-                                  <span 
-                                    style={{ 
-                                      fontSize: '10px', 
-                                      padding: '1px 6px', 
-                                      borderRadius: '4px', 
-                                      backgroundColor: 'rgba(245, 158, 11, 0.15)', 
-                                      color: 'var(--warning)',
-                                      fontWeight: 500
-                                    }}
-                                    title="Device has no SSH credentials mapped."
-                                  >
-                                    No Credentials
-                                  </span>
-                                )}
-                              </div>
-                              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>{dev.ip}</div>
-                            </div>
-                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                              <span className={`badge badge-${dev.protocol}`} style={{ fontSize: '10px' }}>
-                                {dev.protocol?.toUpperCase()}
-                              </span>
-                              <span className="badge badge-online" style={{ fontSize: '10px' }}>
-                                {dev.device_type}
-                              </span>
-                            </div>
+                        }).length === 0 ? (
+                          <div style={{ padding: '16px 8px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                            Tidak ada perangkat yang cocok dengan pencarian.
                           </div>
-                        ))
+                        ) : (
+                          devices.filter(dev => {
+                            const q = searchQuery.toLowerCase().trim()
+                            if (!q) return true
+                            return (
+                              (dev.name || '').toLowerCase().includes(q) ||
+                              (dev.ip || '').toLowerCase().includes(q) ||
+                              (dev.device_type || '').toLowerCase().includes(q)
+                            )
+                          }).map(dev => (
+                            <div
+                              key={dev.id}
+                              onClick={() => addTab(dev.id, dev.name)}
+                              className="flex-between"
+                              style={{
+                                padding: '10px 14px',
+                                background: 'var(--bg-card-2)',
+                                border: '1px solid var(--border)',
+                                borderRadius: 'var(--radius-sm)',
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease'
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.borderColor = 'var(--primary)'
+                                e.currentTarget.style.background = 'var(--bg-hover)'
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.borderColor = 'var(--border)'
+                                e.currentTarget.style.background = 'var(--bg-card-2)'
+                              }}
+                            >
+                              <div>
+                                <div style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  {dev.name}
+                                  {dev.protocol !== 'serial' && !(dev.credential_id || dev.username) && (
+                                    <span 
+                                      style={{ 
+                                        fontSize: '10px', 
+                                        padding: '1px 6px', 
+                                        borderRadius: '4px', 
+                                        backgroundColor: 'rgba(245, 158, 11, 0.15)', 
+                                        color: 'var(--warning)',
+                                        fontWeight: 500
+                                      }}
+                                      title="Device has no SSH credentials mapped."
+                                    >
+                                      No Credentials
+                                    </span>
+                                  )}
+                                </div>
+                                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>{dev.ip}</div>
+                              </div>
+                              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                <span className={`badge badge-${dev.protocol}`} style={{ fontSize: '10px' }}>
+                                  {dev.protocol?.toUpperCase()}
+                                </span>
+                                <span className="badge badge-online" style={{ fontSize: '10px' }}>
+                                  {dev.device_type}
+                                </span>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div className="form-group">
+                    <label className="form-label" style={{ fontSize: '12.5px', fontWeight: 600 }}>Select COM / tty Port *</label>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <select
+                        className="form-control"
+                        value={selectedPort}
+                        onChange={e => setSelectedPort(e.target.value)}
+                        required
+                        style={{ fontSize: '12.5px' }}
+                      >
+                        <option value="">-- Pilih Serial Port --</option>
+                        {serialPorts.map(p => (
+                          <option key={p.port} value={p.port}>{p.port} ({p.description})</option>
+                        ))}
+                        <option value="custom">Input Manual...</option>
+                      </select>
+                      {(!serialPorts.some(p => p.port === selectedPort) || selectedPort === 'custom') && (
+                        <input
+                          className="form-control"
+                          placeholder="/dev/ttyUSB0 atau COM3"
+                          value={selectedPort === 'custom' ? '' : selectedPort}
+                          onChange={e => setSelectedPort(e.target.value)}
+                          required
+                          style={{ fontSize: '12.5px' }}
+                        />
                       )}
                     </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label" style={{ fontSize: '12.5px', fontWeight: 600 }}>Baud Rate *</label>
+                    <select
+                      className="form-control"
+                      value={selectedBaud}
+                      onChange={e => setSelectedBaud(parseInt(e.target.value))}
+                      required
+                      style={{ fontSize: '12.5px' }}
+                    >
+                      <option value={9600}>9600</option>
+                      <option value={115200}>115200</option>
+                      <option value={38400}>38400</option>
+                      <option value={57600}>57600</option>
+                      <option value={19200}>19200</option>
+                    </select>
+                  </div>
+
+                  <div style={{ marginTop: '8px' }}>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      style={{ width: '100%' }}
+                      onClick={() => addDirectSerialTab(selectedPort, selectedBaud)}
+                    >
+                      Connect Serial Port
+                    </button>
                   </div>
                 </div>
               )}

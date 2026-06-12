@@ -180,7 +180,7 @@ function TerminalSearchBar({ term, onClose }) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-const WebCli = forwardRef(function WebCli({ deviceId, isActive = true, height = '500px' }, ref) {
+const WebCli = forwardRef(function WebCli({ deviceId, isActive = true, height = '500px', isDirectSerial = false, serialPort = '', baudRate = 9600 }, ref) {
   const terminalRef = useRef(null)
   const xtermRef = useRef(null)
   const wsRef = useRef(null)
@@ -267,7 +267,9 @@ const WebCli = forwardRef(function WebCli({ deviceId, isActive = true, height = 
     const host = import.meta.env.DEV 
       ? `${window.location.hostname}:8000` 
       : window.location.host
-    const wsUrl = `${protocol}//${host}/api/terminal/ws/${deviceId}?token=${token}`
+    const wsUrl = isDirectSerial
+      ? `${protocol}//${host}/api/terminal/ws/serial/direct?token=${token}&port=${encodeURIComponent(serialPort)}&baudrate=${baudRate}`
+      : `${protocol}//${host}/api/terminal/ws/${deviceId}?token=${token}`
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 

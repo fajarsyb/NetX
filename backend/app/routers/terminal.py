@@ -93,6 +93,95 @@ async def forward_in(websocket: WebSocket, channel: paramiko.Channel):
 active_ssh_sessions = {}
 ssh_sessions_lock = asyncio.Lock()
 
+@router.websocket("/ws/serial/direct")
+async def websocket_direct_serial(websocket: WebSocket, token: str, port: str, baudrate: int = 9600):
+    await websocket.accept()
+
+    try:
+        user_payload = decode_token(token)
+    except Exception:
+        await websocket.send_text("\r\n[Error] Invalid or expired token.\r\n")
+        await websocket.close()
+        return
+
+    user_id = int(user_payload.get("sub", 0))
+    if not user_id:
+        await websocket.send_text("\r\n[Error] Token tidak valid.\r\n")
+        await websocket.close()
+        return
+
+    conn = get_db_conn()
+    c = conn.cursor()
+    c.execute("SELECT id, role, is_active, permissions FROM users WHERE id = ?", (user_id,))
+    user_row = c.fetchone()
+    conn.close()
+
+    if not user_row or not user_row["is_active"]:
+        await websocket.send_text("\r\n[Error] Akun tidak aktif atau tidak ditemukan.\r\n")
+        await websocket.close()
+        return
+
+    import json
+    perms = None
+    perms_str = user_row.get("permissions")
+    if perms_str:
+        try:
+            perms = json.loads(perms_str)
+        except Exception:
+            pass
+
+    if not perms:
+        role = user_row["role"]
+        if role in ("admin", "operator"):
+            perms = {"allow_ssh": True}
+        else:
+            perms = {"allow_ssh": False}
+
+    if not perms.get("allow_ssh", False):
+        await websocket.send_text("\r\n[Error] Akses Ditolak: Anda tidak memiliki izin untuk mengakses terminal.\r\n")
+        await websocket.close()
+        return
+
+    async with ssh_sessions_lock:
+        user_conns = active_ssh_sessions.setdefault(user_id, set())
+        if len(user_conns) >= 8:
+            await websocket.send_text("\r\n[Error] Koneksi Ditolak: Anda telah mencapai batas maksimal 8 sesi SSH aktif.\r\n")
+            await websocket.close()
+            return
+        session_id = id(websocket)
+        user_conns.add(session_id)
+
+    try:
+        await websocket.send_text(f"Connecting to Direct Serial Port {port} @ {baudrate} baud...\r\n")
+        try:
+            import serial
+            ser = await asyncio.to_thread(
+                serial.Serial,
+                port=port,
+                baudrate=baudrate,
+                timeout=0.1
+            )
+            await websocket.send_text("Connected to direct serial port! Console ready.\r\n\r\n")
+            task_out = asyncio.create_task(forward_serial_out(ser, websocket))
+            task_in = asyncio.create_task(forward_serial_in(websocket, ser))
+            await asyncio.gather(task_out, task_in)
+            return
+        except Exception as e:
+            err_msg = f"Gagal membuka direct serial port {port}: {e}"
+            logger.error(err_msg)
+            await websocket.send_text(f"\r\n[Error] {err_msg}\r\n")
+            return
+    finally:
+        async with ssh_sessions_lock:
+            if user_id in active_ssh_sessions:
+                active_ssh_sessions[user_id].discard(session_id)
+                if not active_ssh_sessions[user_id]:
+                    del active_ssh_sessions[user_id]
+        try:
+            await websocket.close()
+        except Exception:
+            pass
+
 @router.websocket("/ws/{device_id}")
 async def websocket_terminal(websocket: WebSocket, device_id: int, token: str):
     await websocket.accept()
