@@ -237,49 +237,53 @@ export default function AddDeviceModal({ onClose, onSuccess, editDevice = null }
               <div className="form-group">
                 <label className="form-label">{form.protocol === 'serial' ? 'Serial Port *' : 'IP Address *'}</label>
                 {form.protocol === 'serial' ? (
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <select 
-                      className="form-control"
-                      value={form.ip}
-                      onChange={e => set('ip', e.target.value)}
-                      required
-                      style={{ flexGrow: 1 }}
-                    >
-                      <option value="">-- Pilih Serial Port --</option>
-                      {serialPorts.map(p => (
-                        <option key={p.port} value={p.port}>{p.port} ({p.description})</option>
-                      ))}
-                      <option value="custom">Input Manual...</option>
-                    </select>
-
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-sm"
-                      onClick={() => {
-                        devicesApi.getSerialPorts()
-                          .then(r => {
-                            setSerialPorts(r.data || []);
-                            if (r.data && r.data.length > 0 && (!form.ip || !r.data.some(p => p.port === form.ip))) {
-                              set('ip', r.data[0].port);
-                            }
-                          })
-                          .catch(() => {});
-                      }}
-                      title="Re-scan / Deteksi Ulang Port Serial"
-                      style={{ padding: '8px', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '38px', width: '38px' }}
-                    >
-                      <RefreshCw size={14} />
-                    </button>
-
-                    {(!serialPorts.some(p => p.port === form.ip) || form.ip === 'custom') && (
-                      <input 
-                        className="form-control" 
-                        placeholder="/dev/ttyUSB0 atau COM3" 
-                        value={form.ip === 'custom' ? '' : form.ip}
-                        onChange={e => set('ip', e.target.value)} 
-                        required 
+                  <div>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <select 
+                        className="form-control"
+                        value={form.ip === 'custom' || (!serialPorts.some(p => p.port === form.ip) && form.ip !== '') ? 'custom' : form.ip}
+                        onChange={e => set('ip', e.target.value)}
+                        required
                         style={{ flexGrow: 1 }}
-                      />
+                      >
+                        <option value="">-- Pilih Serial Port --</option>
+                        {serialPorts.map(p => (
+                          <option key={p.port} value={p.port}>{p.port} ({p.description})</option>
+                        ))}
+                        <option value="custom">Input Manual...</option>
+                      </select>
+
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => {
+                          devicesApi.getSerialPorts()
+                            .then(r => {
+                              setSerialPorts(r.data || []);
+                              if (r.data && r.data.length > 0 && (!form.ip || !r.data.some(p => p.port === form.ip))) {
+                                set('ip', r.data[0].port);
+                              }
+                            })
+                            .catch(() => {});
+                        }}
+                        title="Re-scan / Deteksi Ulang Port Serial"
+                        style={{ padding: '8px', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '38px', width: '38px' }}
+                      >
+                        <RefreshCw size={14} />
+                      </button>
+                    </div>
+
+                    {(form.ip === 'custom' || (!serialPorts.some(p => p.port === form.ip) && form.ip !== '')) && (
+                      <div style={{ marginTop: '8px' }}>
+                        <input 
+                          className="form-control" 
+                          placeholder="/dev/ttyUSB0 atau COM3" 
+                          value={form.ip === 'custom' ? '' : form.ip}
+                          onChange={e => set('ip', e.target.value)} 
+                          required 
+                          style={{ width: '100%' }}
+                        />
+                      </div>
                     )}
                   </div>
                 ) : (

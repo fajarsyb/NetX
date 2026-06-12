@@ -328,11 +328,27 @@ Menu **Topology** memetakan seluruh switch yang terhubung satu sama lain secara 
 * Anda dapat menggeser posisi node (drag & drop) untuk merapikan visual topologi.
 * Klik tombol **Save Positions** di pojok kanan atas agar susunan tata letak node yang telah Anda rapikan tidak kembali berantakan saat halaman dimuat ulang.
 
-### 7. Menggunakan Terminal Web SSH (Web CLI)
-NetX menyediakan terminal interaktif berbasis web yang aman untuk mengakses CLI perangkat secara langsung dari browser tanpa perlu aplikasi eksternal seperti PuTTY:
-1. Pada detail perangkat (yang bertipe koneksi SSH), navigasikan ke tab **Web Terminal** (atau klik ikon Terminal).
-2. Sistem akan membuka koneksi WebSocket (`/api/terminal/ws/...`) ke backend dan membuka shell interaktif paramiko ke switch Anda.
+### 7. Menggunakan Terminal Web SSH & Serial (Web CLI)
+NetX menyediakan terminal interaktif berbasis web yang aman untuk mengakses CLI perangkat (via SSH atau Serial) secara langsung dari browser tanpa perlu aplikasi eksternal seperti PuTTY:
+
+#### A. Koneksi Perangkat Terdaftar (Registered SSH & Serial Devices)
+1. Pada detail perangkat (yang terhubung menggunakan protokol SSH atau Serial), navigasikan ke tab **Web Terminal** atau klik ikon Terminal di baris tabel perangkat.
+2. Sistem akan membuka koneksi WebSocket (`/api/terminal/ws/{device_id}`) ke backend. 
+   - Jika protokol perangkat adalah **SSH**, backend akan membuka interactive shell via paramiko.
+   - Jika protokol perangkat adalah **Serial**, backend akan membuka koneksi serial port lokal menggunakan `pyserial` sesuai dengan baud rate yang dikonfigurasi.
 3. Anda dapat mengetikkan perintah konfigurasi langsung dari browser.
+
+#### B. Koneksi Konsol Serial Langsung (Direct Serial Console COM/tty)
+Jika Anda memiliki kabel konsol fisik yang terhubung langsung ke server NetX, Anda dapat langsung menggunakannya tanpa mendaftarkan perangkat terlebih dahulu:
+1. Masuk ke halaman **Web CLI Terminal** di sidebar.
+2. Klik tombol **+ Open Terminal** untuk membuka modal koneksi.
+3. Pilih tab **Direct Serial Port (COM/tty)**.
+4. Pilih port serial yang terdeteksi (klik tombol *Re-scan / Deteksi Ulang* jika port baru dipasang) atau pilih *Input Manual...* untuk menulis nama port secara kustom (misal: `COM3` di Windows atau `/dev/ttyUSB0` di Linux).
+5. Tentukan Baud Rate (default: 9600), lalu klik **Connect Serial Port**.
+6. Sesi terminal baru akan terhubung langsung ke konsol perangkat fisik Anda.
+
+> [!TIP]
+> **Active Session Takeover**: Serial port hanya dapat digunakan oleh satu sesi aktif pada satu waktu. Jika port yang Anda tuju sedang terkunci oleh tab terminal NetX lain, sistem akan otomatis melakukan *Takeover* (menonaktifkan dan melepaskan sesi lama secara aman) sehingga sesi terminal baru Anda langsung dapat terhubung tanpa error *Permission Denied*.
 
 ### 8. Otomatisasi Backup Konfigurasi (Device Backup)
 NetX dapat menarik konfigurasi perangkat (*running-config*) secara berkala untuk tujuan backup dan melacak riwayat perubahan konfigurasi.

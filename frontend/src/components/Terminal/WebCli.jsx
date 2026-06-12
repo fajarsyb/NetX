@@ -264,9 +264,7 @@ const WebCli = forwardRef(function WebCli({ deviceId, isActive = true, height = 
 
     // Connect WebSocket
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const host = import.meta.env.DEV 
-      ? `${window.location.hostname}:8000` 
-      : window.location.host
+    const host = window.location.host
     const wsUrl = isDirectSerial
       ? `${protocol}//${host}/api/terminal/ws/serial/direct?token=${token}&port=${encodeURIComponent(serialPort)}&baudrate=${baudRate}`
       : `${protocol}//${host}/api/terminal/ws/${deviceId}?token=${token}`

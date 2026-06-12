@@ -485,7 +485,7 @@ export default function TerminalConsole() {
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                       <select
                         className="form-control"
-                        value={selectedPort}
+                        value={selectedPort === 'custom' || (!serialPorts.some(p => p.port === selectedPort) && selectedPort !== '') ? 'custom' : selectedPort}
                         onChange={e => setSelectedPort(e.target.value)}
                         required
                         style={{ fontSize: '12.5px', flexGrow: 1 }}
@@ -506,18 +506,20 @@ export default function TerminalConsole() {
                       >
                         <RefreshCw size={14} />
                       </button>
+                    </div>
 
-                      {(!serialPorts.some(p => p.port === selectedPort) || selectedPort === 'custom') && (
+                    {(selectedPort === 'custom' || (!serialPorts.some(p => p.port === selectedPort) && selectedPort !== '')) && (
+                      <div style={{ marginTop: '8px' }}>
                         <input
                           className="form-control"
                           placeholder="/dev/ttyUSB0 atau COM3"
                           value={selectedPort === 'custom' ? '' : selectedPort}
                           onChange={e => setSelectedPort(e.target.value)}
                           required
-                          style={{ fontSize: '12.5px', flexGrow: 1 }}
+                          style={{ fontSize: '12.5px', width: '100%' }}
                         />
-                      )}
-                    </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="form-group">

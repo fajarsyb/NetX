@@ -1,7 +1,7 @@
 import asyncio
 import paramiko
 import logging
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from app.services.auth import decode_token
 from app.database import get_db_conn, decrypt_password, get_device_credentials
 
@@ -93,8 +93,17 @@ async def forward_in(websocket: WebSocket, channel: paramiko.Channel):
 active_ssh_sessions = {}
 ssh_sessions_lock = asyncio.Lock()
 
+# Global tracker for active serial port sessions
+active_serial_sessions = {}
+serial_sessions_lock = asyncio.Lock()
+
 @router.websocket("/ws/serial/direct")
-async def websocket_direct_serial(websocket: WebSocket, token: str, port: str, baudrate: int = 9600):
+async def websocket_direct_serial(
+    websocket: WebSocket,
+    token: str = Query(...),
+    port: str = Query(...),
+    baudrate: int = Query(9600)
+):
     await websocket.accept()
 
     try:
@@ -153,6 +162,23 @@ async def websocket_direct_serial(websocket: WebSocket, token: str, port: str, b
 
     try:
         await websocket.send_text(f"Connecting to Direct Serial Port {port} @ {baudrate} baud...\r\n")
+
+        # Check and close previous active session on this port
+        async with serial_sessions_lock:
+            if port in active_serial_sessions:
+                old_ws, old_ser = active_serial_sessions[port]
+                try:
+                    await old_ws.send_text("\r\n[System] Sesi ditutup karena port ini diambil alih oleh koneksi baru.\r\n")
+                    await old_ws.close()
+                except Exception:
+                    pass
+                try:
+                    old_ser.close()
+                except Exception:
+                    pass
+                # A brief pause to let the operating system release the port
+                await asyncio.sleep(0.5)
+
         try:
             import serial
             ser = await asyncio.to_thread(
@@ -161,10 +187,20 @@ async def websocket_direct_serial(websocket: WebSocket, token: str, port: str, b
                 baudrate=baudrate,
                 timeout=0.1
             )
+
+            # Register current session
+            async with serial_sessions_lock:
+                active_serial_sessions[port] = (websocket, ser)
+
             await websocket.send_text("Connected to direct serial port! Console ready.\r\n\r\n")
             task_out = asyncio.create_task(forward_serial_out(ser, websocket))
             task_in = asyncio.create_task(forward_serial_in(websocket, ser))
-            await asyncio.gather(task_out, task_in)
+            try:
+                await asyncio.gather(task_out, task_in)
+            finally:
+                for t in (task_out, task_in):
+                    if not t.done():
+                        t.cancel()
             return
         except Exception as e:
             err_msg = f"Gagal membuka direct serial port {port}: {e}"
@@ -172,6 +208,11 @@ async def websocket_direct_serial(websocket: WebSocket, token: str, port: str, b
             await websocket.send_text(f"\r\n[Error] {err_msg}\r\n")
             return
     finally:
+        # Deregister direct serial session if matches
+        async with serial_sessions_lock:
+            if port in active_serial_sessions and active_serial_sessions[port][0] == websocket:
+                del active_serial_sessions[port]
+
         async with ssh_sessions_lock:
             if user_id in active_ssh_sessions:
                 active_ssh_sessions[user_id].discard(session_id)
@@ -183,7 +224,11 @@ async def websocket_direct_serial(websocket: WebSocket, token: str, port: str, b
             pass
 
 @router.websocket("/ws/{device_id}")
-async def websocket_terminal(websocket: WebSocket, device_id: int, token: str):
+async def websocket_terminal(
+    websocket: WebSocket,
+    device_id: int,
+    token: str = Query(...)
+):
     await websocket.accept()
 
     # Authenticate via token query param
@@ -297,6 +342,23 @@ async def websocket_terminal(websocket: WebSocket, device_id: int, token: str):
             port_name = device["ip"]
             baud_rate = device.get("port", 9600) or 9600
             await websocket.send_text(f"Connecting to Serial Port {port_name} @ {baud_rate} baud...\r\n")
+
+            # Check and close previous active session on this port
+            async with serial_sessions_lock:
+                if port_name in active_serial_sessions:
+                    old_ws, old_ser = active_serial_sessions[port_name]
+                    try:
+                        await old_ws.send_text("\r\n[System] Sesi ditutup karena port ini diambil alih oleh koneksi baru.\r\n")
+                        await old_ws.close()
+                    except Exception:
+                        pass
+                    try:
+                        old_ser.close()
+                    except Exception:
+                        pass
+                    # A brief pause to let the operating system release the port
+                    await asyncio.sleep(0.5)
+
             try:
                 import serial
                 ser = await asyncio.to_thread(
@@ -305,10 +367,20 @@ async def websocket_terminal(websocket: WebSocket, device_id: int, token: str):
                     baudrate=baud_rate,
                     timeout=0.1
                 )
+
+                # Register current session
+                async with serial_sessions_lock:
+                    active_serial_sessions[port_name] = (websocket, ser)
+
                 await websocket.send_text("Connected to serial port! Console ready.\r\n\r\n")
                 task_out = asyncio.create_task(forward_serial_out(ser, websocket))
                 task_in = asyncio.create_task(forward_serial_in(websocket, ser))
-                await asyncio.gather(task_out, task_in)
+                try:
+                    await asyncio.gather(task_out, task_in)
+                finally:
+                    for t in (task_out, task_in):
+                        if not t.done():
+                            t.cancel()
                 return
             except Exception as e:
                 err_msg = f"Gagal membuka serial port {port_name}: {e}"
@@ -343,8 +415,12 @@ async def websocket_terminal(websocket: WebSocket, device_id: int, token: str):
             # Start bidirectional forwarding
             task_out = asyncio.create_task(forward_out(channel, websocket))
             task_in = asyncio.create_task(forward_in(websocket, channel))
-
-            await asyncio.gather(task_out, task_in)
+            try:
+                await asyncio.gather(task_out, task_in)
+            finally:
+                for t in (task_out, task_in):
+                    if not t.done():
+                        t.cancel()
         except paramiko.ssh_exception.AuthenticationException:
             err_msg = "Authentication failed: Username atau password salah."
             logger.warning(f"SSH Auth failed for device {device['name']} ({device['ip']})")
@@ -359,6 +435,17 @@ async def websocket_terminal(websocket: WebSocket, device_id: int, token: str):
             await websocket.send_text(f"\r\n[Error] SSH Connection failed: {err_msg}\r\n")
             
     finally:
+        # Deregister serial session if it was a serial connection
+        try:
+            if 'device' in locals() and device.get("protocol") == "serial":
+                port_name = device.get("ip")
+                if port_name:
+                    async with serial_sessions_lock:
+                        if port_name in active_serial_sessions and active_serial_sessions[port_name][0] == websocket:
+                            del active_serial_sessions[port_name]
+        except Exception:
+            pass
+
         # Always remove session lock
         async with ssh_sessions_lock:
             if user_id in active_ssh_sessions:
