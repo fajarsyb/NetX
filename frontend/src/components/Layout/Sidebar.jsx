@@ -172,6 +172,16 @@ export default function Sidebar() {
             </NavLink>
           )}
 
+          {hasMenu('syslog') && (
+            <NavLink
+              to="/snmp-traps"
+              className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+            >
+              <Radio className="nav-icon" />
+              SNMP Traps Log
+            </NavLink>
+          )}
+
           {hasMenu('terminal') && (
             <NavLink
               to="/terminal"

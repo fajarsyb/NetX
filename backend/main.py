@@ -5,7 +5,7 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from app.routers import devices, auth, groups, terminal, topology, snmp, credentials, audit_logs, db_settings, health, thresholds, shell_notes, l2_analysis, remote_backups, ping, system_settings
+from app.routers import devices, auth, groups, terminal, topology, snmp, credentials, audit_logs, db_settings, health, thresholds, shell_notes, l2_analysis, remote_backups, ping, system_settings, snmp_traps
 from app.services.auth import get_current_user
 from app.services.health_monitor import start_event_loop_monitor
 from app.core.plugins import plugin_manager
@@ -56,6 +56,7 @@ app.include_router(shell_notes.router, dependencies=[Depends(get_current_user), 
 app.include_router(l2_analysis.router, dependencies=[Depends(get_current_user), api_rate_limiter])
 app.include_router(remote_backups.router, dependencies=[Depends(get_current_user), api_rate_limiter])
 app.include_router(system_settings.router, dependencies=[Depends(get_current_user), api_rate_limiter])
+app.include_router(snmp_traps.router, dependencies=[Depends(get_current_user), api_rate_limiter])
 
 
 # 2. Mount Dynamic Plugin Routers

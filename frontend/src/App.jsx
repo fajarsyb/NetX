@@ -16,6 +16,7 @@ import Topology from './pages/Topology'
 import MacInvestigation from './pages/MacInvestigation'
 import NetworkAnomalies from './pages/NetworkAnomalies'
 import SyslogViewer from './pages/SyslogViewer'
+import SnmpTraps from './pages/SnmpTraps'
 import DatabaseSettings from './pages/DatabaseSettings'
 import SystemSettings from './pages/SystemSettings'
 import SystemHealth from './pages/SystemHealth'
@@ -112,6 +113,7 @@ function AppContent() {
                   <Route path="/investigation" element={<PermissionGuard menu="investigation"><MacInvestigation /></PermissionGuard>} />
                   <Route path="/anomalies" element={<PermissionGuard menu="anomalies"><NetworkAnomalies /></PermissionGuard>} />
                   <Route path="/syslog" element={<PermissionGuard menu="syslog"><SyslogViewer /></PermissionGuard>} />
+                  <Route path="/snmp-traps" element={<PermissionGuard menu="syslog"><SnmpTraps /></PermissionGuard>} />
                   <Route path="/terminal" element={<div />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>

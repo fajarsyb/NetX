@@ -1081,6 +1081,24 @@ def init_db():
             except Exception:
                 pass
 
+        # SNMP Traps (PostgreSQL)
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS snmp_traps (
+            id             SERIAL PRIMARY KEY,
+            device_id      INTEGER REFERENCES devices(id) ON DELETE SET NULL,
+            source_ip      VARCHAR(45) NOT NULL,
+            version        VARCHAR(10) NOT NULL,
+            community      VARCHAR(100) DEFAULT NULL,
+            enterprise_oid VARCHAR(255) DEFAULT NULL,
+            generic_trap   INTEGER DEFAULT NULL,
+            specific_trap  INTEGER DEFAULT NULL,
+            uptime         BIGINT DEFAULT NULL,
+            varbinds       TEXT NOT NULL,
+            received_at    VARCHAR(100) NOT NULL
+        );
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_snmp_traps_ip ON snmp_traps(source_ip);")
+
         # System Settings (PostgreSQL)
         c.execute("""
         CREATE TABLE IF NOT EXISTS system_settings (
@@ -1957,6 +1975,24 @@ def init_db():
             c.execute("ALTER TABLE devices ADD COLUMN ping_checked_at TEXT DEFAULT NULL;")
         except sqlite3.OperationalError:
             pass
+
+        # SNMP Traps (SQLite)
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS snmp_traps (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id      INTEGER REFERENCES devices(id) ON DELETE SET NULL,
+            source_ip      TEXT NOT NULL,
+            version        TEXT NOT NULL,
+            community      TEXT DEFAULT NULL,
+            enterprise_oid TEXT DEFAULT NULL,
+            generic_trap   INTEGER DEFAULT NULL,
+            specific_trap  INTEGER DEFAULT NULL,
+            uptime         BIGINT DEFAULT NULL,
+            varbinds       TEXT NOT NULL,
+            received_at    TEXT NOT NULL
+        );
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_snmp_traps_ip ON snmp_traps(source_ip);")
 
         # System Settings (SQLite)
         c.execute("""

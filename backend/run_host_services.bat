@@ -12,6 +12,9 @@ set TZ=Asia/Jakarta
 echo [*] Starting syslog server...
 start "NetX Syslog" cmd /c venv\Scripts\python -m app.services.syslog_server
 
+echo [*] Starting SNMP Trap receiver...
+start "NetX SNMP Trap" cmd /c venv\Scripts\python -m app.services.snmp_trap_receiver
+
 echo [*] Starting scheduler...
 start "NetX Scheduler" cmd /c venv\Scripts\python main_scheduler.py
 

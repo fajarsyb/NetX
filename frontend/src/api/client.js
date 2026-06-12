@@ -164,6 +164,11 @@ export const syslogApi = {
   updatePattern: (hash, data) => api.put(`/syslog/patterns/${hash}`, data),
 }
 
+export const snmpTrapsApi = {
+  list: (params) => api.get('/snmp-traps', { params }),
+  clear: () => api.delete('/snmp-traps/clear'),
+}
+
 export const thresholdsApi = {
   list:   ()         => api.get('/thresholds'),
   get:    (id)       => api.get(`/thresholds/${id}`),

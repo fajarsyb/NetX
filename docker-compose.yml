@@ -165,6 +165,37 @@ services:
     networks:
       - netx_network
 
+  snmp_traps:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    container_name: netx_snmp_traps
+    command: python -m app.services.snmp_trap_receiver
+    cap_add:
+      - NET_BIND_SERVICE
+    ports:
+      - target: ${SNMP_TRAP_PORT:-162}
+        published: ${SNMP_TRAP_PORT:-162}
+        protocol: udp
+        mode: host
+    environment:
+      - DB_ENGINE=${DB_ENGINE:-postgresql}
+      - DB_HOST=${DB_HOST:-postgres}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_NAME=${DB_NAME:-netx}
+      - DB_USER=${DB_USER:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - REDIS_URL=redis://redis:6379/0
+      - DB_SSL_MODE=disable
+      - TZ=Asia/Jakarta
+      - SNMP_TRAP_PORT=${SNMP_TRAP_PORT:-162}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: always
+    networks:
+      - netx_network
+
 volumes:
   pgdata:
   redisdata:
