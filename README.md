@@ -10,9 +10,10 @@ NetX adalah platform manajemen, pemantauan, dan otomatisasi jaringan *enterprise
 *   **Interactive Topology**: Peta topologi jaringan dinamis berbasis LLDP/CDP dengan penyimpanan tata letak node interaktif.
 *   **Redis-Based Distributed Queue**: Pemisahan tugas API dan pemrosesan latar belakang yang berat (SSH, SNMP, Backup) menggunakan antrean Redis asinkron untuk kestabilan tinggi.
 *   **Automatic Configuration Backup**: Pencadangan berkala konfigurasi perangkat (*running-config*) dilengkapi dengan fitur *Config Diff Viewer*.
+*   **Remote Backup (SFTP/FTP/SCP)**: Ekspor konfigurasi dan database ke server eksternal melalui SFTP, FTP, atau SCP.
 *   **Layer 2 Monitoring**: Pemantauan detail status Spanning Tree Protocol (STP) dan database VLAN langsung via SNMP.
 *   **Advanced Anomaly Detection**: Deteksi dini badai paket (Storm), port flapping, MAC flapping, dan STP topology changes.
-*   **Syslog Engine**: UDP Syslog Receiver dengan fitur pengelompokan pola log (Clustering), pemfilteran, dan deteksi lonjakan log (Spike).
+*   **Syslog Engine**: UDP Syslog Receiver dengan fitur pengelompokan pola log (Clustering), pemfilteran, dan deteksi lonjakan log (Spike). Mendukung pencocokan perangkat via `syslog_hostname` alias untuk lingkungan Docker/NAT.
 *   **Web CLI (Terminal SSH)**: Terminal interaktif aman berbasis WebSocket untuk akses konsol langsung dari browser.
 
 ---
@@ -20,7 +21,7 @@ NetX adalah platform manajemen, pemantauan, dan otomatisasi jaringan *enterprise
 ## 🛠️ Tech Stack
 
 *   **Frontend**: React, Vite, TypeScript, TailwindCSS/Vanilla CSS, React Flow / SVG.
-*   **Backend**: FastAPI (Python 3.11+), Netmiko, PySNMP, Paramiko.
+*   **Backend**: FastAPI (Python 3.11+), Netmiko, PySNMP, Paramiko, SCP.
 *   **Database & Queue**: PostgreSQL (Database Utama), Redis (Message Broker & Distributed Lock).
 *   **Kontainerisasi**: Docker, Docker Compose.
 
@@ -47,11 +48,27 @@ graph TD
 ## ⚡ Cara Menjalankan Aplikasi
 
 ### Persyaratan Utama
-*   **Docker Desktop** (aktif di latar belakang)
+*   **Docker** & **Docker Compose** (v2+)
 *   **Node.js & npm** (versi 18+)
+*   Python **3.11+** (hanya jika menjalankan tanpa Docker)
 
-### Metode A: Startup Satu-Klik (Windows)
+### Metode A: Startup Satu-Klik — Windows
 Cukup klik ganda berkas **`Start-NetX-Docker.bat`** di direktori root. Berkas ini akan otomatis menyalakan Docker Compose, membersihkan port, menjalankan server frontend di jendela terpisah, dan membuka browser Anda ke **`http://localhost:5173/`**.
+
+### Metode A: Startup Satu-Klik — Linux / macOS
+Jalankan skrip shell berikut dari direktori root:
+```bash
+chmod +x start-netx-docker.sh
+./start-netx-docker.sh
+```
+Script ini akan otomatis memeriksa Docker, menangani izin port 514 di Linux (via `sysctl`), dan memulai semua layanan.
+
+> **Catatan Port 514 di Linux**: Port di bawah 1024 memerlukan hak istimewa. Skrip akan mencoba mengatur `net.ipv4.ip_unprivileged_port_start=514` via `sudo`. Jika tidak berhasil, syslog akan otomatis fallback ke **port 5140** — konfigurasi perangkat Anda untuk mengirim syslog ke port tersebut.
+>
+> Untuk konfigurasi permanen, tambahkan di `/etc/sysctl.conf`:
+> ```
+> net.ipv4.ip_unprivileged_port_start=514
+> ```
 
 ### Metode B: Startup Manual via Terminal
 1.  **Jalankan Backend (Docker Compose)**:
@@ -72,9 +89,18 @@ Cukup klik ganda berkas **`Start-NetX-Docker.bat`** di direktori root. Berkas in
 
 ---
 
+## 🔧 Konfigurasi Syslog — Perangkat di belakang Docker NAT
+
+Jika perangkat Anda berada di jaringan berbeda dan log masuk sebagai **"Perangkat Tidak Terdaftar"**, tambahkan **Syslog Hostname Alias** pada konfigurasi perangkat di NetX:
+1.  Buka **Devices → Edit Perangkat**.
+2.  Isi kolom **Syslog Hostname** dengan nama host yang dikirim perangkat di header syslog (contoh: `SW-Core-01`, `192.168.1.1`).
+3.  Simpan. Log syslog dari perangkat tersebut akan langsung teridentifikasi.
+
+---
+
 ## 📂 Dokumentasi Lebih Lanjut
 
 Untuk panduan yang lebih terperinci, silakan buka dokumen di dalam folder `docs/`:
-1.  **[Panduan Instalasi & Penggunaan](file:///c:/Code/Auto/NetX/docs/installation_and_usage_guide.md)**: Petunjuk konfigurasi lengkap, migrasi database, dan pemecahan masalah (troubleshooting).
-2.  **[Dokumentasi Teknis](file:///c:/Code/Auto/NetX/docs/technical_documentation.md)**: Detail mengenai mekanisme parser switch, korelasi anomali (RCA), syslog clustering, dan integrasi SNMP.
-3.  **[Panduan Konfigurasi Syslog & SNMP Switch](file:///c:/Code/Auto/NetX/docs/syslog_and_snmp_configuration_guide.md)**: Contoh perintah CLI untuk mengarahkan SNMP OID dan Syslog dari switch Cisco/Allied Telesis/Juniper ke server NetX.
+1.  **[Panduan Instalasi & Penggunaan](docs/installation_and_usage_guide.md)**: Petunjuk konfigurasi lengkap, migrasi database, dan pemecahan masalah (troubleshooting).
+2.  **[Dokumentasi Teknis](docs/technical_documentation.md)**: Detail mengenai mekanisme parser switch, korelasi anomali (RCA), syslog clustering, dan integrasi SNMP.
+3.  **[Panduan Konfigurasi Syslog & SNMP Switch](docs/syslog_and_snmp_configuration_guide.md)**: Contoh perintah CLI untuk mengarahkan SNMP OID dan Syslog dari switch Cisco/Allied Telesis/Juniper ke server NetX.

@@ -115,6 +115,8 @@ services:
       dockerfile: Dockerfile.worker
     container_name: netx_syslog
     command: python -m app.services.syslog_server
+    cap_add:
+      - NET_BIND_SERVICE
     ports:
       - target: 514
         published: 514
@@ -128,6 +130,7 @@ services:
       - DB_USER=postgres
       - DB_PASSWORD=RxVUDCKZDM3MG9rckvFe
       - REDIS_URL=redis://redis:6379/0
+      - DB_SSL_MODE=disable
       - TZ=Asia/Jakarta
     depends_on:
       postgres:
