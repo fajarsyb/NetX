@@ -51,7 +51,15 @@ TABLES_ORDER = [
     "mac_history_tracking",
     "device_credential_compliance",
     "syslog_patterns",
-    "device_syslogs"
+    "device_syslogs",
+    "device_l2_spanning_tree",
+    "device_l2_stp_ports",
+    "device_l2_vlans",
+    "device_l2_interfaces",
+    "device_l2_port_security",
+    "device_l2_macs",
+    "device_l2_timeline",
+    "device_l2_port_lifecycle"
 ]
 
 def migrate():
@@ -170,7 +178,10 @@ def migrate():
                     "arp_cache", "arp_history", "lldp_neighbors", "cdp_neighbors", 
                     "routing_table", "mac_addresses", "device_config_backups", 
                     "device_snmp_objects", "network_anomalies", "interface_stats_latest", 
-                    "mac_history_tracking", "device_credential_compliance"
+                    "mac_history_tracking", "device_credential_compliance",
+                    "device_l2_spanning_tree", "device_l2_stp_ports", "device_l2_vlans", 
+                    "device_l2_interfaces", "device_l2_port_security", "device_l2_macs", 
+                    "device_l2_timeline", "device_l2_port_lifecycle"
                 ]:
                     if row_dict.get("device_id") not in valid_device_ids:
                         continue

@@ -21,6 +21,14 @@ export const devicesApi = {
   getBulkRefreshStatus: (taskId) => api.get(`/devices/bulk-refresh/${taskId}`),
   getPortMap:     (id)       => api.get(`/devices/${id}/port-map`),
   getPortAnalysis: (id)      => api.get(`/devices/${id}/port-analysis`),
+  getL2Overview:  (id)       => api.get(`/devices/${id}/l2/overview`),
+  getL2Ports:     (id)       => api.get(`/devices/${id}/l2/ports`),
+  getL2Stp:       (id)       => api.get(`/devices/${id}/l2/stp`),
+  getL2Vlans:     (id)       => api.get(`/devices/${id}/l2/vlans`),
+  getL2Macs:      (id)       => api.get(`/devices/${id}/l2/macs`),
+  getL2Timeline:  (id)       => api.get(`/devices/${id}/l2/timeline`),
+  getL2Lifecycle: (id)       => api.get(`/devices/${id}/l2/lifecycle`),
+  refreshL2:      (id)       => api.post(`/devices/${id}/l2/refresh`),
 }
 
 export const groupsApi = {
@@ -99,6 +107,13 @@ export const backupApi = {
   create:  ()         => api.post('/backups'),
   restore: (filename) => api.post(`/backups/${filename}/restore`),
   remove:  (filename) => api.delete(`/backups/${filename}`),
+}
+
+export const remoteBackupsApi = {
+  getSettings:   ()     => api.get('/remote-backups'),
+  saveSettings:  (data) => api.post('/remote-backups', data),
+  testConnection: (data) => api.post('/remote-backups/test', data),
+  uploadLatestDb: ()     => api.post('/remote-backups/upload-db'),
 }
 
 export const deviceBackupApi = {

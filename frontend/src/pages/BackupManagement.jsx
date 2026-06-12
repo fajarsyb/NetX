@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { Server, ShieldAlert, Plus, Trash2, RotateCcw, AlertTriangle } from 'lucide-react'
-import { backupApi } from '../api/client'
+import { Server, ShieldAlert, Plus, Trash2, RotateCcw, AlertTriangle, Globe, Wifi, UploadCloud } from 'lucide-react'
+import { backupApi, remoteBackupsApi } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../components/shared/ToastProvider'
 
@@ -11,8 +11,33 @@ export default function BackupManagement() {
   const [restoringFile, setRestoringFile] = useState(null) // Holds filename for active restore modal
   const [isRestoring, setIsRestoring] = useState(false)
   
+  // Remote Backup Settings state
+  const [remoteSettings, setRemoteSettings] = useState({
+    protocol: 'sftp',
+    host: '',
+    port: 22,
+    username: '',
+    password: '',
+    path: '',
+    is_active: 0,
+    backup_db: 0,
+    backup_config: 0
+  })
+  const [testingConnection, setTestingConnection] = useState(false)
+  const [savingSettings, setSavingSettings] = useState(false)
+  const [uploadingDb, setUploadingDb] = useState(false)
+  
   const { user: currentUser } = useAuth()
   const toast = useToast()
+
+  const fetchRemoteSettings = async () => {
+    try {
+      const res = await remoteBackupsApi.getSettings()
+      setRemoteSettings(res.data)
+    } catch (err) {
+      toast.error('Gagal mengambil pengaturan backup eksternal.')
+    }
+  }
 
   const fetchBackups = async () => {
     setLoading(true)
@@ -28,6 +53,7 @@ export default function BackupManagement() {
 
   useEffect(() => {
     fetchBackups()
+    fetchRemoteSettings()
   }, [])
 
   if (currentUser?.role !== 'admin') {
@@ -82,6 +108,51 @@ export default function BackupManagement() {
       toast.error(err.response?.data?.detail || 'Gagal memulihkan data.')
     } finally {
       setIsRestoring(false)
+    }
+  }
+
+  const handleSaveSettings = async () => {
+    setSavingSettings(true)
+    try {
+      const res = await remoteBackupsApi.saveSettings(remoteSettings)
+      if (res.data.success) {
+        toast.success(res.data.message || 'Pengaturan berhasil disimpan.')
+        fetchRemoteSettings()
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Gagal menyimpan pengaturan.')
+    } finally {
+      setSavingSettings(false)
+    }
+  }
+
+  const handleTestConnection = async () => {
+    setTestingConnection(true)
+    try {
+      const res = await remoteBackupsApi.testConnection(remoteSettings)
+      if (res.data.success) {
+        toast.success(res.data.message || 'Koneksi berhasil!')
+      } else {
+        toast.error(res.data.message || 'Koneksi gagal.')
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Gagal menguji koneksi.')
+    } finally {
+      setTestingConnection(false)
+    }
+  }
+
+  const handleUploadLatestDb = async () => {
+    setUploadingDb(true)
+    try {
+      const res = await remoteBackupsApi.uploadLatestDb()
+      if (res.data.success) {
+        toast.success(res.data.message || 'Database berhasil diunggah.')
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Gagal mengunggah database.')
+    } finally {
+      setUploadingDb(false)
     }
   }
 
@@ -174,6 +245,181 @@ export default function BackupManagement() {
             </table>
           </div>
         )}
+      </div>
+
+      {/* Remote Backup Settings Section */}
+      <div className="card" style={{ marginTop: '24px' }}>
+        <div className="p-20" style={{ borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <Globe size={18} style={{ color: 'var(--primary)' }} />
+          <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700 }}>Integrasi Backup Eksternal (SFTP / FTP / SCP)</h3>
+        </div>
+        <div style={{ padding: '24px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px', marginBottom: '20px' }}>
+            <div className="form-group">
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>Protokol</label>
+              <select
+                className="form-control"
+                value={remoteSettings.protocol}
+                onChange={e => {
+                  const proto = e.target.value;
+                  let defaultPort = 22;
+                  if (proto === 'ftp') defaultPort = 21;
+                  setRemoteSettings(s => ({ ...s, protocol: proto, port: defaultPort }));
+                }}
+                style={{ width: '100%', height: '38px', border: '1px solid var(--border)', borderRadius: '6px', padding: '0 10px', fontSize: '13.5px', background: 'var(--bg-input)', color: 'var(--text-primary)' }}
+              >
+                <option value="sftp">SFTP (Secure FTP)</option>
+                <option value="ftp">FTP (File Transfer Protocol)</option>
+                <option value="scp">SCP (Secure Copy)</option>
+              </select>
+            </div>
+            
+            <div className="form-group">
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>Host / IP Address</label>
+              <input
+                type="text"
+                className="form-control"
+                placeholder="10.0.0.5 atau backup.domain.com"
+                value={remoteSettings.host}
+                onChange={e => setRemoteSettings(s => ({ ...s, host: e.target.value }))}
+                style={{ width: '100%', height: '38px', border: '1px solid var(--border)', borderRadius: '6px', padding: '0 10px', fontSize: '13.5px', background: 'var(--bg-input)', color: 'var(--text-primary)' }}
+              />
+            </div>
+            
+            <div className="form-group">
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>Port</label>
+              <input
+                type="number"
+                className="form-control"
+                placeholder={remoteSettings.protocol === 'ftp' ? '21' : '22'}
+                value={remoteSettings.port}
+                onChange={e => setRemoteSettings(s => ({ ...s, port: Number(e.target.value) }))}
+                style={{ width: '100%', height: '38px', border: '1px solid var(--border)', borderRadius: '6px', padding: '0 10px', fontSize: '13.5px', background: 'var(--bg-input)', color: 'var(--text-primary)' }}
+              />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px', marginBottom: '20px' }}>
+            <div className="form-group">
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>Username</label>
+              <input
+                type="text"
+                className="form-control"
+                placeholder="root atau backup-user"
+                value={remoteSettings.username}
+                onChange={e => setRemoteSettings(s => ({ ...s, username: e.target.value }))}
+                style={{ width: '100%', height: '38px', border: '1px solid var(--border)', borderRadius: '6px', padding: '0 10px', fontSize: '13.5px', background: 'var(--bg-input)', color: 'var(--text-primary)' }}
+              />
+            </div>
+
+            <div className="form-group">
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>Password</label>
+              <input
+                type="password"
+                className="form-control"
+                placeholder={remoteSettings.password ? '••••••••' : 'Password remote'}
+                value={remoteSettings.password}
+                onChange={e => setRemoteSettings(s => ({ ...s, password: e.target.value }))}
+                style={{ width: '100%', height: '38px', border: '1px solid var(--border)', borderRadius: '6px', padding: '0 10px', fontSize: '13.5px', background: 'var(--bg-input)', color: 'var(--text-primary)' }}
+              />
+            </div>
+
+            <div className="form-group">
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>Folder / Path Tujuan</label>
+              <input
+                type="text"
+                className="form-control"
+                placeholder="/var/backup atau /"
+                value={remoteSettings.path}
+                onChange={e => setRemoteSettings(s => ({ ...s, path: e.target.value }))}
+                style={{ width: '100%', height: '38px', border: '1px solid var(--border)', borderRadius: '6px', padding: '0 10px', fontSize: '13.5px', background: 'var(--bg-input)', color: 'var(--text-primary)' }}
+              />
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', marginBottom: '24px', padding: '16px', background: 'var(--bg-hover)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <input
+                type="checkbox"
+                id="remote_is_active"
+                checked={remoteSettings.is_active === 1}
+                onChange={e => setRemoteSettings(s => ({ ...s, is_active: e.target.checked ? 1 : 0 }))}
+                style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+              />
+              <label htmlFor="remote_is_active" style={{ fontSize: '13px', fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}>
+                Aktifkan Backup Remote Otomatis
+              </label>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <input
+                type="checkbox"
+                id="remote_backup_db"
+                checked={remoteSettings.backup_db === 1}
+                onChange={e => setRemoteSettings(s => ({ ...s, backup_db: e.target.checked ? 1 : 0 }))}
+                disabled={remoteSettings.is_active === 0}
+                style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+              />
+              <label htmlFor="remote_backup_db" style={{ fontSize: '13px', fontWeight: 600, cursor: 'pointer', userSelect: 'none', color: remoteSettings.is_active === 0 ? 'var(--text-muted)' : 'var(--text-primary)' }}>
+                Backup Database (.zip)
+              </label>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <input
+                type="checkbox"
+                id="remote_backup_config"
+                checked={remoteSettings.backup_config === 1}
+                onChange={e => setRemoteSettings(s => ({ ...s, backup_config: e.target.checked ? 1 : 0 }))}
+                disabled={remoteSettings.is_active === 0}
+                style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+              />
+              <label htmlFor="remote_backup_config" style={{ fontSize: '13px', fontWeight: 600, cursor: 'pointer', userSelect: 'none', color: remoteSettings.is_active === 0 ? 'var(--text-muted)' : 'var(--text-primary)' }}>
+                Backup Konfigurasi Perangkat (.txt)
+              </label>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+            <button
+              className="btn btn-primary"
+              onClick={handleSaveSettings}
+              disabled={savingSettings || testingConnection}
+            >
+              {savingSettings ? (
+                <span className="loading-spinner" style={{ width: 14, height: 14, borderTopColor: '#fff', marginRight: 6 }} />
+              ) : null}
+              {savingSettings ? 'Menyimpan...' : 'Simpan Pengaturan'}
+            </button>
+
+            <button
+              className="btn btn-ghost"
+              onClick={handleTestConnection}
+              disabled={savingSettings || testingConnection || !remoteSettings.host}
+            >
+              {testingConnection ? (
+                <span className="loading-spinner" style={{ width: 14, height: 14, borderTopColor: 'var(--primary)', marginRight: 6 }} />
+              ) : (
+                <Wifi size={14} style={{ marginRight: 6 }} />
+              )}
+              {testingConnection ? 'Menguji...' : 'Uji Koneksi'}
+            </button>
+
+            <button
+              className="btn btn-ghost"
+              onClick={handleUploadLatestDb}
+              disabled={uploadingDb || !remoteSettings.host || backups.length === 0}
+              style={{ color: 'var(--success)', borderColor: 'var(--success-glow)' }}
+            >
+              {uploadingDb ? (
+                <span className="loading-spinner" style={{ width: 14, height: 14, borderTopColor: 'var(--success)', marginRight: 6 }} />
+              ) : (
+                <UploadCloud size={14} style={{ marginRight: 6 }} />
+              )}
+              {uploadingDb ? 'Mengunggah...' : 'Upload DB Terkini ke Remote'}
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Restore Warning Confirmation Modal */}

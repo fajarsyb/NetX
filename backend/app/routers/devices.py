@@ -583,12 +583,12 @@ class BulkRefreshRequest(BaseModel):
     device_ids: List[int]
     components: List[str]
 
-import redis
+import redis.asyncio as aioredis
 import json
 import os
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-redis_client = redis.from_url(REDIS_URL)
+redis_client = aioredis.from_url(REDIS_URL)
 
 bulk_refresh_status = {}
 
@@ -612,13 +612,13 @@ async def trigger_bulk_refresh(
     }
     
     try:
-        redis_client.setex(f"bulk_refresh:{task_id}", 86400, json.dumps(status_entry))
+        await redis_client.setex(f"bulk_refresh:{task_id}", 86400, json.dumps(status_entry))
     except Exception as e:
         logger.error(f"Failed to write bulk refresh status to Redis: {e}")
         bulk_refresh_status[task_id] = status_entry
 
     from app.queue.queue import job_queue
-    job_queue.enqueue("bulk_refresh", {
+    await job_queue.enqueue("bulk_refresh", {
         "task_id": task_id,
         "device_ids": req.device_ids,
         "components": req.components,
@@ -636,12 +636,13 @@ async def trigger_bulk_refresh(
 async def get_bulk_refresh_status(task_id: str, current_user: dict = Depends(get_current_user)):
     """Fetch live progress of bulk refresh task."""
     try:
-        data = redis_client.get(f"bulk_refresh:{task_id}")
+        data = await redis_client.get(f"bulk_refresh:{task_id}")
         if not data:
             if task_id in bulk_refresh_status:
                 return bulk_refresh_status[task_id]
             raise HTTPException(status_code=404, detail="Task ID tidak ditemukan.")
         return json.loads(data.decode("utf-8"))
+
     except HTTPException:
         raise
     except Exception as e:

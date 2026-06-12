@@ -37,8 +37,6 @@ const TABS = [
   { id: 'lldp',    label: '🔗 LLDP' },
   { id: 'cdp',     label: '🤝 CDP' },
   { id: 'routing', label: '🛣️ Routing' },
-  { id: 'mac',     label: '📋 MAC Table' },
-  { id: 'l2',      label: '⛓️ Layer 2 (STP/VLAN)' },
   { id: 'snmp',    label: '⚡ SNMP' },
 ]
 

@@ -2,6 +2,7 @@ import asyncio
 import os
 import logging
 import redis
+import redis.asyncio as aioredis
 from dotenv import load_dotenv
 
 # Load env file
@@ -18,60 +19,86 @@ logger = logging.getLogger("netx.worker_launcher")
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 
-async def run_scheduler_tick_loop(redis_client):
-    from main_scheduler import schedule_check_tick, ANOMALY_INTERVAL, HISTORY_INTERVAL
+async def run_scheduler_tick_loop(redis_client_sync):
+    from main_scheduler import schedule_check_tick
     import main_scheduler
     import time
     
     logger.info("Starting Scheduler Tick Loop...")
-    # Initialize scheduler variables
+    # Seed timers to delay initial run after startup if needed
     current_time = time.time()
-    main_scheduler.last_anomaly_scan = current_time - ANOMALY_INTERVAL + 30.0
-    main_scheduler.last_history_snapshot = current_time - HISTORY_INTERVAL + 15.0
-    
+    from app.core.plugins import plugin_manager
+    for task_def in plugin_manager.get_scheduled_tasks():
+        task_name = task_def["task_name"]
+        interval = task_def["interval"]
+        main_scheduler.last_run_times[task_name] = current_time - interval + 30.0
+        
     while True:
         try:
-            schedule_check_tick(redis_client)
+            # Run blocking database and sync redis calls in a thread pool to avoid event loop lag
+            await asyncio.to_thread(schedule_check_tick, redis_client_sync)
         except Exception as e:
             logger.error(f"Error in scheduler tick: {e}")
         await asyncio.sleep(30)
 
 async def main():
-    logger.info("Initializing NetX Background Engine (Redis Queue + Syslog + Scheduler)...")
-    r = redis.from_url(REDIS_URL)
+    mode = os.environ.get("NETX_MODE", "all").lower()
+    logger.info(f"Initializing NetX Background Engine (Mode: {mode})...")
     
-    # Test Redis connectivity
-    try:
-        r.ping()
-        logger.info("Successfully connected to Redis.")
-    except Exception as e:
-        logger.error(f"Failed to connect to Redis at {REDIS_URL}: {e}")
-        return
-
-    # Start the worker loop in the background
-    asyncio.create_task(worker_loop())
+    r_sync = None
+    r_async = None
     
-    # Start the scheduler tick loop in the background
-    asyncio.create_task(run_scheduler_tick_loop(r))
-    
-    # Start the syslog UDP server
-    syslog_transport = await start_syslog_server()
-    
-    if syslog_transport is None:
-        logger.warning("Syslog UDP Server failed to bind. Running worker and scheduler...")
-        while True:
-            await asyncio.sleep(3600)
-    else:
+    # Check connections based on mode
+    if mode in ("all", "scheduler"):
+        r_sync = redis.from_url(REDIS_URL)
         try:
-            while not syslog_transport.is_closing():
-                await asyncio.sleep(1)
+            r_sync.ping()
+            logger.info("Successfully connected to Redis (sync).")
         except Exception as e:
-            logger.error(f"Worker runtime error: {e}")
-        finally:
-            syslog_transport.close()
+            logger.error(f"Failed to connect to Redis (sync) at {REDIS_URL}: {e}")
+            return
+
+    if mode in ("all", "worker"):
+        r_async = aioredis.from_url(REDIS_URL)
+        try:
+            await r_async.ping()
+            logger.info("Successfully connected to Redis (async).")
+        except Exception as e:
+            logger.error(f"Failed to connect to Redis (async) at {REDIS_URL}: {e}")
+            return
+
+    tasks = []
+    
+    if mode in ("all", "worker"):
+        tasks.append(asyncio.create_task(worker_loop()))
+        
+    if mode in ("all", "scheduler"):
+        tasks.append(asyncio.create_task(run_scheduler_tick_loop(r_sync)))
+        
+    if mode in ("all", "syslog"):
+        syslog_transport = await start_syslog_server()
+        if syslog_transport is None:
+            logger.warning("Syslog UDP Server failed to bind.")
+            # If syslog only mode, wait forever.
+            if mode == "syslog":
+                while True:
+                    await asyncio.sleep(3600)
+        else:
+            try:
+                while not syslog_transport.is_closing():
+                    await asyncio.sleep(1)
+            except Exception as e:
+                logger.error(f"Syslog runtime error: {e}")
+            finally:
+                syslog_transport.close()
+            return
+
+    if tasks:
+        await asyncio.gather(*tasks)
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("Background Worker Engine stopped by user.")
+

@@ -84,7 +84,15 @@ async def create_backup(admin: dict = Depends(require_admin)):
                 "mac_history_tracking",
                 "device_credential_compliance",
                 "syslog_patterns",
-                "device_syslogs"
+                "device_syslogs",
+                "device_l2_spanning_tree",
+                "device_l2_stp_ports",
+                "device_l2_vlans",
+                "device_l2_interfaces",
+                "device_l2_port_security",
+                "device_l2_macs",
+                "device_l2_timeline",
+                "device_l2_port_lifecycle"
             ]
             
             for table in TABLES_ORDER:
@@ -129,8 +137,13 @@ async def create_backup(admin: dict = Depends(require_admin)):
         if os.path.exists(temp_db_path):
             os.remove(temp_db_path)
             
-        log_audit(admin["id"], admin["username"], "CREATE_BACKUP", f"backups/{zip_name}", f"Backup created successfully: {zip_name}")
-        return {"success": True, "filename": zip_name, "message": "Pencadangan berhasil."}
+        # 5. Remote Backup Upload if active
+        from app.services.remote_backup_service import RemoteBackupService
+        uploaded = RemoteBackupService.upload_file(zip_path, zip_name)
+        remote_msg = " dan diunggah ke server remote" if uploaded else ""
+        
+        log_audit(admin["id"], admin["username"], "CREATE_BACKUP", f"backups/{zip_name}", f"Backup created successfully: {zip_name}{remote_msg}")
+        return {"success": True, "filename": zip_name, "message": f"Pencadangan berhasil{remote_msg}."}
         
     except Exception as e:
         if os.path.exists(temp_db_path):
@@ -218,7 +231,15 @@ async def restore_backup(filename: str, admin: dict = Depends(require_admin)):
                 "mac_history_tracking",
                 "device_credential_compliance",
                 "syslog_patterns",
-                "device_syslogs"
+                "device_syslogs",
+                "device_l2_spanning_tree",
+                "device_l2_stp_ports",
+                "device_l2_vlans",
+                "device_l2_interfaces",
+                "device_l2_port_security",
+                "device_l2_macs",
+                "device_l2_timeline",
+                "device_l2_port_lifecycle"
             ]
             
             try:
@@ -280,7 +301,10 @@ async def restore_backup(filename: str, admin: dict = Depends(require_admin)):
                             "arp_cache", "arp_history", "lldp_neighbors", "cdp_neighbors", 
                             "routing_table", "mac_addresses", "device_config_backups", 
                             "device_snmp_objects", "network_anomalies", "interface_stats_latest", 
-                            "mac_history_tracking", "device_credential_compliance"
+                            "mac_history_tracking", "device_credential_compliance",
+                            "device_l2_spanning_tree", "device_l2_stp_ports", "device_l2_vlans", 
+                            "device_l2_interfaces", "device_l2_port_security", "device_l2_macs", 
+                            "device_l2_timeline", "device_l2_port_lifecycle"
                         ]:
                             if row_dict.get("device_id") not in valid_device_ids:
                                 continue

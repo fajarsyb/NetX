@@ -58,11 +58,12 @@ async def handle_job(task_name: str, params: dict):
             handler()
         logger.info("Anomaly detection scan completed.")
 
-    elif task_name in ("refresh_arp", "refresh_lldp", "refresh_cdp", "refresh_mac"):
+    elif task_name in ("refresh_arp", "refresh_lldp", "refresh_cdp", "refresh_mac", "refresh_l2"):
         handler = plugin_manager.get_task_handler(task_name)
         if not handler:
             raise ValueError(f"No plugin registered for task: {task_name}")
         return await handler(params["device_id"], user=user_context)
+
 
     elif task_name == "detect_snmp_info":
         from app.routers.snmp import detect_snmp_info
@@ -86,12 +87,12 @@ async def handle_bulk_refresh(params: dict):
     from app.routers.cdp import refresh_cdp_logic
     from app.routers.snmp import detect_snmp_info
     from app.routers.mac import refresh_mac_table_logic
-    import redis
+    import redis.asyncio as aioredis
     import json
     from app.database import get_db_conn
     from app.services.audit import log_audit
 
-    r = redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+    r = aioredis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
     
     # Initialize state in Redis
     status_entry = {
@@ -100,7 +101,7 @@ async def handle_bulk_refresh(params: dict):
         "current": 0,
         "results": {}
     }
-    r.setex(f"bulk_refresh:{task_id}", 86400, json.dumps(status_entry))
+    await r.setex(f"bulk_refresh:{task_id}", 86400, json.dumps(status_entry))
     results = status_entry["results"]
 
     conn = get_db_conn()
@@ -129,13 +130,17 @@ async def handle_bulk_refresh(params: dict):
                         results[str(dev_id)][comp] = {"success": True, "skipped": True}
                         completed_steps += 1
                         status_entry["current"] = completed_steps
-                        r.setex(f"bulk_refresh:{task_id}", 86400, json.dumps(status_entry))
+                        await r.setex(f"bulk_refresh:{task_id}", 86400, json.dumps(status_entry))
                         continue
                     await refresh_cdp_logic(dev_id, user=user_context)
                 elif comp == "info":
                     await detect_snmp_info(dev_id, method="auto")
                 elif comp == "mac":
                     await refresh_mac_table_logic(dev_id, user=user_context)
+                elif comp == "l2":
+                    from app.services.l2_service import L2AnalysisService
+                    await L2AnalysisService.refresh_device_l2_data(dev_id, user=user_context)
+
 
                 results[str(dev_id)][comp] = {"success": True}
             except Exception as e:
@@ -145,8 +150,9 @@ async def handle_bulk_refresh(params: dict):
 
             completed_steps += 1
             status_entry["current"] = completed_steps
-            r.setex(f"bulk_refresh:{task_id}", 86400, json.dumps(status_entry))
+            await r.setex(f"bulk_refresh:{task_id}", 86400, json.dumps(status_entry))
             await asyncio.sleep(0.5)
 
     status_entry["status"] = "completed"
-    r.setex(f"bulk_refresh:{task_id}", 86400, json.dumps(status_entry))
+    await r.setex(f"bulk_refresh:{task_id}", 86400, json.dumps(status_entry))
+

@@ -112,6 +112,13 @@ async def backup_device_config(device_id: int, only_if_changed: bool = False, us
         """, (device_id, output, next_version, now))
         conn.commit()
 
+        # Trigger remote configuration backup if active
+        try:
+            from app.services.remote_backup_service import RemoteBackupService
+            RemoteBackupService.upload_config(device["name"], output, next_version)
+        except Exception as upload_err:
+            logger.error(f"Failed to upload device config backup for {device['name']} to remote server: {upload_err}")
+
         # Log audit
         from app.services.audit import log_audit
         log_audit(user_id, username, "DEVICE_BACKUP_SUCCESS", f"device_backups/{device_id}", 

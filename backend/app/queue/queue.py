@@ -1,16 +1,16 @@
 import json
 import uuid
 from datetime import datetime
-import redis
+import redis.asyncio as aioredis
 import os
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 
 class RedisJobQueue:
     def __init__(self, redis_url: str = REDIS_URL):
-        self.redis = redis.from_url(redis_url)
+        self.redis = aioredis.from_url(redis_url)
 
-    def enqueue(self, task_name: str, params: dict, priority: str = "default", max_retries: int = 3) -> str:
+    async def enqueue(self, task_name: str, params: dict, priority: str = "default", max_retries: int = 3) -> str:
         """Pushes job to queue:high, queue:default, or queue:low."""
         job_id = str(uuid.uuid4())
         payload = {
@@ -22,12 +22,12 @@ class RedisJobQueue:
             "max_retries": max_retries
         }
         queue_name = f"queue:{priority}"
-        self.redis.lpush(queue_name, json.dumps(payload))
+        await self.redis.lpush(queue_name, json.dumps(payload))
         return job_id
 
     async def run_sync_over_async(self, task_name: str, params: dict, priority: str = "high", timeout: float = 30.0) -> dict:
         import asyncio
-        job_id = self.enqueue(task_name, params, priority)
+        job_id = await self.enqueue(task_name, params, priority)
         result_key = f"job:result:{job_id}"
         
         # Poll Redis for results
@@ -35,9 +35,9 @@ class RedisJobQueue:
         poll_interval = 0.2
         while elapsed < timeout:
             try:
-                data = self.redis.get(result_key)
+                data = await self.redis.get(result_key)
                 if data:
-                    self.redis.delete(result_key)
+                    await self.redis.delete(result_key)
                     return json.loads(data.decode("utf-8"))
             except Exception:
                 pass
@@ -48,3 +48,4 @@ class RedisJobQueue:
 
 # Global queue instance
 job_queue = RedisJobQueue()
+

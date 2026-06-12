@@ -814,10 +814,209 @@ def init_db():
             FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
         );
         """)
-        c.execute("CREATE INDEX IF NOT EXISTS idx_shell_notes_folder ON shell_notes_templates(folder_id);")
-        c.execute("CREATE INDEX IF NOT EXISTS idx_shell_notes_user ON shell_notes_templates(created_by);")
+        # Remote Backup Settings (PostgreSQL)
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS remote_backup_settings (
+            id              SERIAL PRIMARY KEY,
+            protocol        VARCHAR(50) NOT NULL DEFAULT 'sftp',
+            host            VARCHAR(255) NOT NULL,
+            port            INTEGER NOT NULL DEFAULT 22,
+            username        VARCHAR(255) NOT NULL,
+            password        TEXT NOT NULL,
+            path            VARCHAR(255) DEFAULT '',
+            is_active       INTEGER DEFAULT 0,
+            backup_db       INTEGER DEFAULT 0,
+            backup_config   INTEGER DEFAULT 0
+        );
+        """)
+
+        # ─── PostgreSQL L2 Analysis Tables ───
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS device_l2_spanning_tree (
+            device_id                INTEGER PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE,
+            stp_mode                 VARCHAR(100) DEFAULT 'unknown',
+            root_bridge_id           VARCHAR(255) DEFAULT '',
+            root_bridge_priority     INTEGER DEFAULT 0,
+            bridge_id                VARCHAR(255) DEFAULT '',
+            bridge_priority          INTEGER DEFAULT 0,
+            root_path_cost           BIGINT DEFAULT 0,
+            root_port                VARCHAR(100) DEFAULT '',
+            topology_change_count    BIGINT DEFAULT 0,
+            last_topology_change     VARCHAR(100) DEFAULT NULL,
+            confidence_score         INTEGER DEFAULT 100,
+            data_source              VARCHAR(100) DEFAULT 'Simulation',
+            validation_status        TEXT DEFAULT 'Verified',
+            fetched_at               VARCHAR(100) NOT NULL
+        );
+        """)
+
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS device_l2_stp_ports (
+            device_id         INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+            interface_name    VARCHAR(100) NOT NULL,
+            port_role         VARCHAR(50) DEFAULT 'Disabled',
+            port_state        VARCHAR(50) DEFAULT 'Disabled',
+            cost              INTEGER DEFAULT 0,
+            priority          INTEGER DEFAULT 128,
+            edge_port         INTEGER DEFAULT 0,
+            bpdu_guard        VARCHAR(50) DEFAULT 'Disabled',
+            root_guard        VARCHAR(50) DEFAULT 'Disabled',
+            loop_guard        VARCHAR(50) DEFAULT 'Disabled',
+            bpdu_filter       VARCHAR(50) DEFAULT 'Disabled',
+            portfast          VARCHAR(50) DEFAULT 'Disabled',
+            fetched_at        VARCHAR(100) NOT NULL,
+            PRIMARY KEY (device_id, interface_name)
+        );
+        """)
+
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS device_l2_vlans (
+            device_id         INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+            vlan_id           INTEGER NOT NULL,
+            name              VARCHAR(255) DEFAULT '',
+            status            VARCHAR(50) DEFAULT 'active',
+            ports             TEXT DEFAULT '',
+            fetched_at        VARCHAR(100) NOT NULL,
+            PRIMARY KEY (device_id, vlan_id)
+        );
+        """)
+
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS device_l2_interfaces (
+            device_id              INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+            interface_name         VARCHAR(100) NOT NULL,
+            description            TEXT DEFAULT '',
+            port_type              VARCHAR(50) DEFAULT 'Access',
+            oper_status            VARCHAR(50) DEFAULT 'down',
+            admin_status           VARCHAR(50) DEFAULT 'down',
+            speed                  VARCHAR(100) DEFAULT '',
+            duplex                 VARCHAR(50) DEFAULT '',
+            mtu                    INTEGER DEFAULT 1500,
+            in_octets              BIGINT DEFAULT 0,
+            out_octets             BIGINT DEFAULT 0,
+            in_errors              BIGINT DEFAULT 0,
+            out_errors             BIGINT DEFAULT 0,
+            crc_errors             BIGINT DEFAULT 0,
+            drops                  BIGINT DEFAULT 0,
+            discards               BIGINT DEFAULT 0,
+            broadcast_pps          REAL DEFAULT 0.0,
+            multicast_pps          REAL DEFAULT 0.0,
+            unknown_unicast_pps    REAL DEFAULT 0.0,
+            port_flaps             INTEGER DEFAULT 0,
+            mac_count              INTEGER DEFAULT 0,
+            connected_device       TEXT DEFAULT '',
+            vlan                   VARCHAR(50) DEFAULT '',
+            native_vlan            VARCHAR(50) DEFAULT '',
+            allowed_vlans          TEXT DEFAULT '',
+            voice_vlan             VARCHAR(50) DEFAULT '',
+            poe_status             VARCHAR(50) DEFAULT 'Disabled',
+            poe_consumption        REAL DEFAULT 0.0,
+            sfp_vendor             VARCHAR(255) DEFAULT '',
+            sfp_model              VARCHAR(255) DEFAULT '',
+            sfp_serial             VARCHAR(255) DEFAULT '',
+            sfp_rx_power           REAL DEFAULT 0.0,
+            sfp_tx_power           REAL DEFAULT 0.0,
+            sfp_temp               REAL DEFAULT 0.0,
+            sfp_voltage            REAL DEFAULT 0.0,
+            sfp_bias_current       REAL DEFAULT 0.0,
+            sfp_health             VARCHAR(50) DEFAULT 'Healthy',
+            health_score           INTEGER DEFAULT 100,
+            lifecycle_score        INTEGER DEFAULT 100,
+            risk_score             INTEGER DEFAULT 0,
+            recommendation_action  VARCHAR(255) DEFAULT '—',
+            recommendation_text    TEXT DEFAULT 'Port beroperasi normal.',
+            recommendation_code    VARCHAR(50) DEFAULT 'ok',
+            visual_indicator       VARCHAR(50) DEFAULT 'green',
+            is_uplink              INTEGER DEFAULT 0,
+            uplink_type            VARCHAR(100) DEFAULT '',
+            uplink_switch          VARCHAR(255) DEFAULT '',
+            uplink_bandwidth       BIGINT DEFAULT 0,
+            uplink_utilization     REAL DEFAULT 0.0,
+            uplink_redundancy      VARCHAR(100) DEFAULT '',
+            uplink_backup_link     VARCHAR(100) DEFAULT '',
+            fetched_at             VARCHAR(100) NOT NULL,
+            PRIMARY KEY (device_id, interface_name)
+        );
+        """)
+
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS device_l2_port_security (
+            device_id         INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+            interface_name    VARCHAR(100) NOT NULL,
+            sticky_mac         INTEGER DEFAULT 0,
+            max_mac            INTEGER DEFAULT 1,
+            current_mac        INTEGER DEFAULT 0,
+            violation_mode     VARCHAR(50) DEFAULT 'Shutdown',
+            violation_count    INTEGER DEFAULT 0,
+            fetched_at         VARCHAR(100) NOT NULL,
+            PRIMARY KEY (device_id, interface_name)
+        );
+        """)
+
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS device_l2_macs (
+            device_id         INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+            interface_name    VARCHAR(100) NOT NULL,
+            vlan              VARCHAR(50) DEFAULT '',
+            mac_address       VARCHAR(100) NOT NULL,
+            entry_type        VARCHAR(50) DEFAULT 'dynamic',
+            mac_vendor        VARCHAR(255) DEFAULT '',
+            first_seen        VARCHAR(100) NOT NULL,
+            last_seen         VARCHAR(100) NOT NULL,
+            PRIMARY KEY (device_id, interface_name, mac_address)
+        );
+        """)
+
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS device_l2_timeline (
+            id                SERIAL PRIMARY KEY,
+            device_id         INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+            event_type        VARCHAR(100) NOT NULL,
+            interface_name    VARCHAR(100) DEFAULT '',
+            details           TEXT DEFAULT '',
+            severity          VARCHAR(50) NOT NULL DEFAULT 'info',
+            timestamp         VARCHAR(100) NOT NULL
+        );
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_device_l2_timeline_device ON device_l2_timeline(device_id);")
+
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS device_l2_port_lifecycle (
+            device_id              INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+            interface_name         VARCHAR(100) NOT NULL,
+            first_seen             VARCHAR(100) NOT NULL,
+            last_seen              VARCHAR(100) NOT NULL,
+            last_link_up           VARCHAR(100) DEFAULT NULL,
+            last_link_down         VARCHAR(100) DEFAULT NULL,
+            total_active_time      BIGINT DEFAULT 0,
+            total_inactive_time    BIGINT DEFAULT 0,
+            link_event_count       INTEGER DEFAULT 0,
+            last_traffic_activity  VARCHAR(100) DEFAULT NULL,
+            avg_utilization        REAL DEFAULT 0.0,
+            peak_utilization       REAL DEFAULT 0.0,
+            mac_history            TEXT DEFAULT '[]',
+            neighbor_history       TEXT DEFAULT '[]',
+            vlan_history           TEXT DEFAULT '[]',
+            classification         VARCHAR(100) DEFAULT 'Never Used',
+            PRIMARY KEY (device_id, interface_name)
+        );
+        """)
+
+
 
         # Alter tables to add columns for PostgreSQL
+        try:
+            c.execute("ALTER TABLE device_l2_spanning_tree ADD COLUMN IF NOT EXISTS confidence_score INTEGER DEFAULT 100;")
+        except Exception:
+            pass
+        try:
+            c.execute("ALTER TABLE device_l2_spanning_tree ADD COLUMN IF NOT EXISTS data_source VARCHAR(100) DEFAULT 'Simulation';")
+        except Exception:
+            pass
+        try:
+            c.execute("ALTER TABLE device_l2_spanning_tree ADD COLUMN IF NOT EXISTS validation_status TEXT DEFAULT 'Verified';")
+        except Exception:
+            pass
         try:
             c.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS threshold_profile_id INTEGER REFERENCES threshold_profiles(id) ON DELETE SET NULL;")
         except Exception:
@@ -834,6 +1033,7 @@ def init_db():
             c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS permissions TEXT DEFAULT NULL;")
         except Exception:
             pass
+
 
         # Add new columns to interface_stats_latest for PG
         for col in ["last_link_up_time", "last_link_down_time"]:
@@ -1435,7 +1635,216 @@ def init_db():
         c.execute("CREATE INDEX IF NOT EXISTS idx_shell_notes_folder ON shell_notes_templates(folder_id);")
         c.execute("CREATE INDEX IF NOT EXISTS idx_shell_notes_user ON shell_notes_templates(created_by);")
 
+        # Remote Backup Settings (SQLite)
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS remote_backup_settings (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            protocol        TEXT NOT NULL DEFAULT 'sftp',
+            host            TEXT NOT NULL,
+            port            INTEGER NOT NULL DEFAULT 22,
+            username        TEXT NOT NULL,
+            password        TEXT NOT NULL,
+            path            TEXT DEFAULT '',
+            is_active       INTEGER DEFAULT 0,
+            backup_db       INTEGER DEFAULT 0,
+            backup_config   INTEGER DEFAULT 0
+        );
+        """)
+
+        # ─── SQLite L2 Analysis Tables ───
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS device_l2_spanning_tree (
+            device_id                INTEGER PRIMARY KEY,
+            stp_mode                 TEXT DEFAULT 'unknown',
+            root_bridge_id           TEXT DEFAULT '',
+            root_bridge_priority     INTEGER DEFAULT 0,
+            bridge_id                TEXT DEFAULT '',
+            bridge_priority          INTEGER DEFAULT 0,
+            root_path_cost           BIGINT DEFAULT 0,
+            root_port                TEXT DEFAULT '',
+            topology_change_count    BIGINT DEFAULT 0,
+            last_topology_change     TEXT DEFAULT NULL,
+            confidence_score         INTEGER DEFAULT 100,
+            data_source              TEXT DEFAULT 'Simulation',
+            validation_status        TEXT DEFAULT 'Verified',
+            fetched_at               TEXT NOT NULL,
+            FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+        );
+        """)
+
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS device_l2_stp_ports (
+            device_id         INTEGER NOT NULL,
+            interface_name    TEXT NOT NULL,
+            port_role         TEXT DEFAULT 'Disabled',
+            port_state        TEXT DEFAULT 'Disabled',
+            cost              INTEGER DEFAULT 0,
+            priority          INTEGER DEFAULT 128,
+            edge_port         INTEGER DEFAULT 0,
+            bpdu_guard        TEXT DEFAULT 'Disabled',
+            root_guard        TEXT DEFAULT 'Disabled',
+            loop_guard        TEXT DEFAULT 'Disabled',
+            bpdu_filter       TEXT DEFAULT 'Disabled',
+            portfast          TEXT DEFAULT 'Disabled',
+            fetched_at        TEXT NOT NULL,
+            PRIMARY KEY (device_id, interface_name),
+            FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+        );
+        """)
+
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS device_l2_vlans (
+            device_id         INTEGER NOT NULL,
+            vlan_id           INTEGER NOT NULL,
+            name              TEXT DEFAULT '',
+            status            TEXT DEFAULT 'active',
+            ports             TEXT DEFAULT '',
+            fetched_at        TEXT NOT NULL,
+            PRIMARY KEY (device_id, vlan_id),
+            FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+        );
+        """)
+
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS device_l2_interfaces (
+            device_id              INTEGER NOT NULL,
+            interface_name         TEXT NOT NULL,
+            description            TEXT DEFAULT '',
+            port_type              TEXT DEFAULT 'Access',
+            oper_status            TEXT DEFAULT 'down',
+            admin_status           TEXT DEFAULT 'down',
+            speed                  TEXT DEFAULT '',
+            duplex                 TEXT DEFAULT '',
+            mtu                    INTEGER DEFAULT 1500,
+            in_octets              BIGINT DEFAULT 0,
+            out_octets             BIGINT DEFAULT 0,
+            in_errors              BIGINT DEFAULT 0,
+            out_errors             BIGINT DEFAULT 0,
+            crc_errors             BIGINT DEFAULT 0,
+            drops                  BIGINT DEFAULT 0,
+            discards               BIGINT DEFAULT 0,
+            broadcast_pps          REAL DEFAULT 0.0,
+            multicast_pps          REAL DEFAULT 0.0,
+            unknown_unicast_pps    REAL DEFAULT 0.0,
+            port_flaps             INTEGER DEFAULT 0,
+            mac_count              INTEGER DEFAULT 0,
+            connected_device       TEXT DEFAULT '',
+            vlan                   TEXT DEFAULT '',
+            native_vlan            TEXT DEFAULT '',
+            allowed_vlans          TEXT DEFAULT '',
+            voice_vlan             TEXT DEFAULT '',
+            poe_status             TEXT DEFAULT 'Disabled',
+            poe_consumption        REAL DEFAULT 0.0,
+            sfp_vendor             TEXT DEFAULT '',
+            sfp_model              TEXT DEFAULT '',
+            sfp_serial             TEXT DEFAULT '',
+            sfp_rx_power           REAL DEFAULT 0.0,
+            sfp_tx_power           REAL DEFAULT 0.0,
+            sfp_temp               REAL DEFAULT 0.0,
+            sfp_voltage            REAL DEFAULT 0.0,
+            sfp_bias_current       REAL DEFAULT 0.0,
+            sfp_health             TEXT DEFAULT 'Healthy',
+            health_score           INTEGER DEFAULT 100,
+            lifecycle_score        INTEGER DEFAULT 100,
+            risk_score             INTEGER DEFAULT 0,
+            recommendation_action  TEXT DEFAULT '—',
+            recommendation_text    TEXT DEFAULT 'Port beroperasi normal.',
+            recommendation_code    TEXT DEFAULT 'ok',
+            visual_indicator       TEXT DEFAULT 'green',
+            is_uplink              INTEGER DEFAULT 0,
+            uplink_type            TEXT DEFAULT '',
+            uplink_switch          TEXT DEFAULT '',
+            uplink_bandwidth       BIGINT DEFAULT 0,
+            uplink_utilization     REAL DEFAULT 0.0,
+            uplink_redundancy      TEXT DEFAULT '',
+            uplink_backup_link     TEXT DEFAULT '',
+            fetched_at             TEXT NOT NULL,
+            PRIMARY KEY (device_id, interface_name),
+            FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+        );
+        """)
+
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS device_l2_port_security (
+            device_id         INTEGER NOT NULL,
+            interface_name    TEXT NOT NULL,
+            sticky_mac         INTEGER DEFAULT 0,
+            max_mac            INTEGER DEFAULT 1,
+            current_mac        INTEGER DEFAULT 0,
+            violation_mode     TEXT DEFAULT 'Shutdown',
+            violation_count    INTEGER DEFAULT 0,
+            fetched_at         TEXT NOT NULL,
+            PRIMARY KEY (device_id, interface_name),
+            FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+        );
+        """)
+
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS device_l2_macs (
+            device_id         INTEGER NOT NULL,
+            interface_name    TEXT NOT NULL,
+            vlan              TEXT DEFAULT '',
+            mac_address       TEXT NOT NULL,
+            entry_type        TEXT DEFAULT 'dynamic',
+            mac_vendor        TEXT DEFAULT '',
+            first_seen        TEXT NOT NULL,
+            last_seen         TEXT NOT NULL,
+            PRIMARY KEY (device_id, interface_name, mac_address),
+            FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+        );
+        """)
+
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS device_l2_timeline (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id         INTEGER NOT NULL,
+            event_type        TEXT NOT NULL,
+            interface_name    TEXT DEFAULT '',
+            details           TEXT DEFAULT '',
+            severity          TEXT NOT NULL DEFAULT 'info',
+            timestamp         TEXT NOT NULL,
+            FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+        );
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_device_l2_timeline_device ON device_l2_timeline(device_id);")
+
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS device_l2_port_lifecycle (
+            device_id              INTEGER NOT NULL,
+            interface_name         TEXT NOT NULL,
+            first_seen             TEXT NOT NULL,
+            last_seen             TEXT NOT NULL,
+            last_link_up           TEXT DEFAULT NULL,
+            last_link_down         TEXT DEFAULT NULL,
+            total_active_time      BIGINT DEFAULT 0,
+            total_inactive_time    BIGINT DEFAULT 0,
+            link_event_count       INTEGER DEFAULT 0,
+            last_traffic_activity  TEXT DEFAULT NULL,
+            avg_utilization        REAL DEFAULT 0.0,
+            peak_utilization       REAL DEFAULT 0.0,
+            mac_history            TEXT DEFAULT '[]',
+            neighbor_history       TEXT DEFAULT '[]',
+            vlan_history           TEXT DEFAULT '[]',
+            classification         TEXT DEFAULT 'Never Used',
+            PRIMARY KEY (device_id, interface_name),
+            FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+        );
+        """)
+
+
         # Alter tables to add columns for SQLite
+        try:
+            c.execute("ALTER TABLE device_l2_spanning_tree ADD COLUMN confidence_score INTEGER DEFAULT 100;")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            c.execute("ALTER TABLE device_l2_spanning_tree ADD COLUMN data_source TEXT DEFAULT 'Simulation';")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            c.execute("ALTER TABLE device_l2_spanning_tree ADD COLUMN validation_status TEXT DEFAULT 'Verified';")
+        except sqlite3.OperationalError:
+            pass
         try:
             c.execute("ALTER TABLE devices ADD COLUMN threshold_profile_id INTEGER REFERENCES threshold_profiles(id) ON DELETE SET NULL;")
         except sqlite3.OperationalError:
@@ -1452,6 +1861,7 @@ def init_db():
             c.execute("ALTER TABLE users ADD COLUMN permissions TEXT DEFAULT NULL;")
         except sqlite3.OperationalError:
             pass
+
 
     conn.commit()
     conn.close()

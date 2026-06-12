@@ -420,3 +420,31 @@ Mesin analisis menghasilkan tindakan rekomendasi dinamis per port:
 2. **Candidate for reassignment** (Warna Orange): Port tidak aktif > 30 hari, siap dialokasikan kembali untuk koneksi perangkat baru.
 3. **Monitor closely** (Warna Kuning/Merah): Port berstatus flapping atau utilisasi sangat tinggi.
 4. **Investigate abnormal behavior** (Warna Kuning/Merah): Port mengalami physical errors (CRC, framing, late collisions) di atas ambang toleransi.
+
+---
+
+## 15. Integrasi Backup Eksternal (SFTP, FTP, SCP)
+
+NetX kini mendukung pencadangan data otomatis dan manual ke server backup eksternal menggunakan protokol **SFTP**, **FTP**, atau **SCP**. Fitur ini memastikan keamanan cadangan database dan konfigurasi perangkat di luar host lokal.
+
+### A. Komponen Backend & Penyimpanan Pengaturan
+1. **Model Data (`remote_backup_settings`)**: Pengaturan disimpan pada tabel basis data `remote_backup_settings` dengan field:
+   - `protocol`: Protokol yang digunakan (`sftp`, `ftp`, `scp`).
+   - `host` & `port`: Alamat IP/Domain dan port server eksternal (port 22 default untuk SFTP/SCP, 21 untuk FTP).
+   - `username` & `password`: Kredensial login. Password disimpan terenkripsi menggunakan modul Fernet di backend.
+   - `path`: Folder tujuan unggahan di server tujuan (misal `/var/backups`).
+   - `is_active`: Status aktif/nonaktif integrasi (0 = nonaktif, 1 = aktif).
+   - `backup_db`: Status aktif pencadangan otomatis database (0 = nonaktif, 1 = aktif).
+   - `backup_config`: Status aktif pencadangan otomatis konfigurasi switch (0 = nonaktif, 1 = aktif).
+2. **Remote Backup Service (`remote_backup_service.py`)**: Modul Python utama yang menangani pembuatan koneksi SSH/SFTP (menggunakan `paramiko` dan `scp`) dan FTP (menggunakan `ftplib`), pengujian konektivitas, serta pengunggahan berkas secara asinkron.
+
+### B. Mekanisme & Alur Kerja
+* **Trigger Otomatis (Automatic Uploads)**:
+  - **Pencadangan Database**: Setiap kali proses pencadangan database lokal dijalankan (`create_backup` di `backup.py`), berkas hasil kompresi `.zip` database secara otomatis dikirim ke server backup eksternal jika setelan `is_active` dan `backup_db` diaktifkan.
+  - **Pencadangan Konfigurasi**: Saat tugas pencadangan konfigurasi perangkat berhasil diselesaikan (`backup_device_config` di `device_backup_service.py`), berkas teks `.txt` konfigurasi akan otomatis diunggah ke server eksternal jika setelan `is_active` dan `backup_config` diaktifkan, dengan penamaan terstandar: `config_[device_name]_v[version].txt`.
+* **Pengujian Koneksi & Upload Manual**:
+  - Endpoint `/api/remote-backups/test` memungkinkan administrator menguji validitas kredensial dan folder tujuan di server backup secara langsung sebelum menyimpan konfigurasi.
+  - Endpoint `/api/remote-backups/upload-db` memungkinkan pengunggahan manual berkas pencadangan database lokal terbaru ke server backup eksternal secara instan dari panel kontrol UI.
+
+### C. Antarmuka Pengguna (Frontend)
+Tab pengaturan integrasi baru disematkan pada halaman **Backup & Restore** (`BackupManagement.jsx`), yang menyediakan formulir konfigurasi lengkap, opsi checkbox otomatisasi, tombol uji koneksi langsung, serta tombol unggah database instan. Formulir ini menerapkan desain visual modern dark-theme premium dengan enkripsi mask pada input password.

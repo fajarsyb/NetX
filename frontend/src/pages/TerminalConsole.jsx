@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Terminal, Plus, X, Monitor, ShieldAlert, BookOpen, PanelRight, PanelRightClose } from 'lucide-react'
+import { Terminal, Plus, X, Monitor, ShieldAlert, BookOpen, PanelRight, PanelRightClose, Search } from 'lucide-react'
 import api from '../api/client'
 import WebCli from '../components/Terminal/WebCli'
 import ShellNotes from '../components/Terminal/ShellNotes'
@@ -13,6 +13,7 @@ export default function TerminalConsole() {
   const [devices, setDevices] = useState([])
   const [loadingDevices, setLoadingDevices] = useState(false)
   const [showNotes, setShowNotes] = useState(true)
+  const [searchQuery, setSearchQuery] = useState('')
   const { user } = useAuth()
   const toast = useToast()
 
@@ -89,6 +90,7 @@ export default function TerminalConsole() {
       toast.warning('Maksimal 8 tab terminal aktif dapat dibuka secara bersamaan.')
       return
     }
+    setSearchQuery('')
     setShowSelectModal(true)
   }
 
@@ -304,56 +306,91 @@ export default function TerminalConsole() {
                   No SSH devices found. Make sure the device protocol is set to SSH.
                 </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto', paddingRight: '4px' }}>
-                  <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>Select Device (SSH):</div>
-                  {devices.map(dev => (
-                    <div
-                      key={dev.id}
-                      onClick={() => addTab(dev.id, dev.name)}
-                      className="flex-between"
-                      style={{
-                        padding: '10px 14px',
-                        background: 'var(--bg-card-2)',
-                        border: '1px solid var(--border)',
-                        borderRadius: 'var(--radius-sm)',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.borderColor = 'var(--primary)'
-                        e.currentTarget.style.background = 'var(--bg-hover)'
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.borderColor = 'var(--border)'
-                        e.currentTarget.style.background = 'var(--bg-card-2)'
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          {dev.name}
-                          {!(dev.credential_id || dev.username) && (
-                            <span 
-                              style={{ 
-                                fontSize: '10px', 
-                                padding: '1px 6px', 
-                                borderRadius: '4px', 
-                                backgroundColor: 'rgba(245, 158, 11, 0.15)', 
-                                color: 'var(--warning)',
-                                fontWeight: 500
-                              }}
-                              title="Device has no SSH credentials mapped."
-                            >
-                              No Credentials
-                            </span>
-                          )}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div className="search-box" style={{ width: '100%' }}>
+                    <Search className="search-icon" size={14} />
+                    <input 
+                      placeholder="Cari nama, IP, atau tipe..." 
+                      value={searchQuery} 
+                      onChange={e => setSearchQuery(e.target.value)} 
+                      style={{ fontSize: '12.5px' }}
+                    />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>Select Device (SSH):</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '250px', overflowY: 'auto', paddingRight: '4px' }}>
+                      {devices.filter(dev => {
+                        const q = searchQuery.toLowerCase().trim()
+                        if (!q) return true
+                        return (
+                          (dev.name || '').toLowerCase().includes(q) ||
+                          (dev.ip || '').toLowerCase().includes(q) ||
+                          (dev.device_type || '').toLowerCase().includes(q)
+                        )
+                      }).length === 0 ? (
+                        <div style={{ padding: '16px 8px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                          Tidak ada perangkat yang cocok dengan pencarian.
                         </div>
-                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>{dev.ip}</div>
-                      </div>
-                      <span className="badge badge-online" style={{ fontSize: '10px' }}>
-                        {dev.device_type}
-                      </span>
+                      ) : (
+                        devices.filter(dev => {
+                          const q = searchQuery.toLowerCase().trim()
+                          if (!q) return true
+                          return (
+                            (dev.name || '').toLowerCase().includes(q) ||
+                            (dev.ip || '').toLowerCase().includes(q) ||
+                            (dev.device_type || '').toLowerCase().includes(q)
+                          )
+                        }).map(dev => (
+                          <div
+                            key={dev.id}
+                            onClick={() => addTab(dev.id, dev.name)}
+                            className="flex-between"
+                            style={{
+                              padding: '10px 14px',
+                              background: 'var(--bg-card-2)',
+                              border: '1px solid var(--border)',
+                              borderRadius: 'var(--radius-sm)',
+                              cursor: 'pointer',
+                              transition: 'all 0.15s ease'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.borderColor = 'var(--primary)'
+                              e.currentTarget.style.background = 'var(--bg-hover)'
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.borderColor = 'var(--border)'
+                              e.currentTarget.style.background = 'var(--bg-card-2)'
+                            }}
+                          >
+                            <div>
+                              <div style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                {dev.name}
+                                {!(dev.credential_id || dev.username) && (
+                                  <span 
+                                    style={{ 
+                                      fontSize: '10px', 
+                                      padding: '1px 6px', 
+                                      borderRadius: '4px', 
+                                      backgroundColor: 'rgba(245, 158, 11, 0.15)', 
+                                      color: 'var(--warning)',
+                                      fontWeight: 500
+                                    }}
+                                    title="Device has no SSH credentials mapped."
+                                  >
+                                    No Credentials
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>{dev.ip}</div>
+                            </div>
+                            <span className="badge badge-online" style={{ fontSize: '10px' }}>
+                              {dev.device_type}
+                            </span>
+                          </div>
+                        ))
+                      )}
                     </div>
-                  ))}
+                  </div>
                 </div>
               )}
             </div>

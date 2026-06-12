@@ -16,6 +16,9 @@ class AlliedTelesisDriver(BaseDriver):
     info_command: List[str] = ["show version", "show system"]
     mac_table_command: str = "show mac address-table"
     backup_command: str = "show running-config"
+    vlan_command: str = "show vlan brief"
+    trunk_command: str = "show interface switchport"
+    port_status_command: str = "show interface brief"
 
     def is_physical_interface(self, if_name: str) -> bool:
         if not if_name:
@@ -56,6 +59,42 @@ class AlliedTelesisDriver(BaseDriver):
     def parse_mac_table(self, output: str) -> List[Dict]:
         from app.services.mac_parser import parse_mac_table
         return parse_mac_table(output, "allied_telesis")
+
+    def parse_show_interface_status(self, output: str, device_type: str = "") -> List[Dict]:
+        interfaces = []
+        if not output or output.startswith("ERROR:"):
+            return interfaces
+            
+        for line in output.splitlines():
+            line_strip = line.strip()
+            if not line_strip or line_strip.startswith("Interface") or line_strip.startswith("---"):
+                continue
+                
+            tokens = line_strip.split()
+            if len(tokens) < 3:
+                continue
+                
+            ifname = tokens[0]
+            if not self.is_physical_interface(ifname):
+                continue
+                
+            line_lower = line_strip.lower()
+            admin_status = 'up' if 'admin up' in line_lower else 'down'
+            
+            last_token = tokens[-1].lower()
+            status = 'up' if last_token == 'running' else 'down'
+            
+            interfaces.append({
+                "name": ifname,
+                "status": status,
+                "admin_status": admin_status,
+                "speed": "Auto/Unknown",
+                "speed_mbps": 0,
+                "vlan": "1",
+                "duplex": "Auto"
+            })
+            
+        return interfaces
 
     def parse_snmp_sys_descr(self, sys_descr: str) -> Dict:
         os_version = ""
@@ -121,3 +160,47 @@ class AlliedTelesisDriver(BaseDriver):
             "mac_address": mac_address,
             "hardware_model": hardware_model
         }
+
+    def parse_trunks(self, output: str, device_type: str = "") -> List[Dict]:
+        trunks = []
+        if not output or output.startswith("ERROR:"):
+            return trunks
+            
+        current_port = {}
+        for line in output.splitlines():
+            line_strip = line.strip()
+            if not line_strip:
+                continue
+                
+            if "Interface name" in line:
+                if current_port and current_port.get("port_type") == "Trunk":
+                    trunks.append(current_port)
+                
+                parts = line_strip.split(":")
+                port_name = parts[1].strip() if len(parts) >= 2 else ""
+                current_port = {
+                    "interface_name": port_name,
+                    "port_type": "Access",
+                    "native_vlan": "1",
+                    "allowed_vlans": ""
+                }
+            elif "Switchport mode" in line:
+                parts = line_strip.split(":")
+                mode = parts[1].strip().lower() if len(parts) >= 2 else ""
+                if mode == "trunk":
+                    current_port["port_type"] = "Trunk"
+            elif "Default Vlan" in line:
+                parts = line_strip.split(":")
+                native = parts[1].strip() if len(parts) >= 2 else ""
+                if native and native.lower() != "none" and native.isdigit():
+                    current_port["native_vlan"] = native
+            elif "Configured Vlans" in line:
+                parts = line_strip.split(":")
+                vlans_str = parts[1].strip() if len(parts) >= 2 else ""
+                allowed = ",".join(vlans_str.split())
+                current_port["allowed_vlans"] = allowed
+                
+        if current_port and current_port.get("port_type") == "Trunk":
+            trunks.append(current_port)
+            
+        return trunks

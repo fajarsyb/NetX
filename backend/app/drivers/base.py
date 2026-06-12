@@ -22,6 +22,13 @@ class BaseDriver:
     info_command: Union[str, List[str]] = "show version"
     mac_table_command: Union[str, List[str]] = "show mac address-table"
     backup_command: str = "show running-config"
+    stp_command: Union[str, List[str]] = "show spanning-tree"
+    vlan_command: Union[str, List[str]] = "show vlan brief"
+    trunk_command: Union[str, List[str]] = "show interfaces trunk"
+    sfp_command: Union[str, List[str]] = "show interfaces transceiver"
+    port_security_command: Union[str, List[str]] = "show port-security"
+    port_status_command: Union[str, List[str]] = "show interface status"
+
 
     def get_netmiko_device_type(self, protocol: str = "ssh") -> str:
         """Returns the appropriate netmiko device type name for the given protocol."""
@@ -52,6 +59,12 @@ class BaseDriver:
             return False
         name_lower = if_name.lower().strip()
         if not name_lower or name_lower.isnumeric():
+            return False
+
+        # Exclude summary lines like "total", "summary", etc.
+        if name_lower in ('total', 'summary', 'aggregate', 'all'):
+            return False
+        if any(name_lower.startswith(x) for x in ('total', 'summary', 'aggregate')):
             return False
 
         # Check for dots (subinterfaces / Allied Telesis check)
@@ -142,3 +155,109 @@ class BaseDriver:
 
     def parse_snmp_sys_descr(self, sys_descr: str) -> Dict:
         return {}
+
+    def parse_stp(self, output: str, device_type: str = "") -> Dict:
+        return {}
+
+    def parse_vlans(self, output: str, device_type: str = "") -> List[Dict]:
+        vlans = []
+        if not output or output.startswith("ERROR:"):
+            return vlans
+        
+        current_vlan = None
+        for line in output.splitlines():
+            line_strip = line.strip()
+            if not line_strip or line_strip.startswith("---") or "vlan name" in line_strip.lower() or "vlan id" in line_strip.lower():
+                continue
+            
+            # Match line starting with integer (VLAN ID)
+            m = re.match(r"^(\d+)\s+(\S+)\s+(\S+)(?:\s+(.*))?$", line_strip)
+            if m:
+                vlan_id = int(m.group(1))
+                name = m.group(2)
+                status = m.group(3)
+                ports_part = m.group(4) or ""
+                
+                # Parse ports
+                ports = [p.strip() for p in ports_part.replace(",", " ").split() if p.strip()]
+                
+                current_vlan = {
+                    "vlan_id": vlan_id,
+                    "name": name,
+                    "status": status,
+                    "ports": ports
+                }
+                vlans.append(current_vlan)
+            else:
+                # Could be wrapped ports list line (e.g. "                                                Gi1/0/5, Gi1/0/6")
+                if current_vlan and not any(x in line_strip for x in ["active", "suspended", "act/unsup"]):
+                    # Tokenize by comma/space
+                    more_ports = [p.strip() for p in line_strip.replace(",", " ").split() if p.strip()]
+                    # Ensure they look like ports
+                    more_ports = [p for p in more_ports if "/" in p or p.lower().startswith("gi") or p.lower().startswith("fa") or p.lower().startswith("te") or p.lower().startswith("po") or p.lower().startswith("eth") or p.lower().startswith("port")]
+                    current_vlan["ports"].extend(more_ports)
+                    
+        # Format ports as comma separated string
+        for v in vlans:
+            v["ports"] = ",".join(v["ports"])
+            
+        return vlans
+
+    def parse_trunks(self, output: str, device_type: str = "") -> List[Dict]:
+        trunks = {}
+        if not output or output.startswith("ERROR:"):
+            return []
+        
+        current_section = None
+        for line in output.splitlines():
+            line_strip = line.strip()
+            if not line_strip or line_strip.startswith("---"):
+                continue
+            
+            # Detect section headers
+            if "Native vlan" in line:
+                current_section = "native"
+                continue
+            elif "Vlans allowed on trunk" in line:
+                current_section = "allowed"
+                continue
+            elif "active in management domain" in line or "Vlans allowed and active" in line:
+                current_section = "active"
+                continue
+            elif "spanning tree forwarding state" in line:
+                current_section = "forwarding"
+                continue
+            
+            # Skip column headers
+            if line_strip.lower().startswith("port") or line_strip.lower().startswith("vlan"):
+                continue
+                
+            tokens = line_strip.split()
+            if len(tokens) < 2:
+                continue
+                
+            port = tokens[0]
+            
+            if current_section == "native":
+                native_vlan = tokens[-1]
+                if native_vlan.isdigit():
+                    if port not in trunks:
+                        trunks[port] = {"interface_name": port, "port_type": "Trunk", "native_vlan": native_vlan, "allowed_vlans": ""}
+                    else:
+                        trunks[port]["native_vlan"] = native_vlan
+                        
+            elif current_section == "allowed":
+                allowed = "".join(tokens[1:])
+                if port not in trunks:
+                    trunks[port] = {"interface_name": port, "port_type": "Trunk", "native_vlan": "1", "allowed_vlans": allowed}
+                else:
+                    trunks[port]["allowed_vlans"] = allowed
+                    
+        return list(trunks.values())
+
+    def parse_sfp(self, output: str, device_type: str = "") -> List[Dict]:
+        return []
+
+    def parse_port_security(self, output: str, device_type: str = "") -> List[Dict]:
+        return []
+

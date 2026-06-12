@@ -15,6 +15,8 @@ class RuijieDriver(BaseDriver):
     info_command: str = "show version"
     mac_table_command: str = "show mac-address-table"
     backup_command: str = "show running-config"
+    vlan_command: str = "show vlan"
+    trunk_command: str = "show interfaces trunk"
 
     def get_expected_port_count(self, model_str: str) -> int:
         if not model_str:
@@ -234,3 +236,32 @@ class RuijieDriver(BaseDriver):
             "mac_address": mac_address,
             "hardware_model": hardware_model
         }
+
+    def parse_trunks(self, output: str, device_type: str = "") -> List[Dict]:
+        trunks = []
+        if not output or output.startswith("ERROR:"):
+            return trunks
+            
+        for line in output.splitlines():
+            line_strip = line.strip()
+            if not line_strip or "Interface" in line_strip or line_strip.startswith("---"):
+                continue
+                
+            tokens = line_strip.split()
+            if len(tokens) < 3:
+                continue
+                
+            allowed = tokens[-1]
+            native = tokens[-2]
+            ifname = " ".join(tokens[:-2])
+            
+            if not self.is_physical_interface(ifname):
+                continue
+                
+            trunks.append({
+                "interface_name": ifname,
+                "port_type": "Trunk",
+                "native_vlan": native,
+                "allowed_vlans": allowed
+            })
+        return trunks

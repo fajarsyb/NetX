@@ -15,7 +15,10 @@ class JuniperDriver(BaseDriver):
     routing_command: str = "show route protocol direct,static,ospf,bgp"
     info_command: List[str] = ["show version", "show chassis hardware", "show chassis mac-addresses"]
     mac_table_command: str = "show ethernet-switching table"
-    backup_command: str = "show configuration"
+    backup_command: str = "show configuration | display set"
+    port_status_command: str = "show interfaces terse"
+    vlan_command: str = "show vlans"
+    trunk_command: str = "show ethernet-switching interface"
 
     def get_expected_port_count(self, model_str: str) -> int:
         if not model_str:
@@ -172,3 +175,142 @@ class JuniperDriver(BaseDriver):
             "mac_address": mac_address,
             "hardware_model": hardware_model
         }
+
+    def parse_show_interface_status(self, output: str) -> List[Dict]:
+        """
+        Parses 'show interfaces terse' output for Juniper.
+        """
+        interfaces = []
+        if not output or output.startswith("ERROR:"):
+            return interfaces
+        
+        for line in output.splitlines():
+            line = line.strip()
+            if not line or line.startswith("Interface") or line.startswith("---"):
+                continue
+            
+            tokens = line.split()
+            if len(tokens) < 3:
+                continue
+            
+            ifname = tokens[0]
+            # Only process physical interfaces
+            if not self.is_physical_interface(ifname):
+                continue
+            
+            admin_status_raw = tokens[1].lower()
+            oper_status_raw = tokens[2].lower()
+            
+            admin_status = 'up' if admin_status_raw == 'up' else 'down'
+            status = 'up' if oper_status_raw == 'up' else 'down'
+            
+            interfaces.append({
+                "name": ifname,
+                "status": status,
+                "admin_status": admin_status,
+                "speed": "Auto/Unknown",
+                "speed_mbps": 0,
+                "vlan": "—",
+                "duplex": "Auto"
+            })
+            
+        return interfaces
+
+    def parse_vlans(self, output: str, device_type: str = "") -> List[Dict]:
+        vlans = []
+        if not output or output.startswith("ERROR:"):
+            return vlans
+            
+        for line in output.splitlines():
+            line_strip = line.strip()
+            if not line_strip or "Routing instance" in line_strip or "Name" in line_strip or line_strip.startswith("---"):
+                continue
+                
+            tokens = line_strip.split()
+            if len(tokens) < 2:
+                continue
+                
+            name = tokens[0]
+            tag_str = tokens[1]
+            if not tag_str.isdigit():
+                continue
+                
+            vlan_id = int(tag_str)
+            ports_part = "".join(tokens[2:]) if len(tokens) >= 3 else ""
+            
+            ports = []
+            for p in ports_part.replace(",", " ").split():
+                p_clean = p.replace("*", "").split(".")[0].strip()
+                if p_clean:
+                    ports.append(p_clean)
+                    
+            vlans.append({
+                "vlan_id": vlan_id,
+                "name": name,
+                "status": "active",
+                "ports": ",".join(ports)
+            })
+        return vlans
+
+    def parse_trunks(self, output: str, device_type: str = "") -> List[Dict]:
+        trunks = {}
+        if not output or output.startswith("ERROR:"):
+            return []
+            
+        current_interface = None
+        for line in output.splitlines():
+            line_strip = line.strip()
+            if not line_strip or "Routing Instance" in line_strip or line_strip.startswith("---"):
+                continue
+                
+            tokens = line_strip.split()
+            if not line.startswith(" ") and len(tokens) >= 2:
+                ifname_raw = tokens[0]
+                if "." in ifname_raw:
+                    ifname = ifname_raw.split(".")[0]
+                else:
+                    ifname = ifname_raw
+                    
+                if ifname.lower() in ('logical', 'interface', 'tagging', 'routing', 'vlan', 'total', 'members', 'routing-instance', 'default-switch'):
+                    continue
+                    
+                if not self.is_physical_interface(ifname):
+                    current_interface = None
+                    continue
+                    
+                current_interface = ifname
+                is_tagged = any(t.lower() == "tagged" for t in tokens[1:])
+                
+                if ifname not in trunks:
+                    trunks[ifname] = {
+                        "interface_name": ifname,
+                        "port_type": "Trunk" if is_tagged else "Access",
+                        "native_vlan": "1",
+                        "allowed_vlans": [],
+                        "tagged_vlans": []
+                    }
+                elif is_tagged:
+                    trunks[ifname]["port_type"] = "Trunk"
+                    
+            elif line.startswith(" ") and len(tokens) >= 2:
+                if current_interface and current_interface in trunks:
+                    vlan_name = tokens[0]
+                    vlan_tag = tokens[1]
+                    if vlan_tag.isdigit():
+                        tag = vlan_tag
+                        is_tagged_member = any(t.lower() == "tagged" for t in tokens[2:])
+                        if is_tagged_member:
+                            trunks[current_interface]["port_type"] = "Trunk"
+                            trunks[current_interface]["tagged_vlans"].append(tag)
+                        else:
+                            trunks[current_interface]["native_vlan"] = tag
+                            
+        res = []
+        for ifname, info in trunks.items():
+            if info["port_type"] == "Trunk":
+                allowed = sorted(list(set(info["tagged_vlans"])), key=int)
+                info["allowed_vlans"] = ",".join(allowed)
+                del info["tagged_vlans"]
+                res.append(info)
+            
+        return res
