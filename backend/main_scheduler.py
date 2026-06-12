@@ -71,6 +71,22 @@ def schedule_check_tick(redis_client: redis.Redis):
     except Exception as e:
         logger.error(f"Error checking backup schedules: {e}")
         
+    # Load system settings dynamically
+    system_settings = {
+        "ping_auto_refresh_enabled": "true",
+        "ping_auto_refresh_interval": "300",
+        "mac_auto_refresh_enabled": "true",
+        "mac_auto_refresh_interval": "3600",
+        "arp_auto_refresh_enabled": "true",
+        "arp_auto_refresh_interval": "600",
+    }
+    try:
+        c.execute("SELECT key, value FROM system_settings")
+        for row in c.fetchall():
+            system_settings[row["key"]] = row["value"]
+    except Exception as e:
+        logger.error(f"Error loading system settings in scheduler check: {e}")
+        
     conn.close()
 
     # 2. Check Plugin-registered Scheduled Tasks
@@ -94,21 +110,60 @@ def schedule_check_tick(redis_client: redis.Redis):
             redis_client.lpush(f"queue:{queue}", json.dumps(job_payload))
             last_run_times[task_name] = current_time
 
-    # 3. Check Core Scheduled Tasks (Ping all devices every 5 minutes)
-    ping_interval = 300.0
-    last_ping = last_run_times.get("ping_all_devices", 0.0)
-    if current_time - last_ping >= ping_interval:
-        logger.info("Triggering scheduled task: ping_all_devices...")
-        job_payload = {
-            "job_id": f"sched_ping_{int(current_time)}",
-            "task_name": "ping_all_devices",
-            "params": {},
-            "created_at": now_str,
-            "retries": 0,
-            "max_retries": 1
-        }
-        redis_client.lpush("queue:default", json.dumps(job_payload))
-        last_run_times["ping_all_devices"] = current_time
+    # 3. Check Core Scheduled Tasks (Ping, MAC, ARP)
+    # Ping
+    ping_enabled = system_settings.get("ping_auto_refresh_enabled", "true") == "true"
+    ping_interval = float(system_settings.get("ping_auto_refresh_interval", "300"))
+    if ping_enabled and ping_interval > 0:
+        last_ping = last_run_times.get("ping_all_devices", 0.0)
+        if current_time - last_ping >= ping_interval:
+            logger.info("Triggering scheduled task: ping_all_devices...")
+            job_payload = {
+                "job_id": f"sched_ping_{int(current_time)}",
+                "task_name": "ping_all_devices",
+                "params": {},
+                "created_at": now_str,
+                "retries": 0,
+                "max_retries": 1
+            }
+            redis_client.lpush("queue:default", json.dumps(job_payload))
+            last_run_times["ping_all_devices"] = current_time
+
+    # MAC Table
+    mac_enabled = system_settings.get("mac_auto_refresh_enabled", "true") == "true"
+    mac_interval = float(system_settings.get("mac_auto_refresh_interval", "3600"))
+    if mac_enabled and mac_interval > 0:
+        last_mac = last_run_times.get("mac_all_devices", 0.0)
+        if current_time - last_mac >= mac_interval:
+            logger.info("Triggering scheduled task: mac_all_devices...")
+            job_payload = {
+                "job_id": f"sched_mac_{int(current_time)}",
+                "task_name": "mac_all_devices",
+                "params": {},
+                "created_at": now_str,
+                "retries": 0,
+                "max_retries": 1
+            }
+            redis_client.lpush("queue:default", json.dumps(job_payload))
+            last_run_times["mac_all_devices"] = current_time
+
+    # ARP Table
+    arp_enabled = system_settings.get("arp_auto_refresh_enabled", "true") == "true"
+    arp_interval = float(system_settings.get("arp_auto_refresh_interval", "600"))
+    if arp_enabled and arp_interval > 0:
+        last_arp = last_run_times.get("arp_all_devices", 0.0)
+        if current_time - last_arp >= arp_interval:
+            logger.info("Triggering scheduled task: arp_all_devices...")
+            job_payload = {
+                "job_id": f"sched_arp_{int(current_time)}",
+                "task_name": "arp_all_devices",
+                "params": {},
+                "created_at": now_str,
+                "retries": 0,
+                "max_retries": 1
+            }
+            redis_client.lpush("queue:default", json.dumps(job_payload))
+            last_run_times["arp_all_devices"] = current_time
 
 
 def main():
@@ -134,6 +189,8 @@ def main():
 
     # Delay the first auto-ping slightly (15 seconds after start) to avoid startup contention
     last_run_times["ping_all_devices"] = current_time - 300.0 + 15.0
+    last_run_times["mac_all_devices"] = current_time - 3600.0 + 45.0
+    last_run_times["arp_all_devices"] = current_time - 600.0 + 30.0
 
     while True:
         try:

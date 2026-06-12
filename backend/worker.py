@@ -33,6 +33,10 @@ async def run_scheduler_tick_loop(redis_client_sync):
         interval = task_def["interval"]
         main_scheduler.last_run_times[task_name] = current_time - interval + 30.0
         
+    main_scheduler.last_run_times["ping_all_devices"] = current_time - 300.0 + 15.0
+    main_scheduler.last_run_times["mac_all_devices"] = current_time - 3600.0 + 45.0
+    main_scheduler.last_run_times["arp_all_devices"] = current_time - 600.0 + 30.0
+        
     while True:
         try:
             # Run blocking database and sync redis calls in a thread pool to avoid event loop lag

@@ -93,14 +93,14 @@ def get_user_permissions(user: dict) -> dict:
     if role == "admin":
         return {
             "menus": ["dashboard", "topology", "investigation", "anomalies", "syslog", "groups", "devices", "audit_logs", "settings", "terminal"],
-            "features": ["add_device", "edit_device", "delete_device", "manage_groups", "manage_credentials", "backup_db", "postgresql_config", "threshold_profiles", "snmp_tester", "mibs", "device_backup"],
+            "features": ["add_device", "edit_device", "delete_device", "manage_groups", "manage_credentials", "backup_db", "postgresql_config", "threshold_profiles", "snmp_tester", "mibs", "device_backup", "system_settings"],
             "groups": ["*"],
             "allow_ssh": True
         }
     elif role == "operator":
         return {
             "menus": ["dashboard", "topology", "investigation", "anomalies", "syslog", "groups", "devices", "settings", "terminal"],
-            "features": ["add_device", "edit_device", "threshold_profiles", "snmp_tester", "mibs", "device_backup"],
+            "features": ["add_device", "edit_device", "threshold_profiles", "snmp_tester", "mibs", "device_backup", "system_settings"],
             "groups": ["*"],
             "allow_ssh": True
         }

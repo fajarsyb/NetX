@@ -185,5 +185,10 @@ export const healthApi = {
   getDiagnostics: () => api.get('/health/diagnostics'),
 }
 
+export const systemSettingsApi = {
+  get: () => api.get('/system-settings'),
+  update: (data) => api.post('/system-settings', data),
+}
+
 export default api
 

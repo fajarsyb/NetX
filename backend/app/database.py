@@ -1081,6 +1081,25 @@ def init_db():
             except Exception:
                 pass
 
+        # System Settings (PostgreSQL)
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS system_settings (
+            key             VARCHAR(255) PRIMARY KEY,
+            value           TEXT NOT NULL
+        );
+        """)
+
+        default_settings = {
+            "ping_auto_refresh_enabled": "true",
+            "ping_auto_refresh_interval": "300",
+            "mac_auto_refresh_enabled": "true",
+            "mac_auto_refresh_interval": "3600",
+            "arp_auto_refresh_enabled": "true",
+            "arp_auto_refresh_interval": "600",
+        }
+        for k, v in default_settings.items():
+            c.execute("INSERT INTO system_settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO NOTHING", (k, v))
+
         # Create default admin user if none exists in PostgreSQL
 
         c.execute("SELECT COUNT(*) as cnt FROM users")
@@ -1927,6 +1946,25 @@ def init_db():
             c.execute("ALTER TABLE devices ADD COLUMN ping_checked_at TEXT DEFAULT NULL;")
         except sqlite3.OperationalError:
             pass
+
+        # System Settings (SQLite)
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS system_settings (
+            key             TEXT PRIMARY KEY,
+            value           TEXT NOT NULL
+        );
+        """)
+
+        default_settings = {
+            "ping_auto_refresh_enabled": "true",
+            "ping_auto_refresh_interval": "300",
+            "mac_auto_refresh_enabled": "true",
+            "mac_auto_refresh_interval": "3600",
+            "arp_auto_refresh_enabled": "true",
+            "arp_auto_refresh_interval": "600",
+        }
+        for k, v in default_settings.items():
+            c.execute("INSERT OR IGNORE INTO system_settings (key, value) VALUES (?, ?)", (k, v))
 
 
 

@@ -87,7 +87,7 @@ async def process_job(job_data: dict, redis_client):
 
 async def worker_loop():
     logger.info("Initializing NetX Background Worker Daemon...")
-    r = aioredis.from_url(REDIS_URL)
+    r = aioredis.from_url(REDIS_URL, socket_timeout=30.0)
     
     # Test Redis connectivity on startup
     try:

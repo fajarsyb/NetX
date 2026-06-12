@@ -17,6 +17,7 @@ import MacInvestigation from './pages/MacInvestigation'
 import NetworkAnomalies from './pages/NetworkAnomalies'
 import SyslogViewer from './pages/SyslogViewer'
 import DatabaseSettings from './pages/DatabaseSettings'
+import SystemSettings from './pages/SystemSettings'
 import SystemHealth from './pages/SystemHealth'
 import CredentialScan from './pages/CredentialScan'
 import ToastProvider from './components/shared/ToastProvider'
@@ -99,6 +100,7 @@ function AppContent() {
                   <Route path="/audit-logs" element={<PermissionGuard menu="audit_logs"><AuditLogs /></PermissionGuard>} />
                   <Route path="/backup" element={<PermissionGuard menu="settings" feature="backup_db"><BackupManagement /></PermissionGuard>} />
                   <Route path="/db-settings" element={<PermissionGuard menu="settings" feature="postgresql_config"><DatabaseSettings /></PermissionGuard>} />
+                  <Route path="/system-settings" element={<PermissionGuard menu="settings" feature="system_settings"><SystemSettings /></PermissionGuard>} />
                   <Route path="/system-health" element={<AdminRoute><SystemHealth /></AdminRoute>} />
                   <Route path="/device-backup" element={<PermissionGuard menu="settings" feature="device_backup"><DeviceBackup /></PermissionGuard>} />
                   <Route path="/devices" element={<PermissionGuard menu="devices"><DeviceManagement /></PermissionGuard>} />

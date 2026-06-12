@@ -350,6 +350,59 @@ Jika Anda memiliki kabel konsol fisik yang terhubung langsung ke server NetX, An
 > [!TIP]
 > **Active Session Takeover**: Serial port hanya dapat digunakan oleh satu sesi aktif pada satu waktu. Jika port yang Anda tuju sedang terkunci oleh tab terminal NetX lain, sistem akan otomatis melakukan *Takeover* (menonaktifkan dan melepaskan sesi lama secara aman) sehingga sesi terminal baru Anda langsung dapat terhubung tanpa error *Permission Denied*.
 
+#### C. Konfigurasi Khusus Pengguna Linux (Grup Izin & Pemetaan Docker)
+
+Bagi pengguna sistem operasi Linux, hak akses port serial dibatasi secara ketat oleh sistem keamanan kernel. Jika port serial fisik tidak terdeteksi otomatis atau gagal terhubung dengan pesan *Permission Denied* / *PermissionError*, ikuti panduan berikut:
+
+##### 1. Jika NetX Dijalankan Secara Native (Python Virtualenv)
+Pengguna yang menjalankan backend FastAPI secara langsung perlu mendaftarkan user ke dalam grup sistem yang memiliki akses penuh ke perangkat TTY/Serial:
+- **Debian / Ubuntu / Linux Mint**:
+  ```bash
+  sudo usermod -aG dialout $USER
+  ```
+- **Arch Linux / Manjaro / Fedora / RHEL**:
+  ```bash
+  sudo usermod -aG uucp $USER
+  ```
+> [!IMPORTANT]
+> Setelah menjalankan perintah di atas, Anda **wajib keluar (logout) dari sesi Linux Anda saat ini dan login kembali**, atau hidupkan ulang komputer agar perubahan keanggotaan grup ini diterapkan oleh sistem.
+
+##### 2. Jika NetX Dijalankan Menggunakan Docker Compose
+Secara default, container Docker terisolasi dari perangkat keras host. Agar kontainer `api` dan `worker` dapat mengakses serta mendeteksi port konsol serial fisik host secara dinamis, Anda dapat memilih salah satu metode di bawah ini pada berkas [docker-compose.yml](file:///c:/Code/Auto/NetX/docker-compose.yml):
+
+###### Metode A: Menggunakan Mode Privileged (Cepat, Kurang Aman)
+Metode ini mudah dikonfigurasi tetapi kurang aman karena memberikan kontainer hak akses penuh (`root`) ke seluruh perangkat keras host (termasuk hard drive, kartu suara, dll).
+1. Hapus tanda komentar (`#`) pada baris `privileged: true` dan volume `/dev:/dev` pada layanan `api` dan `worker`:
+   ```yaml
+   api:
+     ...
+     privileged: true
+     volumes:
+       - /dev:/dev
+   ```
+   *(Lakukan hal serupa pada layanan `worker`)*
+
+###### Metode B: Menggunakan Aturan Cgroups (Sangat Aman, Direkomendasikan)
+Metode ini jauh lebih aman karena membatasi hak akses kontainer hanya ke tipe perangkat keras serial (ttyUSB, ttyACM, ttyS) dan mencegah akses tidak sah ke periferal host lainnya.
+1. Gunakan aturan `device_cgroup_rules` untuk mengizinkan tipe perangkat character device serial (major number 188 untuk USB serial, 166 untuk ACM modem, dan 4 untuk ttyS serial) serta petakan volume `/dev`:
+   ```yaml
+   api:
+     ...
+     device_cgroup_rules:
+       - 'c 188:* rmw'  # Mengizinkan ttyUSB*
+       - 'c 166:* rmw'  # Mengizinkan ttyACM*
+       - 'c 4:* rmw'    # Mengizinkan ttyS*
+     volumes:
+       - /dev:/dev
+   ```
+   *(Lakukan hal serupa pada layanan `worker`)*
+
+3. Restart container Docker Anda agar konfigurasi baru ini dimuat ulang:
+   ```bash
+   docker compose down
+   docker compose up -d
+   ```
+
 ### 8. Otomatisasi Backup Konfigurasi (Device Backup)
 NetX dapat menarik konfigurasi perangkat (*running-config*) secara berkala untuk tujuan backup dan melacak riwayat perubahan konfigurasi.
 1. Masuk ke menu **Device Backup**.

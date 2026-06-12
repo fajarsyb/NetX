@@ -203,7 +203,11 @@ async def websocket_direct_serial(
                         t.cancel()
             return
         except Exception as e:
-            err_msg = f"Gagal membuka direct serial port {port}: {e}"
+            err_str = str(e)
+            tip = ""
+            if "permission denied" in err_str.lower() or "permissionerror" in err_str.lower() or "errno 13" in err_str.lower():
+                tip = " (Tip: Pastikan user Anda terdaftar dalam group 'dialout' atau 'uucp', atau jika menggunakan Docker, pastikan kontainer dijalankan dengan opsi privileged=true dan volume /dev terpeta)."
+            err_msg = f"Gagal membuka direct serial port {port}: {e}{tip}"
             logger.error(err_msg)
             await websocket.send_text(f"\r\n[Error] {err_msg}\r\n")
             return
@@ -383,7 +387,11 @@ async def websocket_terminal(
                             t.cancel()
                 return
             except Exception as e:
-                err_msg = f"Gagal membuka serial port {port_name}: {e}"
+                err_str = str(e)
+                tip = ""
+                if "permission denied" in err_str.lower() or "permissionerror" in err_str.lower() or "errno 13" in err_str.lower():
+                    tip = " (Tip: Pastikan user Anda terdaftar dalam group 'dialout' atau 'uucp', atau jika menggunakan Docker, pastikan kontainer dijalankan dengan opsi privileged=true dan volume /dev terpeta)."
+                err_msg = f"Gagal membuka serial port {port_name}: {e}{tip}"
                 logger.error(err_msg)
                 await websocket.send_text(f"\r\n[Error] {err_msg}\r\n")
                 return

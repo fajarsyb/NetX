@@ -54,6 +54,19 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - NETX_MODE=api
       - TZ=Asia/Jakarta
+    # --- Linux Serial Console Access Settings (Uncomment if needed) ---
+    # Option A: Quick but less secure (Gives container full root privileges to host hardware)
+    # privileged: true
+    # volumes:
+    #   - /dev:/dev
+    #
+    # Option B: Secure (Recommended - Restricts container access to serial devices only)
+    # device_cgroup_rules:
+    #   - 'c 188:* rmw' # Allow USB-to-Serial devices (ttyUSB)
+    #   - 'c 166:* rmw' # Allow USB-ACM modem devices (ttyACM)
+    #   - 'c 4:* rmw'   # Allow standard serial ports (ttyS)
+    # volumes:
+    #   - /dev:/dev
     ports:
       - "8000:8000"
     depends_on:
@@ -80,6 +93,19 @@ services:
       - NETX_MODE=worker
       - MAX_CONCURRENT_SSH=20
       - TZ=Asia/Jakarta
+    # --- Linux Serial Console Access Settings (Uncomment if needed) ---
+    # Option A: Quick but less secure (Gives container full root privileges to host hardware)
+    # privileged: true
+    # volumes:
+    #   - /dev:/dev
+    #
+    # Option B: Secure (Recommended - Restricts container access to serial devices only)
+    # device_cgroup_rules:
+    #   - 'c 188:* rmw' # Allow USB-to-Serial devices (ttyUSB)
+    #   - 'c 166:* rmw' # Allow USB-ACM modem devices (ttyACM)
+    #   - 'c 4:* rmw'   # Allow standard serial ports (ttyS)
+    # volumes:
+    #   - /dev:/dev
     depends_on:
       redis:
         condition: service_healthy

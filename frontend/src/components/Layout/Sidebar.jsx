@@ -20,7 +20,7 @@ export default function Sidebar() {
   const { theme, toggleTheme } = useTheme()
   const location = useLocation()
   const [openSettings, setOpenSettings] = useState(() => {
-    return ['/users', '/credentials', '/credential-scan', '/backup', '/db-settings', '/system-health', '/device-backup', '/snmp-tester', '/mibs', '/thresholds'].includes(location.pathname)
+    return ['/users', '/credentials', '/credential-scan', '/backup', '/db-settings', '/system-settings', '/system-health', '/device-backup', '/snmp-tester', '/mibs', '/thresholds'].includes(location.pathname)
   })
 
   const hasMenu = (mKey) => {
@@ -217,7 +217,7 @@ export default function Sidebar() {
             <>
               <button
                 type="button"
-                className={`nav-link ${['/users', '/credentials', '/credential-scan', '/backup', '/db-settings', '/system-health', '/device-backup', '/snmp-tester', '/mibs', '/thresholds'].includes(location.pathname) ? 'active' : ''}`}
+                className={`nav-link ${['/users', '/credentials', '/credential-scan', '/backup', '/db-settings', '/system-settings', '/system-health', '/device-backup', '/snmp-tester', '/mibs', '/thresholds'].includes(location.pathname) ? 'active' : ''}`}
                 onClick={() => setOpenSettings(prev => !prev)}
                 style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
               >
@@ -282,6 +282,15 @@ export default function Sidebar() {
                     >
                       <Database className="nav-icon" />
                       Integrasi PostgreSQL
+                    </NavLink>
+                  )}
+                  {hasFeature('system_settings') && (
+                    <NavLink
+                      to="/system-settings"
+                      className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                    >
+                      <RefreshCw className="nav-icon" />
+                      Pengaturan Auto Refresh
                     </NavLink>
                   )}
                   {user?.role === 'admin' && (

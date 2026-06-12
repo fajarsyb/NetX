@@ -508,6 +508,16 @@ export default function TerminalConsole({ isPageActive = true }) {
                       </button>
                     </div>
 
+                    {serialPorts.length === 0 && (
+                      <div style={{ marginTop: '10px', fontSize: '11px', padding: '10px', backgroundColor: 'rgba(245, 158, 11, 0.1)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(245, 158, 11, 0.2)', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+                        <span style={{ fontWeight: 600, color: 'var(--warning)', display: 'block', marginBottom: '4px' }}>Tip untuk Pengguna Linux / Docker:</span>
+                        <ul style={{ margin: 0, paddingLeft: '16px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                          <li><strong>Docker:</strong> Aktifkan <code>privileged: true</code> dan petakan volume <code>/dev:/dev</code> pada file <code>docker-compose.yml</code>.</li>
+                          <li><strong>Native:</strong> Tambahkan user ke grup dengan <code>sudo usermod -aG dialout $USER</code> (atau <code>uucp</code>) lalu login kembali.</li>
+                        </ul>
+                      </div>
+                    )}
+
                     {(selectedPort === 'custom' || (!serialPorts.some(p => p.port === selectedPort) && selectedPort !== '')) && (
                       <div style={{ marginTop: '8px' }}>
                         <input

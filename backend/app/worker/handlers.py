@@ -96,6 +96,12 @@ async def handle_job(task_name: str, params: dict):
     elif task_name == "bulk_ping":
         await handle_bulk_ping(params)
 
+    elif task_name == "mac_all_devices":
+        await run_mac_all_devices()
+
+    elif task_name == "arp_all_devices":
+        await run_arp_all_devices()
+
     else:
         raise ValueError(f"Unknown task name: {task_name}")
 
@@ -355,5 +361,69 @@ async def handle_bulk_refresh(params: dict):
 
     status_entry["status"] = "completed"
     await r.setex(f"bulk_refresh:{task_id}", 86400, json.dumps(status_entry))
+
+
+async def run_mac_all_devices():
+    from app.database import get_db_conn
+    from app.routers.mac import refresh_mac_table_logic
+    
+    conn = get_db_conn()
+    c = conn.cursor()
+    c.execute("SELECT id, name, ip FROM devices WHERE protocol != 'serial'")
+    devices = [dict(row) for row in c.fetchall()]
+    conn.close()
+    
+    if not devices:
+        logger.info("No devices for scheduled MAC refresh.")
+        return
+        
+    # Keep concurrency low (max 3 concurrent connections) to optimize server resources
+    sem = asyncio.Semaphore(3)
+    
+    async def refresh_one(device):
+        async with sem:
+            dev_id = device["id"]
+            dev_name = device["name"]
+            logger.info(f"Starting scheduled MAC refresh for device {dev_name} ({device['ip']})...")
+            try:
+                await refresh_mac_table_logic(dev_id, user=None)
+                logger.info(f"Finished scheduled MAC refresh for device {dev_name}")
+            except Exception as e:
+                logger.error(f"Error in scheduled MAC refresh for device {dev_name}: {e}")
+                
+    tasks = [asyncio.create_task(refresh_one(d)) for d in devices]
+    await asyncio.gather(*tasks)
+
+
+async def run_arp_all_devices():
+    from app.database import get_db_conn
+    from app.routers.arp import refresh_arp_logic
+    
+    conn = get_db_conn()
+    c = conn.cursor()
+    c.execute("SELECT id, name, ip FROM devices WHERE protocol != 'serial'")
+    devices = [dict(row) for row in c.fetchall()]
+    conn.close()
+    
+    if not devices:
+        logger.info("No devices for scheduled ARP refresh.")
+        return
+        
+    # Keep concurrency low (max 3 concurrent connections) to optimize server resources
+    sem = asyncio.Semaphore(3)
+    
+    async def refresh_one(device):
+        async with sem:
+            dev_id = device["id"]
+            dev_name = device["name"]
+            logger.info(f"Starting scheduled ARP refresh for device {dev_name} ({device['ip']})...")
+            try:
+                await refresh_arp_logic(dev_id, user=None)
+                logger.info(f"Finished scheduled ARP refresh for device {dev_name}")
+            except Exception as e:
+                logger.error(f"Error in scheduled ARP refresh for device {dev_name}: {e}")
+                
+    tasks = [asyncio.create_task(refresh_one(d)) for d in devices]
+    await asyncio.gather(*tasks)
 
 
