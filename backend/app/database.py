@@ -1096,6 +1096,17 @@ def init_db():
             "mac_auto_refresh_interval": "3600",
             "arp_auto_refresh_enabled": "true",
             "arp_auto_refresh_interval": "600",
+            "alert_webhook_enabled": "false",
+            "alert_webhook_url": "",
+            "alert_telegram_enabled": "false",
+            "alert_telegram_bot_token": "",
+            "alert_telegram_chat_id": "",
+            "alert_email_enabled": "false",
+            "alert_email_smtp_host": "",
+            "alert_email_smtp_port": "587",
+            "alert_email_smtp_user": "",
+            "alert_email_smtp_password": "",
+            "alert_email_to": "",
         }
         for k, v in default_settings.items():
             c.execute("INSERT INTO system_settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO NOTHING", (k, v))
@@ -1962,6 +1973,17 @@ def init_db():
             "mac_auto_refresh_interval": "3600",
             "arp_auto_refresh_enabled": "true",
             "arp_auto_refresh_interval": "600",
+            "alert_webhook_enabled": "false",
+            "alert_webhook_url": "",
+            "alert_telegram_enabled": "false",
+            "alert_telegram_bot_token": "",
+            "alert_telegram_chat_id": "",
+            "alert_email_enabled": "false",
+            "alert_email_smtp_host": "",
+            "alert_email_smtp_port": "587",
+            "alert_email_smtp_user": "",
+            "alert_email_smtp_password": "",
+            "alert_email_to": "",
         }
         for k, v in default_settings.items():
             c.execute("INSERT OR IGNORE INTO system_settings (key, value) VALUES (?, ?)", (k, v))

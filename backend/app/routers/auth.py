@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import OAuth2PasswordRequestForm
+from app.core.rate_limit import RateLimiter
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
@@ -37,7 +38,7 @@ class PasswordChange(BaseModel):
 
 
 # ─── LOGIN ────────────────────────────────────────────────────────────────────
-@router.post("/login")
+@router.post("/login", dependencies=[Depends(RateLimiter(limit=10, window=60, name="login"))])
 async def login(form: OAuth2PasswordRequestForm = Depends()):
     """Return JWT access token. Uses standard OAuth2 form (username + password)."""
     conn = get_db_conn()
@@ -88,7 +89,7 @@ async def me(current_user: dict = Depends(get_current_user)):
 
 
 # ─── CHANGE OWN PASSWORD ──────────────────────────────────────────────────────
-@router.post("/change-password")
+@router.post("/change-password", dependencies=[Depends(RateLimiter(limit=5, window=60, name="change-password"))])
 async def change_password(
     body: PasswordChange,
     current_user: dict = Depends(get_current_user),
@@ -203,7 +204,7 @@ async def update_user(user_id: int, body: UserUpdate, admin: dict = Depends(requ
     return {"success": True, "message": "User berhasil diupdate."}
 
 
-@router.put("/users/{user_id}/reset-password")
+@router.put("/users/{user_id}/reset-password", dependencies=[Depends(RateLimiter(limit=5, window=60, name="reset-password"))])
 async def reset_password(user_id: int, body: dict, admin: dict = Depends(require_admin)):
     """Admin reset password for any user."""
     new_pass = body.get("new_password", "")

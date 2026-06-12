@@ -5,9 +5,9 @@ services:
     image: postgres:15-alpine
     container_name: netx_postgres
     environment:
-      POSTGRES_DB: netx
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: RxVUDCKZDM3MG9rckvFe
+      POSTGRES_DB: ${DB_NAME:-netx}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
       TZ: Asia/Jakarta
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -45,12 +45,12 @@ services:
       dockerfile: Dockerfile.api
     container_name: netx_api
     environment:
-      - DB_ENGINE=postgresql
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=netx
-      - DB_USER=postgres
-      - DB_PASSWORD=RxVUDCKZDM3MG9rckvFe
+      - DB_ENGINE=${DB_ENGINE:-postgresql}
+      - DB_HOST=${DB_HOST:-postgres}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_NAME=${DB_NAME:-netx}
+      - DB_USER=${DB_USER:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD}
       - REDIS_URL=redis://redis:6379/0
       - NETX_MODE=api
       - TZ=Asia/Jakarta
@@ -83,12 +83,12 @@ services:
       dockerfile: Dockerfile.worker
     container_name: netx_worker
     environment:
-      - DB_ENGINE=postgresql
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=netx
-      - DB_USER=postgres
-      - DB_PASSWORD=RxVUDCKZDM3MG9rckvFe
+      - DB_ENGINE=${DB_ENGINE:-postgresql}
+      - DB_HOST=${DB_HOST:-postgres}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_NAME=${DB_NAME:-netx}
+      - DB_USER=${DB_USER:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD}
       - REDIS_URL=redis://redis:6379/0
       - NETX_MODE=worker
       - MAX_CONCURRENT_SSH=20
@@ -120,12 +120,12 @@ services:
     container_name: netx_scheduler
     command: python main_scheduler.py
     environment:
-      - DB_ENGINE=postgresql
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=netx
-      - DB_USER=postgres
-      - DB_PASSWORD=RxVUDCKZDM3MG9rckvFe
+      - DB_ENGINE=${DB_ENGINE:-postgresql}
+      - DB_HOST=${DB_HOST:-postgres}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_NAME=${DB_NAME:-netx}
+      - DB_USER=${DB_USER:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD}
       - REDIS_URL=redis://redis:6379/0
       - TZ=Asia/Jakarta
     depends_on:
@@ -149,12 +149,12 @@ services:
         protocol: udp
         mode: host
     environment:
-      - DB_ENGINE=postgresql
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=netx
-      - DB_USER=postgres
-      - DB_PASSWORD=RxVUDCKZDM3MG9rckvFe
+      - DB_ENGINE=${DB_ENGINE:-postgresql}
+      - DB_HOST=${DB_HOST:-postgres}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_NAME=${DB_NAME:-netx}
+      - DB_USER=${DB_USER:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD}
       - REDIS_URL=redis://redis:6379/0
       - DB_SSL_MODE=disable
       - TZ=Asia/Jakarta

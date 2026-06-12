@@ -708,7 +708,10 @@ def parse_lldp(output: str, device_type: str) -> List[Dict]:
     from app.core.drivers import driver_manager
     driver = driver_manager.get_driver(device_type)
     try:
-        result = driver.parse_lldp(output, device_type)
+        try:
+            result = driver.parse_lldp(output, device_type)
+        except TypeError:
+            result = driver.parse_lldp(output)
         if not result:
             result = _generic_lldp(output)
     except Exception:

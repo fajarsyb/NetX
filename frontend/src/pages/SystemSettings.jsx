@@ -12,10 +12,22 @@ export default function SystemSettings() {
     mac_auto_refresh_interval: 3600,
     arp_auto_refresh_enabled: true,
     arp_auto_refresh_interval: 600,
+    alert_webhook_enabled: false,
+    alert_webhook_url: '',
+    alert_telegram_enabled: false,
+    alert_telegram_bot_token: '',
+    alert_telegram_chat_id: '',
+    alert_email_enabled: false,
+    alert_email_smtp_host: '',
+    alert_email_smtp_port: 587,
+    alert_email_smtp_user: '',
+    alert_email_smtp_password: '',
+    alert_email_to: '',
   })
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [testingAlert, setTestingAlert] = useState(false)
   const { user: currentUser } = useAuth()
   const toast = useToast()
 
@@ -59,6 +71,27 @@ export default function SystemSettings() {
       ...prev,
       [field]: parseInt(value, 10) || 300
     }))
+  }
+
+  const handleInputChange = (field, value) => {
+    setSettings(prev => ({
+      ...prev,
+      [field]: value
+    }))
+  }
+
+  const handleTestAlert = async () => {
+    setTestingAlert(true)
+    try {
+      const res = await systemSettingsApi.testAlert()
+      if (res.data.success) {
+        toast.success(res.data.message || 'Pesan uji coba berhasil dikirim ke latar belakang.')
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Gagal mengirim pesan uji coba.')
+    } finally {
+      setTestingAlert(false)
+    }
   }
 
   const handleSave = async (e) => {
@@ -266,6 +299,241 @@ export default function SystemSettings() {
                   </div>
                 )}
               </div>
+
+              {/* Notification Section Title */}
+              <h3 style={{ fontSize: '16px', fontWeight: 700, marginTop: '30px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <ShieldAlert size={18} className="text-muted" />
+                Saluran Notifikasi & Alerting Anomali
+              </h3>
+
+              {/* Webhook Channel */}
+              <div style={{ padding: '16px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', marginBottom: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <div>
+                    <h4 style={{ fontWeight: 600, fontSize: '14.5px', margin: 0 }}>Webhook Integration</h4>
+                    <p style={{ fontSize: '12.5px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
+                      Kirim payload JSON POST saat anomali terdeteksi.
+                    </p>
+                  </div>
+                  <label style={{ position: 'relative', display: 'inline-block', width: '44px', height: '24px' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={settings.alert_webhook_enabled} 
+                      onChange={() => handleToggle('alert_webhook_enabled')}
+                      style={{ opacity: 0, width: 0, height: 0 }}
+                    />
+                    <span style={{
+                      position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
+                      backgroundColor: settings.alert_webhook_enabled ? 'var(--primary)' : 'rgba(255,255,255,0.1)',
+                      transition: '0.3s', borderRadius: '24px',
+                      boxShadow: settings.alert_webhook_enabled ? '0 0 8px var(--primary)' : 'none'
+                    }}>
+                      <span style={{
+                        position: 'absolute', content: '""', height: '18px', width: '18px', left: '3px', bottom: '3px',
+                        backgroundColor: '#fff', transition: '0.3s', borderRadius: '50%',
+                        transform: settings.alert_webhook_enabled ? 'translateX(20px)' : 'translateX(0)'
+                      }} />
+                    </span>
+                  </label>
+                </div>
+
+                {settings.alert_webhook_enabled && (
+                  <div className="form-group" style={{ margin: 0, paddingTop: '8px' }}>
+                    <label className="form-label">Webhook URL *</label>
+                    <input
+                      className="form-control"
+                      type="url"
+                      placeholder="https://api.perusahaan.com/alert-webhook"
+                      value={settings.alert_webhook_url || ''}
+                      onChange={e => handleInputChange('alert_webhook_url', e.target.value)}
+                      required
+                      style={{ fontSize: '12.5px' }}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Telegram Channel */}
+              <div style={{ padding: '16px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', marginBottom: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <div>
+                    <h4 style={{ fontWeight: 600, fontSize: '14.5px', margin: 0 }}>Telegram Alert Bot</h4>
+                    <p style={{ fontSize: '12.5px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
+                      Kirim alert ke grup atau chat Telegram personal.
+                    </p>
+                  </div>
+                  <label style={{ position: 'relative', display: 'inline-block', width: '44px', height: '24px' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={settings.alert_telegram_enabled} 
+                      onChange={() => handleToggle('alert_telegram_enabled')}
+                      style={{ opacity: 0, width: 0, height: 0 }}
+                    />
+                    <span style={{
+                      position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
+                      backgroundColor: settings.alert_telegram_enabled ? 'var(--primary)' : 'rgba(255,255,255,0.1)',
+                      transition: '0.3s', borderRadius: '24px',
+                      boxShadow: settings.alert_telegram_enabled ? '0 0 8px var(--primary)' : 'none'
+                    }}>
+                      <span style={{
+                        position: 'absolute', content: '""', height: '18px', width: '18px', left: '3px', bottom: '3px',
+                        backgroundColor: '#fff', transition: '0.3s', borderRadius: '50%',
+                        transform: settings.alert_telegram_enabled ? 'translateX(20px)' : 'translateX(0)'
+                      }} />
+                    </span>
+                  </label>
+                </div>
+
+                {settings.alert_telegram_enabled && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingTop: '8px' }}>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label">Telegram Bot Token *</label>
+                      <input
+                        className="form-control"
+                        type="password"
+                        placeholder="123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ"
+                        value={settings.alert_telegram_bot_token || ''}
+                        onChange={e => handleInputChange('alert_telegram_bot_token', e.target.value)}
+                        required
+                        style={{ fontSize: '12.5px' }}
+                      />
+                    </div>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label">Chat ID / Group ID *</label>
+                      <input
+                        className="form-control"
+                        placeholder="-100123456789"
+                        value={settings.alert_telegram_chat_id || ''}
+                        onChange={e => handleInputChange('alert_telegram_chat_id', e.target.value)}
+                        required
+                        style={{ fontSize: '12.5px' }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Email (SMTP) Channel */}
+              <div style={{ padding: '16px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', marginBottom: '24px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <div>
+                    <h4 style={{ fontWeight: 600, fontSize: '14.5px', margin: 0 }}>Email (SMTP) Alerts</h4>
+                    <p style={{ fontSize: '12.5px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
+                      Kirim alert email ke admin menggunakan server mail SMTP.
+                    </p>
+                  </div>
+                  <label style={{ position: 'relative', display: 'inline-block', width: '44px', height: '24px' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={settings.alert_email_enabled} 
+                      onChange={() => handleToggle('alert_email_enabled')}
+                      style={{ opacity: 0, width: 0, height: 0 }}
+                    />
+                    <span style={{
+                      position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
+                      backgroundColor: settings.alert_email_enabled ? 'var(--primary)' : 'rgba(255,255,255,0.1)',
+                      transition: '0.3s', borderRadius: '24px',
+                      boxShadow: settings.alert_email_enabled ? '0 0 8px var(--primary)' : 'none'
+                    }}>
+                      <span style={{
+                        position: 'absolute', content: '""', height: '18px', width: '18px', left: '3px', bottom: '3px',
+                        backgroundColor: '#fff', transition: '0.3s', borderRadius: '50%',
+                        transform: settings.alert_email_enabled ? 'translateX(20px)' : 'translateX(0)'
+                      }} />
+                    </span>
+                  </label>
+                </div>
+
+                {settings.alert_email_enabled && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingTop: '8px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '10px' }}>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label className="form-label">SMTP Host *</label>
+                        <input
+                          className="form-control"
+                          placeholder="smtp.gmail.com"
+                          value={settings.alert_email_smtp_host || ''}
+                          onChange={e => handleInputChange('alert_email_smtp_host', e.target.value)}
+                          required
+                          style={{ fontSize: '12.5px' }}
+                        />
+                      </div>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label className="form-label">SMTP Port *</label>
+                        <input
+                          className="form-control"
+                          type="number"
+                          placeholder="587"
+                          value={settings.alert_email_smtp_port || 587}
+                          onChange={e => handleIntervalChange('alert_email_smtp_port', e.target.value)}
+                          required
+                          style={{ fontSize: '12.5px' }}
+                        />
+                      </div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label className="form-label">SMTP User / From *</label>
+                        <input
+                          className="form-control"
+                          type="email"
+                          placeholder="alert@company.com"
+                          value={settings.alert_email_smtp_user || ''}
+                          onChange={e => handleInputChange('alert_email_smtp_user', e.target.value)}
+                          style={{ fontSize: '12.5px' }}
+                        />
+                      </div>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label className="form-label">SMTP Password</label>
+                        <input
+                          className="form-control"
+                          type="password"
+                          placeholder="••••••••••••"
+                          value={settings.alert_email_smtp_password || ''}
+                          onChange={e => handleInputChange('alert_email_smtp_password', e.target.value)}
+                          style={{ fontSize: '12.5px' }}
+                        />
+                      </div>
+                    </div>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label">Recipient Emails * (koma untuk pemisah)</label>
+                      <input
+                        className="form-control"
+                        placeholder="admin1@company.com, admin2@company.com"
+                        value={settings.alert_email_to || ''}
+                        onChange={e => handleInputChange('alert_email_to', e.target.value)}
+                        required
+                        style={{ fontSize: '12.5px' }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Test Connection Button inside Form */}
+              {(settings.alert_webhook_enabled || settings.alert_telegram_enabled || settings.alert_email_enabled) && (
+                <div style={{ marginBottom: '16px' }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={handleTestAlert}
+                    disabled={testingAlert}
+                    style={{ width: '100%', padding: '10px', display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}
+                  >
+                    {testingAlert ? (
+                      <>
+                        <span className="loading-spinner" style={{ width: 14, height: 14 }} />
+                        Mengirim Test Alert...
+                      </>
+                    ) : (
+                      <>
+                        <ShieldAlert size={14} />
+                        Kirim Test Alert ke Saluran Aktif
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
 
               <button
                 type="submit"

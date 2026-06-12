@@ -9,6 +9,7 @@ from app.routers import devices, auth, groups, terminal, topology, snmp, credent
 from app.services.auth import get_current_user
 from app.services.health_monitor import start_event_loop_monitor
 from app.core.plugins import plugin_manager
+from app.core.rate_limit import RateLimiter
 import asyncio
 
 # Path to the built frontend (relative to this file)
@@ -36,27 +37,31 @@ app.add_middleware(
 )
 
 # 1. Mount Core Routers
-app.include_router(auth.router)
-app.include_router(groups.router, dependencies=[Depends(get_current_user)])
-app.include_router(devices.router, dependencies=[Depends(get_current_user)])
-app.include_router(ping.router, dependencies=[Depends(get_current_user)])
-app.include_router(topology.router, dependencies=[Depends(get_current_user)])
-app.include_router(snmp.router, dependencies=[Depends(get_current_user)])
-app.include_router(credentials.router, dependencies=[Depends(get_current_user)])
-app.include_router(audit_logs.router, dependencies=[Depends(get_current_user)])
-app.include_router(db_settings.router, dependencies=[Depends(get_current_user)])
-app.include_router(health.router, dependencies=[Depends(get_current_user)])
-app.include_router(thresholds.router, dependencies=[Depends(get_current_user)])
-app.include_router(terminal.router)
-app.include_router(shell_notes.router, dependencies=[Depends(get_current_user)])
-app.include_router(l2_analysis.router, dependencies=[Depends(get_current_user)])
-app.include_router(remote_backups.router, dependencies=[Depends(get_current_user)])
-app.include_router(system_settings.router, dependencies=[Depends(get_current_user)])
+# Default rate limiter for authenticated routes
+api_rate_limiter = Depends(RateLimiter(limit=300, window=60, name="api"))
+
+app.include_router(auth.router, dependencies=[Depends(RateLimiter(limit=300, window=60, name="api_auth_general"))])
+app.include_router(groups.router, dependencies=[Depends(get_current_user), api_rate_limiter])
+app.include_router(devices.router, dependencies=[Depends(get_current_user), api_rate_limiter])
+app.include_router(ping.router, dependencies=[Depends(get_current_user), api_rate_limiter])
+app.include_router(topology.router, dependencies=[Depends(get_current_user), api_rate_limiter])
+app.include_router(snmp.router, dependencies=[Depends(get_current_user), api_rate_limiter])
+app.include_router(credentials.router, dependencies=[Depends(get_current_user), api_rate_limiter])
+app.include_router(audit_logs.router, dependencies=[Depends(get_current_user), api_rate_limiter])
+app.include_router(db_settings.router, dependencies=[Depends(get_current_user), api_rate_limiter])
+app.include_router(health.router, dependencies=[Depends(get_current_user), api_rate_limiter])
+app.include_router(thresholds.router, dependencies=[Depends(get_current_user), api_rate_limiter])
+app.include_router(terminal.router, dependencies=[Depends(RateLimiter(limit=100, window=60, name="terminal"))])
+app.include_router(shell_notes.router, dependencies=[Depends(get_current_user), api_rate_limiter])
+app.include_router(l2_analysis.router, dependencies=[Depends(get_current_user), api_rate_limiter])
+app.include_router(remote_backups.router, dependencies=[Depends(get_current_user), api_rate_limiter])
+app.include_router(system_settings.router, dependencies=[Depends(get_current_user), api_rate_limiter])
 
 
 # 2. Mount Dynamic Plugin Routers
 for r_info in plugin_manager.get_routers():
-    deps = r_info["dependencies"] if r_info["dependencies"] else [Depends(get_current_user)]
+    deps = list(r_info["dependencies"]) if r_info["dependencies"] else [Depends(get_current_user)]
+    deps.append(api_rate_limiter)
     app.include_router(r_info["router"], prefix=r_info["prefix"], dependencies=deps)
 
 

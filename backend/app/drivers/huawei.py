@@ -25,6 +25,10 @@ class HuaweiDriver(BaseDriver):
     vlan_command: str = "display vlan"
     trunk_command: str = "display port vlan"
 
+    def parse_arp(self, output: str) -> List[Dict]:
+        from app.services.arp_parser import _huawei
+        return _huawei(output)
+
     def parse_snmp_sys_descr(self, sys_descr: str) -> Dict:
         os_version = ""
         hardware_model = "VRP"

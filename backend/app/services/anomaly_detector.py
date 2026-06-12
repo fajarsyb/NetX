@@ -3,6 +3,7 @@ import logging
 import json
 from datetime import datetime, timedelta
 from app.database import get_db_conn
+from app.services.alert_service import trigger_anomaly_alert
 from pysnmp.hlapi.v3arch.asyncio import (
     SnmpEngine, get_cmd, next_cmd, CommunityData, UdpTransportTarget, ContextData, ObjectType, ObjectIdentity
 )
@@ -248,6 +249,7 @@ def check_mac_flapping(device_id: int, mac_entries: list, conn) -> list:
                             INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
                             VALUES (?, 'mac_flapping', 'warning', ?, ?, 1, ?)
                         """, (device_id, interface, details, now_iso))
+                        trigger_anomaly_alert(device_id, 'mac_flapping', 'warning', interface, details, now_iso)
                         
                         detected_flaps.append({
                             "mac": mac,
@@ -359,6 +361,7 @@ async def scan_device_anomalies(device: dict):
                     INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
                     VALUES (?, 'stp_tcn', 'warning', 'Global', ?, 1, ?)
                 """, (device_id, details, now_iso))
+                trigger_anomaly_alert(device_id, 'stp_tcn', 'warning', 'Global', details, now_iso)
                 logger.warning(f"L2 topology change detected on {device['name']}!")
 
         # 3. Looping for each physical interface
@@ -532,6 +535,7 @@ async def scan_device_anomalies(device: dict):
                             INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
                             VALUES (?, 'crc_errors', 'critical', ?, ?, 1, ?)
                         """, (device_id, if_name, details, now_iso))
+                        trigger_anomaly_alert(device_id, 'crc_errors', 'critical', if_name, details, now_iso)
                 elif rate_crc_err == 0.0:
                     c.execute("""
                         UPDATE network_anomalies 
@@ -551,6 +555,7 @@ async def scan_device_anomalies(device: dict):
                             INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
                             VALUES (?, 'framing_errors', 'warning', ?, ?, 1, ?)
                         """, (device_id, if_name, details, now_iso))
+                        trigger_anomaly_alert(device_id, 'framing_errors', 'warning', if_name, details, now_iso)
                 elif rate_frame_err == 0.0:
                     c.execute("""
                         UPDATE network_anomalies 
@@ -570,6 +575,7 @@ async def scan_device_anomalies(device: dict):
                             INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
                             VALUES (?, 'transmission_errors', 'critical', ?, ?, 1, ?)
                         """, (device_id, if_name, details, now_iso))
+                        trigger_anomaly_alert(device_id, 'transmission_errors', 'critical', if_name, details, now_iso)
                 elif rate_rx_err == 0.0 and rate_tx_err == 0.0:
                     c.execute("""
                         UPDATE network_anomalies 
@@ -609,6 +615,7 @@ async def scan_device_anomalies(device: dict):
                             INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
                             VALUES (?, 'speed_drop', 'warning', ?, ?, 1, ?)
                         """, (device_id, if_name, details, now_iso))
+                        trigger_anomaly_alert(device_id, 'speed_drop', 'warning', if_name, details, now_iso)
                 else:
                     c.execute("""
                         UPDATE network_anomalies 
@@ -637,6 +644,7 @@ async def scan_device_anomalies(device: dict):
                             INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
                             VALUES (?, 'broadcast_storm', ?, ?, ?, 1, ?)
                         """, (device_id, sev, if_name, details, now_iso))
+                        trigger_anomaly_alert(device_id, 'broadcast_storm', sev, if_name, details, now_iso)
                 else:
                     # Resolve broadcast storm
                     c.execute("""
@@ -664,6 +672,7 @@ async def scan_device_anomalies(device: dict):
                             INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
                             VALUES (?, 'multicast_storm', ?, ?, ?, 1, ?)
                         """, (device_id, sev, if_name, details, now_iso))
+                        trigger_anomaly_alert(device_id, 'multicast_storm', sev, if_name, details, now_iso)
                 else:
                     c.execute("""
                         UPDATE network_anomalies 
@@ -699,6 +708,7 @@ async def scan_device_anomalies(device: dict):
                             INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
                             VALUES (?, 'unicast_storm', ?, ?, ?, 1, ?)
                         """, (device_id, sev, if_name, details, now_iso))
+                        trigger_anomaly_alert(device_id, 'unicast_storm', sev, if_name, details, now_iso)
                 else:
                     c.execute("""
                         UPDATE network_anomalies 
@@ -746,6 +756,7 @@ async def scan_device_anomalies(device: dict):
                             INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
                             VALUES (?, 'port_flapping', ?, ?, ?, 1, ?)
                         """, (device_id, sev, if_name, details, now_iso))
+                        trigger_anomaly_alert(device_id, 'port_flapping', sev, if_name, details, now_iso)
                 else:
                     # Resolve port flapping
                     c.execute("""
@@ -807,6 +818,7 @@ def correlate_active_anomalies(conn):
                     INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
                     VALUES (?, 'device_offline', 'critical', 'Global', ?, 1, ?)
                 """, (dev_id, details, now_iso))
+                trigger_anomaly_alert(dev_id, 'device_offline', 'critical', 'Global', details, now_iso)
         else:
             # Resolve any active device_offline anomaly
             c.execute("""

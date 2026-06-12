@@ -334,7 +334,10 @@ def parse_arp(output: str, device_type: str) -> List[Dict]:
     from app.core.drivers import driver_manager
     driver = driver_manager.get_driver(device_type)
     try:
-        result = driver.parse_arp(output, device_type)
+        try:
+            result = driver.parse_arp(output, device_type)
+        except TypeError:
+            result = driver.parse_arp(output)
         if not result:
             result = _generic(output)
         return result

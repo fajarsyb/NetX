@@ -5,6 +5,7 @@ import json
 import hashlib
 from datetime import datetime, timedelta
 from app.database import get_db_conn
+from app.services.alert_service import trigger_anomaly_alert
 
 logger = logging.getLogger("netx.syslog_server")
 
@@ -232,6 +233,7 @@ def analyze_syslog_for_anomalies(device_id: int, severity: int, program: str, me
                         INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
                         VALUES (?, 'port_flapping', 'warning', ?, ?, 1, ?)
                     """, (device_id, interface, details, now_iso))
+                    trigger_anomaly_alert(device_id, 'port_flapping', 'warning', interface, details, now_iso)
                     logger.warning(f"Syslog anomaly: Link Down on {device_name}:{interface}")
             
             elif is_link_up:
@@ -257,6 +259,7 @@ def analyze_syslog_for_anomalies(device_id: int, severity: int, program: str, me
                     INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
                     VALUES (?, 'stp_tcn', 'warning', 'Global', ?, 1, ?)
                 """, (device_id, details, now_iso))
+                trigger_anomaly_alert(device_id, 'stp_tcn', 'warning', 'Global', details, now_iso)
                 logger.warning(f"Syslog anomaly: STP TCN on {device_name}")
                 
         # 3. Authentication / Login Failure Detection
@@ -273,6 +276,7 @@ def analyze_syslog_for_anomalies(device_id: int, severity: int, program: str, me
                     INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
                     VALUES (?, 'auth_failure', 'critical', 'Security', ?, 1, ?)
                 """, (device_id, details, now_iso))
+                trigger_anomaly_alert(device_id, 'auth_failure', 'critical', 'Security', details, now_iso)
                 logger.warning(f"Syslog Security anomaly: Auth Failure on {device_name}")
                 
         conn.commit()
@@ -340,6 +344,7 @@ def save_and_analyze_syslog_db(device_id, ip, facility, severity, program, messa
                         INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
                         VALUES (?, 'syslog_spike', 'warning', 'Syslog', ?, 1, ?)
                     """, (device_id, details, timestamp))
+                    trigger_anomaly_alert(device_id, 'syslog_spike', 'warning', 'Syslog', details, timestamp)
                     
             if is_anomaly == 1:
                 # Check if there is already an active syslog_critical anomaly for this device and pattern
@@ -353,6 +358,7 @@ def save_and_analyze_syslog_db(device_id, ip, facility, severity, program, messa
                         INSERT INTO network_anomalies (device_id, anomaly_type, severity, interface_name, details, is_active, detected_at)
                         VALUES (?, 'syslog_critical', 'critical', 'Syslog', ?, 1, ?)
                     """, (device_id, details, timestamp))
+                    trigger_anomaly_alert(device_id, 'syslog_critical', 'critical', 'Syslog', details, timestamp)
                     
         conn.commit()
         return True
