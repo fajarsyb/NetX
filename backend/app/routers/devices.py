@@ -67,6 +67,9 @@ async def export_devices_csv(columns: Optional[str] = None, current_user: dict =
         "device_role":    ("d.device_role", "Device Role"),
         "created_at":     ("d.created_at", "Created At"),
         "syslog_hostname": ("d.syslog_hostname", "Syslog Hostname"),
+        "ping_rtt_ms":    ("d.ping_rtt_ms", "Ping RTT (ms)"),
+        "ping_loss_pct":  ("d.ping_loss_pct", "Ping Loss (%)"),
+        "ping_checked_at": ("d.ping_checked_at", "Ping Checked At"),
     }
     
     selected_keys = []
@@ -142,7 +145,8 @@ async def list_devices(current_user: dict = Depends(get_current_user)):
                    d.snmp_version, d.snmp_community,
                    d.os_version, d.serial_number, d.mac_address, d.hardware_model,
                    d.credential_id, d.custom_info_cmd, d.raw_info, d.device_role,
-                   d.threshold_profile_id, d.syslog_hostname, g.name as group_name
+                   d.threshold_profile_id, d.syslog_hostname,
+                   d.ping_rtt_ms, d.ping_loss_pct, d.ping_checked_at, g.name as group_name
             FROM devices d
             LEFT JOIN device_groups g ON d.group_id = g.id
             ORDER BY d.name COLLATE NOCASE
@@ -172,7 +176,8 @@ async def list_devices(current_user: dict = Depends(get_current_user)):
                    d.snmp_version, d.snmp_community,
                    d.os_version, d.serial_number, d.mac_address, d.hardware_model,
                    d.credential_id, d.custom_info_cmd, d.raw_info, d.device_role,
-                   d.threshold_profile_id, d.syslog_hostname, g.name as group_name
+                   d.threshold_profile_id, d.syslog_hostname,
+                   d.ping_rtt_ms, d.ping_loss_pct, d.ping_checked_at, g.name as group_name
             FROM devices d
             LEFT JOIN device_groups g ON d.group_id = g.id
             WHERE {where_str}
@@ -430,7 +435,8 @@ async def get_device(device_id: int, current_user: dict = Depends(get_current_us
                d.snmp_version, d.snmp_community,
                d.os_version, d.serial_number, d.mac_address, d.hardware_model,
                d.credential_id, d.custom_info_cmd, d.raw_info, d.device_role,
-               d.threshold_profile_id, d.syslog_hostname, g.name as group_name
+               d.threshold_profile_id, d.syslog_hostname,
+               d.ping_rtt_ms, d.ping_loss_pct, d.ping_checked_at, g.name as group_name
         FROM devices d
         LEFT JOIN device_groups g ON d.group_id = g.id
         WHERE d.id = ?

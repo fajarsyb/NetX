@@ -449,6 +449,9 @@ def init_db():
             raw_info TEXT DEFAULT '',
             device_role VARCHAR(100) DEFAULT 'Access Switch',
             syslog_hostname VARCHAR(255) DEFAULT NULL,
+            ping_rtt_ms REAL DEFAULT NULL,
+            ping_loss_pct INTEGER DEFAULT NULL,
+            ping_checked_at VARCHAR(100) DEFAULT NULL,
             FOREIGN KEY (group_id) REFERENCES device_groups(id) ON DELETE SET NULL,
             FOREIGN KEY (credential_id) REFERENCES device_credentials(id) ON DELETE SET NULL
         );
@@ -831,6 +834,18 @@ def init_db():
         );
         """)
 
+        # Device Ping History (PostgreSQL)
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS device_ping_history (
+            id              SERIAL PRIMARY KEY,
+            device_id       INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+            rtt_ms          REAL,
+            loss_pct        INTEGER,
+            status          VARCHAR(50),
+            checked_at      VARCHAR(100) NOT NULL
+        );
+        """)
+
         # ─── PostgreSQL L2 Analysis Tables ───
         c.execute("""
         CREATE TABLE IF NOT EXISTS device_l2_spanning_tree (
@@ -1038,6 +1053,18 @@ def init_db():
             c.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS syslog_hostname VARCHAR(255) DEFAULT NULL;")
         except Exception:
             pass
+        try:
+            c.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS ping_rtt_ms REAL DEFAULT NULL;")
+        except Exception:
+            pass
+        try:
+            c.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS ping_loss_pct INTEGER DEFAULT NULL;")
+        except Exception:
+            pass
+        try:
+            c.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS ping_checked_at VARCHAR(100) DEFAULT NULL;")
+        except Exception:
+            pass
 
 
 
@@ -1137,6 +1164,9 @@ def init_db():
             raw_info TEXT DEFAULT '',
             device_role TEXT DEFAULT 'Access Switch',
             syslog_hostname TEXT DEFAULT NULL,
+            ping_rtt_ms REAL DEFAULT NULL,
+            ping_loss_pct INTEGER DEFAULT NULL,
+            ping_checked_at TEXT DEFAULT NULL,
             FOREIGN KEY (group_id) REFERENCES device_groups(id) ON DELETE SET NULL,
             FOREIGN KEY (credential_id) REFERENCES device_credentials(id) ON DELETE SET NULL
         );
@@ -1659,6 +1689,18 @@ def init_db():
         );
         """)
 
+        # Device Ping History (SQLite)
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS device_ping_history (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id       INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+            rtt_ms          REAL,
+            loss_pct        INTEGER,
+            status          TEXT,
+            checked_at      TEXT NOT NULL
+        );
+        """)
+
         # ─── SQLite L2 Analysis Tables ───
         c.execute("""
         CREATE TABLE IF NOT EXISTS device_l2_spanning_tree (
@@ -1871,6 +1913,18 @@ def init_db():
             pass
         try:
             c.execute("ALTER TABLE devices ADD COLUMN syslog_hostname TEXT DEFAULT NULL;")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            c.execute("ALTER TABLE devices ADD COLUMN ping_rtt_ms REAL DEFAULT NULL;")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            c.execute("ALTER TABLE devices ADD COLUMN ping_loss_pct INTEGER DEFAULT NULL;")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            c.execute("ALTER TABLE devices ADD COLUMN ping_checked_at TEXT DEFAULT NULL;")
         except sqlite3.OperationalError:
             pass
 

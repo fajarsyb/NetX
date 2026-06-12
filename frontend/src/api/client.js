@@ -29,6 +29,10 @@ export const devicesApi = {
   getL2Timeline:  (id)       => api.get(`/devices/${id}/l2/timeline`),
   getL2Lifecycle: (id)       => api.get(`/devices/${id}/l2/lifecycle`),
   refreshL2:      (id)       => api.post(`/devices/${id}/l2/refresh`),
+  ping:           (id)       => api.post(`/devices/${id}/ping`),
+  getPingHistory: (id)       => api.get(`/devices/${id}/ping/history`),
+  bulkPing:       (data)     => api.post('/devices/bulk-ping', data),
+  getBulkPingStatus: (taskId) => api.get(`/devices/bulk-ping/${taskId}`),
 }
 
 export const groupsApi = {

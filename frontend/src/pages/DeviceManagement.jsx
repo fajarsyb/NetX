@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Server, Plus, Trash2, Edit2, Play, RefreshCw, Search, Download, Upload,
-  ChevronLeft, ChevronRight, CheckSquare, Square, X, Zap, CheckCheck, Layers
+  ChevronLeft, ChevronRight, CheckSquare, Square, X, Zap, CheckCheck, Layers, Wifi
 } from 'lucide-react'
 import { devicesApi, groupsApi } from '../api/client'
 import { useToast } from '../components/shared/ToastProvider'
@@ -19,6 +19,9 @@ export default function DeviceManagement() {
   const [search, setSearch] = useState('')
   const [selectedGroup, setSelectedGroup] = useState('')
   const [testingDevices, setTestingDevices] = useState({})
+  const [pingingDevices, setPingingDevices] = useState({})
+  const [bulkPinging, setBulkPinging] = useState(false)
+  const [bulkPingProgress, setBulkPingProgress] = useState(null)
   const [page, setPage] = useState(1)
   const limit = 20
 
@@ -83,6 +86,66 @@ export default function DeviceManagement() {
       toast.error(err.response?.data?.detail || 'Gagal melakukan uji koneksi.')
     } finally {
       setTestingDevices(prev => ({ ...prev, [id]: false }))
+    }
+  }
+
+  const handlePingDevice = async (id) => {
+    setPingingDevices(prev => ({ ...prev, [id]: true }))
+    try {
+      const res = await devicesApi.ping(id)
+      if (res.data.success) {
+        const result = res.data.result
+        if (result.reachable) {
+          toast.success(`Ping ke ${res.data.ip} sukses! RTT: ${result.rtt_ms}ms, Loss: ${result.loss_pct}%`)
+        } else {
+          toast.error(`Ping ke ${res.data.ip} gagal (100% loss)`)
+        }
+      } else {
+        toast.error(res.data.message || 'Gagal melakukan ping.')
+      }
+      const devRes = await devicesApi.list()
+      setDevices(devRes.data)
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Gagal melakukan ping.')
+    } finally {
+      setPingingDevices(prev => ({ ...prev, [id]: false }))
+    }
+  }
+
+  const handleBulkPingSelected = async () => {
+    if (selectedIds.size === 0) { toast.warning('Pilih minimal 1 perangkat.'); return }
+    setBulkPinging(true)
+    setBulkPingProgress({ current: 0, total: selectedIds.size, done: false })
+    try {
+      const res = await devicesApi.bulkPing({
+        device_ids: Array.from(selectedIds),
+      })
+      if (!res.data.success) { toast.error('Gagal memulai bulk ping.'); setBulkPinging(false); return }
+      toast.success(`Bulk ping dimulai untuk ${selectedIds.size} perangkat...`)
+      const taskId = res.data.task_id
+      
+      const poll = setInterval(async () => {
+        try {
+          const sr = await devicesApi.getBulkPingStatus(taskId)
+          setBulkPingProgress({ current: sr.data.current, total: sr.data.total, done: false })
+          if (sr.data.status === 'completed' || sr.data.status === 'failed') {
+            clearInterval(poll)
+            setBulkPinging(false)
+            setBulkPingProgress(p => ({ ...p, done: true }))
+            toast.success('Bulk ping selesai!')
+            fetchData()
+            setTimeout(() => setBulkPingProgress(null), 3000)
+          }
+        } catch {
+          clearInterval(poll)
+          setBulkPinging(false)
+          setBulkPingProgress(null)
+        }
+      }, 1200)
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Gagal memulai bulk ping.')
+      setBulkPinging(false)
+      setBulkPingProgress(null)
     }
   }
 
@@ -313,19 +376,19 @@ export default function DeviceManagement() {
             <span style={{ fontWeight: 700, color: 'var(--primary)', fontSize: 14 }}>
               {selectedIds.size} perangkat dipilih
             </span>
-            {bulkProgress && (
+            {(bulkProgress || bulkPingProgress) && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 8 }}>
                 <div style={{ width: 120, height: 6, background: 'var(--border)', borderRadius: 3, overflow: 'hidden' }}>
                   <div style={{
-                    width: `${bulkProgress.total > 0 ? Math.round((bulkProgress.current / bulkProgress.total) * 100) : 0}%`,
+                    width: `${(bulkProgress || bulkPingProgress).total > 0 ? Math.round(((bulkProgress || bulkPingProgress).current / (bulkProgress || bulkPingProgress).total) * 100) : 0}%`,
                     height: '100%',
-                    background: bulkProgress.done ? 'var(--success)' : 'var(--primary)',
+                    background: (bulkProgress || bulkPingProgress).done ? 'var(--success)' : 'var(--primary)',
                     transition: 'width 0.4s ease',
                     borderRadius: 3,
                   }} />
                 </div>
                 <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                  {bulkProgress.done ? '✓ Selesai' : `${bulkProgress.current}/${bulkProgress.total}`}
+                  {(bulkProgress || bulkPingProgress).done ? '✓ Selesai' : `${(bulkProgress || bulkPingProgress).current}/${(bulkProgress || bulkPingProgress).total}`}
                 </span>
               </div>
             )}
@@ -360,6 +423,16 @@ export default function DeviceManagement() {
             >
               {bulkRefreshing ? <RefreshCw size={12} className="animate-spin" /> : <RefreshCw size={12} />}
               Refresh Semua
+            </button>
+            <button
+              className="btn btn-sm btn-primary"
+              disabled={bulkPinging}
+              onClick={handleBulkPingSelected}
+              style={{ fontSize: 11, padding: '5px 12px', background: 'linear-gradient(135deg,#3b82f6,#2563eb)' }}
+              title="Ping semua perangkat terpilih"
+            >
+              {bulkPinging ? <RefreshCw size={12} className="animate-spin" /> : <Wifi size={12} />}
+              Ping Terpilih
             </button>
             <button
               className="btn btn-sm btn-ghost"
@@ -489,9 +562,25 @@ export default function DeviceManagement() {
                           ) : '—'}
                         </td>
                         <td>
-                          <span className={`badge badge-${st}`}>
+                          <span className={`badge badge-${st}`} style={{ gap: '6px' }}>
                             <span className="status-dot" style={STATUS_DOT_STYLE[st] || STATUS_DOT_STYLE.unknown} />
-                            {st}
+                            <span style={{ textTransform: 'capitalize' }}>{st}</span>
+                            {d.ping_rtt_ms !== null && d.ping_rtt_ms !== undefined && (
+                              <span 
+                                style={{ 
+                                  fontSize: '11px', 
+                                  marginLeft: '4px',
+                                  padding: '1px 5px',
+                                  borderRadius: '4px',
+                                  background: 'rgba(255,255,255,0.08)',
+                                  color: d.ping_rtt_ms < 50 ? '#10b981' : d.ping_rtt_ms < 150 ? '#f59e0b' : '#ef4444',
+                                  fontWeight: '600'
+                                }}
+                                title={`Ping checked at: ${d.ping_checked_at ? new Date(d.ping_checked_at).toLocaleString('id-ID') : '—'}`}
+                              >
+                                {d.ping_rtt_ms}ms / {d.ping_loss_pct}%
+                              </span>
+                            )}
                           </span>
                         </td>
                         <td className="mono" style={{ fontSize: '11.5px' }}>
@@ -511,6 +600,19 @@ export default function DeviceManagement() {
                                   <RefreshCw size={14} className="animate-spin" />
                                 ) : (
                                   <Play size={13} />
+                                )}
+                              </button>
+                              <button 
+                                className="btn btn-ghost btn-sm" 
+                                style={{ color: 'var(--primary)' }}
+                                onClick={() => handlePingDevice(d.id)}
+                                disabled={pingingDevices[d.id]}
+                                title="Ping Device"
+                              >
+                                {pingingDevices[d.id] ? (
+                                  <RefreshCw size={14} className="animate-spin" />
+                                ) : (
+                                  <Wifi size={13} />
                                 )}
                               </button>
                               <button className="btn btn-ghost btn-sm" onClick={() => openEdit(d)} title="Edit Device">

@@ -94,6 +94,22 @@ def schedule_check_tick(redis_client: redis.Redis):
             redis_client.lpush(f"queue:{queue}", json.dumps(job_payload))
             last_run_times[task_name] = current_time
 
+    # 3. Check Core Scheduled Tasks (Ping all devices every 5 minutes)
+    ping_interval = 300.0
+    last_ping = last_run_times.get("ping_all_devices", 0.0)
+    if current_time - last_ping >= ping_interval:
+        logger.info("Triggering scheduled task: ping_all_devices...")
+        job_payload = {
+            "job_id": f"sched_ping_{int(current_time)}",
+            "task_name": "ping_all_devices",
+            "params": {},
+            "created_at": now_str,
+            "retries": 0,
+            "max_retries": 1
+        }
+        redis_client.lpush("queue:default", json.dumps(job_payload))
+        last_run_times["ping_all_devices"] = current_time
+
 
 def main():
     logger.info("Initializing Network Scheduler Daemon...")
@@ -115,6 +131,9 @@ def main():
         interval = task_def["interval"]
         # Seed to delay the first run slightly (30 seconds)
         last_run_times[task_name] = current_time - interval + 30.0
+
+    # Delay the first auto-ping slightly (15 seconds after start) to avoid startup contention
+    last_run_times["ping_all_devices"] = current_time - 300.0 + 15.0
 
     while True:
         try:

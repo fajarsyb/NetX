@@ -72,8 +72,169 @@ async def handle_job(task_name: str, params: dict):
     elif task_name == "bulk_refresh":
         await handle_bulk_refresh(params)
 
+    elif task_name == "ping_all_devices":
+        await run_ping_all_devices()
+
+    elif task_name == "bulk_ping":
+        await handle_bulk_ping(params)
+
     else:
         raise ValueError(f"Unknown task name: {task_name}")
+
+def save_ping_result(device_id: int, rtt_ms: float, loss_pct: int, reachable: bool):
+    from app.database import get_db_conn
+    from datetime import datetime
+    
+    status = "online" if reachable else "offline"
+    checked_at = datetime.now().isoformat()
+    
+    conn = get_db_conn()
+    c = conn.cursor()
+    
+    # 1. Update devices table
+    c.execute(
+        """
+        UPDATE devices 
+        SET ping_rtt_ms = ?, ping_loss_pct = ?, ping_checked_at = ?, status = ? 
+        WHERE id = ?
+        """,
+        (rtt_ms, loss_pct, checked_at, status, device_id)
+    )
+    
+    # 2. Insert into device_ping_history
+    c.execute(
+        """
+        INSERT INTO device_ping_history (device_id, rtt_ms, loss_pct, status, checked_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (device_id, rtt_ms, loss_pct, "reachable" if reachable else "unreachable", checked_at)
+    )
+    
+    # 3. Clean up history: Keep only last 10 entries for this device_id
+    c.execute(
+        """
+        DELETE FROM device_ping_history 
+        WHERE device_id = ? AND id NOT IN (
+            SELECT id FROM device_ping_history 
+            WHERE device_id = ? 
+            ORDER BY id DESC 
+            LIMIT 10
+        )
+        """,
+        (device_id, device_id)
+    )
+    
+    conn.commit()
+    conn.close()
+
+async def run_ping_all_devices():
+    from app.database import get_db_conn
+    from app.services.ping_service import ping_device
+    
+    conn = get_db_conn()
+    c = conn.cursor()
+    c.execute("SELECT id, ip FROM devices")
+    devices = c.fetchall()
+    conn.close()
+    
+    if not devices:
+        logger.info("No devices to ping.")
+        return
+        
+    sem = asyncio.Semaphore(15)
+    
+    async def ping_and_save(device):
+        async with sem:
+            dev_id = device["id"]
+            ip = device["ip"]
+            try:
+                res = await ping_device(ip, count=3, timeout=3)
+                save_ping_result(dev_id, res["rtt_ms"], res["loss_pct"], res["reachable"])
+                logger.info(f"Scheduled ping for device {dev_id} ({ip}): {res}")
+            except Exception as e:
+                logger.error(f"Error pinging device {dev_id} ({ip}): {e}")
+                
+    tasks = [asyncio.create_task(ping_and_save(d)) for d in devices]
+    await asyncio.gather(*tasks)
+
+async def handle_bulk_ping(params: dict):
+    task_id = params["task_id"]
+    device_ids = params["device_ids"]
+    user_id = params.get("user_id", 1)
+    username = params.get("username", "system")
+    
+    import redis.asyncio as aioredis
+    import json
+    from app.database import get_db_conn
+    from app.services.ping_service import ping_device
+    
+    r = aioredis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+    
+    # Initialize bulk ping state in Redis
+    status_entry = {
+        "status": "running",
+        "total": len(device_ids),
+        "current": 0,
+        "results": {}
+    }
+    await r.setex(f"bulk_ping:{task_id}", 86400, json.dumps(status_entry))
+    
+    conn = get_db_conn()
+    c = conn.cursor()
+    c.execute("SELECT id, name, ip FROM devices")
+    devices_dict = {row["id"]: {"name": row["name"], "ip": row["ip"]} for row in c.fetchall()}
+    conn.close()
+    
+    results = status_entry["results"]
+    completed_steps = 0
+    
+    sem = asyncio.Semaphore(10)
+    
+    async def ping_one(dev_id):
+        nonlocal completed_steps
+        dev_info = devices_dict.get(dev_id, {"name": f"Device {dev_id}", "ip": None})
+        dev_name = dev_info["name"]
+        ip = dev_info["ip"]
+        
+        if not ip:
+            results[str(dev_id)] = {
+                "name": dev_name,
+                "success": False,
+                "error": "IP address not configured"
+            }
+            completed_steps += 1
+            status_entry["current"] = completed_steps
+            await r.setex(f"bulk_ping:{task_id}", 86400, json.dumps(status_entry))
+            return
+
+        async with sem:
+            try:
+                res = await ping_device(ip, count=3, timeout=3)
+                save_ping_result(dev_id, res["rtt_ms"], res["loss_pct"], res["reachable"])
+                results[str(dev_id)] = {
+                    "name": dev_name,
+                    "success": True,
+                    "rtt_ms": res["rtt_ms"],
+                    "loss_pct": res["loss_pct"],
+                    "reachable": res["reachable"]
+                }
+            except Exception as e:
+                results[str(dev_id)] = {
+                    "name": dev_name,
+                    "success": False,
+                    "error": str(e)
+                }
+            
+            completed_steps += 1
+            status_entry["current"] = completed_steps
+            await r.setex(f"bulk_ping:{task_id}", 86400, json.dumps(status_entry))
+
+    tasks = [asyncio.create_task(ping_one(d_id)) for d_id in device_ids]
+    await asyncio.gather(*tasks)
+    
+    status_entry["status"] = "completed"
+    await r.setex(f"bulk_ping:{task_id}", 86400, json.dumps(status_entry))
+
 
 async def handle_bulk_refresh(params: dict):
     task_id = params["task_id"]
@@ -141,7 +302,6 @@ async def handle_bulk_refresh(params: dict):
                     from app.services.l2_service import L2AnalysisService
                     await L2AnalysisService.refresh_device_l2_data(dev_id, user=user_context)
 
-
                 results[str(dev_id)][comp] = {"success": True}
             except Exception as e:
                 err_msg = str(e)
@@ -155,4 +315,5 @@ async def handle_bulk_refresh(params: dict):
 
     status_entry["status"] = "completed"
     await r.setex(f"bulk_refresh:{task_id}", 86400, json.dumps(status_entry))
+
 
