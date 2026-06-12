@@ -308,56 +308,87 @@ async def handle_bulk_refresh(params: dict):
     device_info = {row["id"]: {"name": row["name"], "device_type": row["device_type"], "protocol": row["protocol"]} for row in c.fetchall()}
     conn.close()
 
-    completed_steps = 0
     user_context = {"id": user_id, "username": username}
 
-    for dev_id in device_ids:
+    # Lock to serialize status updates in Redis
+    redis_lock = asyncio.Lock()
+    # Concurrency limit for background device connection sessions (e.g. 5 devices in parallel)
+    sem_concurrency = asyncio.Semaphore(5)
+
+    async def refresh_single_device(dev_id):
+        from app.queue.locks import RedisLock
+        
         dev_data = device_info.get(dev_id, {"name": f"Device {dev_id}", "device_type": "cisco_ios", "protocol": "ssh"})
         dev_name = dev_data["name"]
         dev_type = dev_data["device_type"] or ""
         protocol = dev_data.get("protocol", "ssh")
-        results[str(dev_id)] = {"name": dev_name}
+
+        async with redis_lock:
+            status_entry["results"][str(dev_id)] = {"name": dev_name}
+            await r.setex(f"bulk_refresh:{task_id}", 86400, json.dumps(status_entry))
 
         if protocol == "serial":
-            for comp in components:
-                results[str(dev_id)][comp] = {"success": True, "skipped": True, "message": "Serial device skipped from background refresh"}
-                completed_steps += 1
-            status_entry["current"] = completed_steps
-            await r.setex(f"bulk_refresh:{task_id}", 86400, json.dumps(status_entry))
-            continue
+            async with redis_lock:
+                for comp in components:
+                    status_entry["results"][str(dev_id)][comp] = {"success": True, "skipped": True, "message": "Serial device skipped from background refresh"}
+                    status_entry["current"] += 1
+                await r.setex(f"bulk_refresh:{task_id}", 86400, json.dumps(status_entry))
+            return
 
-        for comp in components:
-            try:
-                if comp == "arp":
-                    await refresh_arp_logic(dev_id, user=user_context)
-                elif comp == "lldp":
-                    await refresh_lldp_logic(dev_id, user=user_context)
-                elif comp == "cdp":
-                    if not dev_type.lower().startswith("cisco"):
-                        results[str(dev_id)][comp] = {"success": True, "skipped": True}
-                        completed_steps += 1
-                        status_entry["current"] = completed_steps
-                        await r.setex(f"bulk_refresh:{task_id}", 86400, json.dumps(status_entry))
-                        continue
-                    await refresh_cdp_logic(dev_id, user=user_context)
-                elif comp == "info":
-                    await detect_snmp_info(dev_id, method="auto")
-                elif comp == "mac":
-                    await refresh_mac_table_logic(dev_id, user=user_context)
-                elif comp == "l2":
-                    from app.services.l2_service import L2AnalysisService
-                    await L2AnalysisService.refresh_device_l2_data(dev_id, user=user_context)
+        # Acquire Redis distributed lock for this physical device to avoid concurrent connection conflicts
+        lock = RedisLock(r, str(dev_id))
+        if not await lock.acquire():
+            import logging
+            logging.getLogger("netx.worker").warning(f"Device {dev_id} is locked. Skipping in bulk refresh.")
+            async with redis_lock:
+                for comp in components:
+                    status_entry["results"][str(dev_id)][comp] = {"success": False, "error": "Device is locked by another process"}
+                    status_entry["current"] += 1
+                await r.setex(f"bulk_refresh:{task_id}", 86400, json.dumps(status_entry))
+            return
 
-                results[str(dev_id)][comp] = {"success": True}
-            except Exception as e:
-                err_msg = str(e)
-                results[str(dev_id)][comp] = {"success": False, "error": err_msg}
-                log_audit(user_id, username, "REFRESH_FAIL", f"devices/{dev_id}", f"Gagal refresh {comp} pada {dev_name}: {err_msg}")
+        try:
+            async with sem_concurrency:
+                for comp in components:
+                    try:
+                        if comp == "arp":
+                            await refresh_arp_logic(dev_id, user=user_context)
+                        elif comp == "lldp":
+                            await refresh_lldp_logic(dev_id, user=user_context)
+                        elif comp == "cdp":
+                            if not dev_type.lower().startswith("cisco"):
+                                async with redis_lock:
+                                    status_entry["results"][str(dev_id)][comp] = {"success": True, "skipped": True}
+                                    status_entry["current"] += 1
+                                    await r.setex(f"bulk_refresh:{task_id}", 86400, json.dumps(status_entry))
+                                continue
+                            await refresh_cdp_logic(dev_id, user=user_context)
+                        elif comp == "info":
+                            await detect_snmp_info(dev_id, method="auto")
+                        elif comp == "mac":
+                            await refresh_mac_table_logic(dev_id, user=user_context)
+                        elif comp == "l2":
+                            from app.services.l2_service import L2AnalysisService
+                            await L2AnalysisService.refresh_device_l2_data(dev_id, user=user_context)
 
-            completed_steps += 1
-            status_entry["current"] = completed_steps
-            await r.setex(f"bulk_refresh:{task_id}", 86400, json.dumps(status_entry))
-            await asyncio.sleep(0.5)
+                        async with redis_lock:
+                            status_entry["results"][str(dev_id)][comp] = {"success": True}
+                            status_entry["current"] += 1
+                            await r.setex(f"bulk_refresh:{task_id}", 86400, json.dumps(status_entry))
+                    except Exception as e:
+                        err_msg = str(e)
+                        async with redis_lock:
+                            status_entry["results"][str(dev_id)][comp] = {"success": False, "error": err_msg}
+                            status_entry["current"] += 1
+                            await r.setex(f"bulk_refresh:{task_id}", 86400, json.dumps(status_entry))
+                        log_audit(user_id, username, "REFRESH_FAIL", f"devices/{dev_id}", f"Gagal refresh {comp} pada {dev_name}: {err_msg}")
+                    await asyncio.sleep(0.1)
+        finally:
+            await lock.release()
+
+    # Launch all device refreshes in parallel
+    tasks = [asyncio.create_task(refresh_single_device(d_id)) for d_id in device_ids]
+    await asyncio.gather(*tasks)
 
     status_entry["status"] = "completed"
     await r.setex(f"bulk_refresh:{task_id}", 86400, json.dumps(status_entry))

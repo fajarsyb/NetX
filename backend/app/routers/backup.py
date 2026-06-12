@@ -57,6 +57,7 @@ async def create_backup(admin: dict = Depends(require_admin)):
             pg_cursor = pg_conn.cursor()
             
             sqlite_conn = sqlite3.connect(temp_db_path)
+            sqlite_conn.execute("PRAGMA foreign_keys = OFF;")
             sqlite_cursor = sqlite_conn.cursor()
             
             TABLES_ORDER = [
@@ -101,7 +102,13 @@ async def create_backup(admin: dict = Depends(require_admin)):
                     rows = pg_cursor.fetchall()
                 except Exception:
                     continue
-                    
+                
+                # Clear any default seeded rows from the temporary SQLite table
+                try:
+                    sqlite_cursor.execute(f'DELETE FROM "{table}"')
+                except Exception:
+                    pass
+
                 if not rows:
                     continue
                     

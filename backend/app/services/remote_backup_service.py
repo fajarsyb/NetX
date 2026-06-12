@@ -65,11 +65,6 @@ class RemoteBackupService:
                 int(settings.get("backup_config", 0))
             ))
         else:
-            c.execute("""
-                UPDATE remote_backup_settings SET
-                    protocol = ?, host = ?, port = ?, username = ?, password = ?, path = ?, 
-                    is_active = ?, backup_db = ?, backup_config = ?
-            """)
             # Wait, let's make sure we update all rows or the first row
             # Since there is only ever 1 settings row, updating all is fine
             c.execute("""
@@ -141,11 +136,54 @@ class RemoteBackupService:
             return {"success": False, "message": f"Koneksi gagal: {str(e)}"}
 
     @staticmethod
-    def upload_file(local_path: str, remote_filename: str) -> bool:
-        """Upload a local file to the active remote backup destination if active."""
+    def _prepare_ftp_dir(ftp, path: str):
+        if not path:
+            return
+        try:
+            ftp.cwd(path)
+        except Exception:
+            for part in path.strip("/").replace("\\", "/").split("/"):
+                if not part:
+                    continue
+                try:
+                    ftp.cwd(part)
+                except Exception:
+                    try:
+                        ftp.mkd(part)
+                        ftp.cwd(part)
+                    except Exception as e:
+                        logger.error(f"FTP failed to create directory '{part}': {e}")
+                        raise
+
+    @staticmethod
+    def _prepare_sftp_dir(sftp, path: str):
+        if not path:
+            return
+        try:
+            sftp.chdir(path)
+        except Exception:
+            current = ""
+            for part in path.strip("/").replace("\\", "/").split("/"):
+                if not part:
+                    continue
+                current = f"{current}/{part}" if current else part
+                try:
+                    sftp.chdir(current)
+                except IOError:
+                    try:
+                        sftp.mkdir(current)
+                        sftp.chdir(current)
+                    except Exception as e:
+                        logger.error(f"SFTP failed to create directory '{current}': {e}")
+                        raise
+
+    @staticmethod
+    def upload_file(local_path: str, remote_filename: str, force: bool = False) -> bool:
+        """Upload a local file to the active remote backup destination."""
         settings = RemoteBackupService.get_settings()
-        if not settings.get("is_active") or not settings.get("backup_db"):
-            return False
+        if not force:
+            if not settings.get("is_active") or not settings.get("backup_db"):
+                return False
             
         protocol = settings.get("protocol", "sftp").lower()
         host = settings.get("host", "")
@@ -155,12 +193,11 @@ class RemoteBackupService:
         base_path = settings.get("path", "")
         
         if not host or not username:
-            logger.warning("Remote backup is active but host or username is not set.")
+            logger.warning("Remote backup host or username is not set.")
             return False
             
         remote_path = remote_filename
         if base_path:
-            # Clean remote path joining
             remote_path = f"{base_path.rstrip('/')}/{remote_filename}"
             
         logger.info(f"Uploading file {local_path} to remote destination via {protocol}...")
@@ -169,8 +206,10 @@ class RemoteBackupService:
                 ftp = ftplib.FTP()
                 ftp.connect(host, port, timeout=10)
                 ftp.login(username, password)
+                if base_path:
+                    RemoteBackupService._prepare_ftp_dir(ftp, base_path)
                 with open(local_path, "rb") as f:
-                    ftp.storbinary(f"STOR {remote_path}", f)
+                    ftp.storbinary(f"STOR {remote_filename}", f)
                 ftp.quit()
                 logger.info("FTP upload successful.")
                 return True
@@ -179,7 +218,9 @@ class RemoteBackupService:
                 transport = paramiko.Transport((host, port))
                 transport.connect(username=username, password=password)
                 sftp = paramiko.SFTPClient.from_transport(transport)
-                sftp.put(local_path, remote_path)
+                if base_path:
+                    RemoteBackupService._prepare_sftp_dir(sftp, base_path)
+                sftp.put(local_path, remote_filename)
                 sftp.close()
                 transport.close()
                 logger.info("SFTP upload successful.")
@@ -189,6 +230,8 @@ class RemoteBackupService:
                 ssh = paramiko.SSHClient()
                 ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
                 ssh.connect(host, port, username, password, timeout=10)
+                if base_path:
+                    ssh.exec_command(f"mkdir -p {base_path}")
                 with SCPClient(ssh.get_transport()) as scp:
                     scp.put(local_path, remote_path)
                 ssh.close()
@@ -231,8 +274,10 @@ class RemoteBackupService:
                 ftp = ftplib.FTP()
                 ftp.connect(host, port, timeout=10)
                 ftp.login(username, password)
+                if base_path:
+                    RemoteBackupService._prepare_ftp_dir(ftp, base_path)
                 bio = io.BytesIO(config_content.encode("utf-8"))
-                ftp.storbinary(f"STOR {remote_path}", bio)
+                ftp.storbinary(f"STOR {remote_filename}", bio)
                 ftp.quit()
                 logger.info("FTP config upload successful.")
                 return True
@@ -241,7 +286,9 @@ class RemoteBackupService:
                 transport = paramiko.Transport((host, port))
                 transport.connect(username=username, password=password)
                 sftp = paramiko.SFTPClient.from_transport(transport)
-                with sftp.open(remote_path, "w") as f:
+                if base_path:
+                    RemoteBackupService._prepare_sftp_dir(sftp, base_path)
+                with sftp.open(remote_filename, "w") as f:
                     f.write(config_content)
                 sftp.close()
                 transport.close()
@@ -249,7 +296,6 @@ class RemoteBackupService:
                 return True
                 
             elif protocol == "scp":
-                # SCP requires a local file, we write to a temporary file
                 with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as tf:
                     tf.write(config_content)
                     temp_path = tf.name
@@ -257,6 +303,8 @@ class RemoteBackupService:
                     ssh = paramiko.SSHClient()
                     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
                     ssh.connect(host, port, username, password, timeout=10)
+                    if base_path:
+                        ssh.exec_command(f"mkdir -p {base_path}")
                     with SCPClient(ssh.get_transport()) as scp:
                         scp.put(temp_path, remote_path)
                     ssh.close()

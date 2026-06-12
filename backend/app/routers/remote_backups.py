@@ -72,7 +72,7 @@ def upload_latest_database_backup(admin: dict = Depends(require_admin)):
         raise HTTPException(status_code=404, detail="Tidak ada file backup database lokal untuk diunggah.")
         
     filename = latest_zip.name
-    success = RemoteBackupService.upload_file(str(latest_zip), filename)
+    success = RemoteBackupService.upload_file(str(latest_zip), filename, force=True)
     if success:
         return {"success": True, "message": f"Berhasil mengunggah file database '{filename}' ke server backup."}
     else:

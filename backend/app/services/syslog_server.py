@@ -304,6 +304,7 @@ def save_and_analyze_syslog_db(device_id, ip, facility, severity, program, messa
             c.execute("""
                 INSERT INTO syslog_patterns (pattern_hash, template, program, severity, is_blocked, is_anomaly, created_at)
                 VALUES (?, ?, ?, ?, 0, 0, ?)
+                ON CONFLICT (pattern_hash) DO NOTHING
             """, (pattern_hash, template, program, severity, timestamp))
             
         if is_blocked == 1:

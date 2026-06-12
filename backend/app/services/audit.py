@@ -2,6 +2,8 @@ from datetime import datetime
 from app.database import get_db_conn
 
 def log_audit(user_id: int, username: str, action: str, target: str, details: str = ""):
+    if username == "system":
+        user_id = None
     conn = get_db_conn()
     c = conn.cursor()
     try:
