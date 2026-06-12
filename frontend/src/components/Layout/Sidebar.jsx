@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import {
-  Server, LayoutDashboard, Plus, Network, ChevronRight, ChevronDown,
+  Server, LayoutDashboard, Plus, Network, ChevronRight, ChevronDown, ChevronLeft,
   Radio, Wifi, RefreshCw, LogOut, Users, FolderGit2, ShieldCheck, Map, Key, Search, Settings, FileCode, AlertTriangle, FileText, Database, Activity,
-  Sun, Moon, GripVertical, Sliders, Terminal, Layers
+  Sun, Moon, GripVertical, Sliders, Terminal, Layers, Menu
 } from 'lucide-react'
 import { arpApi } from '../../api/client'
 import AddDeviceModal from '../Device/AddDeviceModal'
@@ -15,6 +15,7 @@ export default function Sidebar() {
   const [showAdd, setShowAdd]       = useState(false)
   const [loading, setLoading]       = useState(false)
   const [openGroups, setOpenGroups] = useState({ 'Ungrouped': true })
+  const [mobileOpen, setMobileOpen] = useState(false)
   const navigate = useNavigate()
   const { user, logout } = useAuth()
   const { theme, toggleTheme } = useTheme()
@@ -22,6 +23,32 @@ export default function Sidebar() {
   const [openSettings, setOpenSettings] = useState(() => {
     return ['/users', '/credentials', '/credential-scan', '/backup', '/db-settings', '/system-settings', '/system-health', '/device-backup', '/snmp-tester', '/mibs', '/thresholds'].includes(location.pathname)
   })
+  const [openMonitoring, setOpenMonitoring] = useState(() => {
+    return ['/port-analysis', '/investigation', '/anomalies', '/syslog', '/snmp-traps'].some(path => location.pathname.startsWith(path))
+  })
+  const [openDevices, setOpenDevices] = useState(() => {
+    return ['/terminal', '/devices', '/groups', '/audit-logs'].includes(location.pathname)
+  })
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    return localStorage.getItem('netx_sidebar_collapsed') === 'true'
+  })
+
+  useEffect(() => {
+    if (isCollapsed) {
+      document.body.classList.add('sidebar-collapsed')
+    } else {
+      document.body.classList.remove('sidebar-collapsed')
+    }
+    localStorage.setItem('netx_sidebar_collapsed', isCollapsed)
+  }, [isCollapsed])
+
+  // Auto-close sidebar on mobile navigation
+  useEffect(() => {
+    setMobileOpen(false)
+  }, [location.pathname])
+
+
+
 
   const hasMenu = (mKey) => {
     if (!user) return false
@@ -97,15 +124,61 @@ export default function Sidebar() {
 
   return (
     <>
-      <aside className="sidebar">
-        {/* Logo */}
-        <div className="sidebar-logo">
-          <div className="sidebar-logo-icon">⚡</div>
-          <div>
-            <div className="sidebar-logo-text">NetX</div>
-            <div className="sidebar-logo-version">Network Manager v1.0</div>
-          </div>
+      {isCollapsed && (
+        <button
+          type="button"
+          className="btn-sidebar-expand"
+          onClick={() => setIsCollapsed(false)}
+          title="Tampilkan Menu"
+        >
+          <ChevronRight size={18} />
+        </button>
+      )}
+
+      <div className="mobile-topbar">
+        <button
+          type="button"
+          className="btn-mobile-menu"
+          onClick={() => setMobileOpen(true)}
+          aria-label="Buka Menu"
+        >
+          <Menu size={22} />
+        </button>
+        <div className="mobile-logo">
+          <div className="mobile-logo-icon">⚡</div>
+          <span className="mobile-logo-text">NetX</span>
         </div>
+        <div style={{ width: '34px' }} />
+      </div>
+
+      {mobileOpen && (
+        <div 
+          className="sidebar-backdrop" 
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
+      <aside className={`sidebar ${mobileOpen ? 'mobile-open' : ''}`}>
+
+        {/* Logo */}
+        <div className="sidebar-logo" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div className="sidebar-logo-icon">⚡</div>
+            <div>
+              <div className="sidebar-logo-text">NetX</div>
+              <div className="sidebar-logo-version">Network Manager v1.0</div>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="btn-sidebar-toggle"
+            onClick={() => setIsCollapsed(true)}
+            title="Sembunyikan Menu"
+          >
+            <ChevronLeft size={14} />
+          </button>
+        </div>
+
 
         {/* Main Nav */}
         <nav className="sidebar-nav">
@@ -132,95 +205,140 @@ export default function Sidebar() {
             </NavLink>
           )}
 
-          {hasMenu('devices') && (
-            <NavLink
-              to="/port-analysis"
-              className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-            >
-              <Layers className="nav-icon" />
-              Port Analysis
-            </NavLink>
+          {/* Monitoring & Analisis Sub-menu */}
+          {(hasMenu('devices') || hasMenu('investigation') || hasMenu('anomalies') || hasMenu('syslog')) && (
+            <>
+              <button
+                type="button"
+                className={`nav-link ${['/port-analysis', '/investigation', '/anomalies', '/syslog', '/snmp-traps'].some(path => location.pathname.startsWith(path)) ? 'active' : ''}`}
+                onClick={() => setOpenMonitoring(prev => !prev)}
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <Activity className="nav-icon" />
+                  Monitoring & Analisis
+                </div>
+                {openMonitoring ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              </button>
+
+              {openMonitoring && (
+                <div className="submenu">
+                  {hasMenu('devices') && (
+                    <NavLink
+                      to="/port-analysis"
+                      className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                    >
+                      <Layers className="nav-icon" />
+                      Port Analysis
+                    </NavLink>
+                  )}
+
+                  {hasMenu('investigation') && (
+                    <NavLink
+                      to="/investigation"
+                      className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                    >
+                      <Search className="nav-icon" />
+                      Investigasi MAC
+                    </NavLink>
+                  )}
+
+                  {hasMenu('anomalies') && (
+                    <NavLink
+                      to="/anomalies"
+                      className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                    >
+                      <AlertTriangle className="nav-icon" />
+                      Network Anomalies
+                    </NavLink>
+                  )}
+
+                  {hasMenu('syslog') && (
+                    <NavLink
+                      to="/syslog"
+                      className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                    >
+                      <FileText className="nav-icon" />
+                      Syslog Viewer
+                    </NavLink>
+                  )}
+
+                  {hasMenu('syslog') && (
+                    <NavLink
+                      to="/snmp-traps"
+                      className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                    >
+                      <Radio className="nav-icon" />
+                      SNMP Traps Log
+                    </NavLink>
+                  )}
+                </div>
+              )}
+            </>
           )}
 
-          {hasMenu('investigation') && (
-            <NavLink
-              to="/investigation"
-              className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-            >
-              <Search className="nav-icon" />
-              Investigasi
-            </NavLink>
+          {/* Manajemen Perangkat Sub-menu */}
+          {(hasMenu('terminal') || hasMenu('groups') || hasMenu('devices') || hasMenu('audit_logs')) && (
+            <>
+              <button
+                type="button"
+                className={`nav-link ${['/terminal', '/devices', '/groups', '/audit-logs'].includes(location.pathname) ? 'active' : ''}`}
+                onClick={() => setOpenDevices(prev => !prev)}
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <Server className="nav-icon" />
+                  Manajemen Perangkat
+                </div>
+                {openDevices ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              </button>
+
+              {openDevices && (
+                <div className="submenu">
+                  {hasMenu('terminal') && (
+                    <NavLink
+                      to="/terminal"
+                      className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                    >
+                      <Terminal className="nav-icon" />
+                      Web CLI Terminal
+                    </NavLink>
+                  )}
+
+                  {hasMenu('devices') && (
+                    <NavLink
+                      to="/devices"
+                      className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                    >
+                      <Server className="nav-icon" />
+                      Manajemen Device
+                    </NavLink>
+                  )}
+
+                  {hasMenu('groups') && (
+                    <NavLink
+                      to="/groups"
+                      className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                    >
+                      <FolderGit2 className="nav-icon" />
+                      Manajemen Group
+                    </NavLink>
+                  )}
+
+                  {hasMenu('audit_logs') && (
+                    <NavLink
+                      to="/audit-logs"
+                      className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                    >
+                      <ShieldCheck className="nav-icon" />
+                      Audit Logs
+                    </NavLink>
+                  )}
+                </div>
+              )}
+            </>
           )}
 
-          {hasMenu('anomalies') && (
-            <NavLink
-              to="/anomalies"
-              className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-            >
-              <AlertTriangle className="nav-icon" />
-              Network Anomalies
-            </NavLink>
-          )}
-
-          {hasMenu('syslog') && (
-            <NavLink
-              to="/syslog"
-              className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-            >
-              <FileText className="nav-icon" />
-              Syslog Viewer
-            </NavLink>
-          )}
-
-          {hasMenu('syslog') && (
-            <NavLink
-              to="/snmp-traps"
-              className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-            >
-              <Radio className="nav-icon" />
-              SNMP Traps Log
-            </NavLink>
-          )}
-
-          {hasMenu('terminal') && (
-            <NavLink
-              to="/terminal"
-              className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-            >
-              <Terminal className="nav-icon" />
-              Web CLI Terminal
-            </NavLink>
-          )}
-
-          {hasMenu('groups') && (
-            <NavLink
-              to="/groups"
-              className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-            >
-              <FolderGit2 className="nav-icon" />
-              Manajemen Group
-            </NavLink>
-          )}
-
-          {hasMenu('devices') && (
-            <NavLink
-              to="/devices"
-              className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-            >
-              <Server className="nav-icon" />
-              Manajemen Device
-            </NavLink>
-          )}
-
-          {hasMenu('audit_logs') && (
-            <NavLink
-              to="/audit-logs"
-              className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-            >
-              <ShieldCheck className="nav-icon" />
-              Audit Logs
-            </NavLink>
-          )}
 
           {/* Settings Sub-menu */}
           {hasMenu('settings') && (

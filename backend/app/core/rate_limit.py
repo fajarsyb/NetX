@@ -3,7 +3,7 @@ import logging
 import os
 import threading
 from collections import defaultdict
-from fastapi import Request, HTTPException
+from fastapi import Request, WebSocket, HTTPException
 import redis.asyncio as aioredis
 
 logger = logging.getLogger("netx.rate_limit")
@@ -32,11 +32,16 @@ class RateLimiter:
         self.window = window
         self.name = name
 
-    async def __call__(self, request: Request):
+    async def __call__(self, request: Request = None, websocket: WebSocket = None):
+        connection = request or websocket
+        if connection is None:
+            return
+
         # Determine client identifier (IP address)
-        client_ip = request.client.host if request.client else "unknown"
-        path = request.url.path
+        client_ip = connection.client.host if connection.client else "unknown"
+        path = connection.url.path
         key = f"rate_limit:{self.name}:{path}:{client_ip}"
+
         
         current_time = time.time()
         window_start = current_time - self.window
