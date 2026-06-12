@@ -122,13 +122,20 @@ export default function PortAnalysis({ deviceId: propDeviceId }) {
     if (!devId) return
     
     setRefreshing(true)
+    toast.info('Memulai penyelarasan Layer 2... Proses ini dapat memakan waktu hingga 90 detik.')
     try {
       const trigger = devicesApi.refreshL2 ? devicesApi.refreshL2(devId) : devicesApi.post(`/devices/${devId}/l2/refresh`)
       await trigger
       toast.success('Penyelarasan Layer 2 selesai.')
       await fetchL2Analysis(devId)
     } catch (err) {
-      toast.error('Penyelarasan L2 gagal: ' + (err.response?.data?.detail || err.message))
+      const detail = err.response?.data?.detail || err.message || 'Tidak diketahui'
+      const isTimeout = err.code === 'ECONNABORTED' || detail.toLowerCase().includes('timeout') || detail.toLowerCase().includes('timed out')
+      if (isTimeout) {
+        toast.error('Penyelarasan L2 gagal: Waktu habis. Worker mungkin sedang sibuk — coba lagi beberapa saat.')
+      } else {
+        toast.error('Penyelarasan L2 gagal: ' + detail)
+      }
     } finally {
       setRefreshing(false)
     }

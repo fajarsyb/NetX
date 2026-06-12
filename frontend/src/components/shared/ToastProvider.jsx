@@ -20,10 +20,16 @@ export default function ToastProvider({ children }) {
 
   const remove = (id) => setToasts(t => t.filter(x => x.id !== id))
 
-  const icons = { success: CheckCircle, error: XCircle, info: Info }
+  const icons = { success: CheckCircle, error: XCircle, info: Info, warning: Info }
 
   return (
-    <ToastContext.Provider value={{ show, success: m => show(m, 'success'), error: m => show(m, 'error'), info: m => show(m, 'info') }}>
+    <ToastContext.Provider value={{
+      show,
+      success: m => show(m, 'success', 4000),
+      error:   m => show(m, 'error',   5000),
+      info:    m => show(m, 'info',    8000),
+      warning: m => show(m, 'warning', 5000),
+    }}>
       {children}
       <div className="toast-container">
         {toasts.map(t => {

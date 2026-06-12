@@ -2,7 +2,7 @@ import axios from 'axios'
 
 const api = axios.create({
   baseURL: '/api',
-  timeout: 60000,
+  timeout: 90000,
   headers: { 'Content-Type': 'application/json' },
 })
 
@@ -28,7 +28,7 @@ export const devicesApi = {
   getL2Macs:      (id)       => api.get(`/devices/${id}/l2/macs`),
   getL2Timeline:  (id)       => api.get(`/devices/${id}/l2/timeline`),
   getL2Lifecycle: (id)       => api.get(`/devices/${id}/l2/lifecycle`),
-  refreshL2:      (id)       => api.post(`/devices/${id}/l2/refresh`),
+  refreshL2:      (id)       => api.post(`/devices/${id}/l2/refresh`, null, { timeout: 100000 }),
   ping:           (id)       => api.post(`/devices/${id}/ping`),
   getPingHistory: (id)       => api.get(`/devices/${id}/ping/history`),
   bulkPing:       (data)     => api.post('/devices/bulk-ping', data),

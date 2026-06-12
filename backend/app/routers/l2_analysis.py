@@ -254,7 +254,7 @@ async def refresh_l2_data(device_id: int, user: dict = Depends(require_operator_
             "device_id": device_id,
             "user_id": user["id"],
             "username": user["username"]
-        }, priority="high", timeout=60.0)
+        }, priority="high", timeout=90.0)
         
         if not res.get("success"):
             raise HTTPException(status_code=503, detail=res.get("error", "Refresh L2 Analysis gagal."))
