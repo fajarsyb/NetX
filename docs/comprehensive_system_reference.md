@@ -37,7 +37,7 @@ Melalui [database.py](file:///c:/Code/Auto/NetX/backend/app/database.py), NetX m
 
 ## 2. Skema & Model Basis Data Lengkap
 
-NetX mendukung SQLite (`netx.db` lokal) dan PostgreSQL (produksi terdistribusi). Berikut adalah detail lengkap dari **25 tabel** yang menyusun basis data NetX:
+NetX mendukung SQLite (`netx.db` lokal) dan PostgreSQL (produksi terdistribusi). Berikut adalah detail lengkap dari **36 tabel** yang menyusun basis data NetX:
 
 ### A. Tabel Autentikasi & Pengguna
 
@@ -351,7 +351,201 @@ Menyimpan template regex hasil klastering pesan syslog secara otomatis untuk ide
     *   `is_anomaly` (INTEGER, DEFAULT 0): Flag untuk menandai log sebagai anomali pemicu alarm (1=Anomali, 0=Normal).
     *   `created_at` (VARCHAR(100) / TEXT, NOT NULL): Waktu pola terdeteksi pertama kali.
 
+### G. Tabel Shell Notes (Klip Perintah CLI)
+
+#### 24. `shell_notes_folders`
+Menyimpan struktur direktori/folder untuk mengelompokkan templat perintah CLI.
+*   **Primary Key**: `id` (SERIAL / INTEGER AUTOINCREMENT)
+*   **Foreign Keys**:
+    *   `parent_id` -> `shell_notes_folders(id)` ON DELETE CASCADE (Struktur folder bersarang)
+    *   `created_by` -> `users(id)` ON DELETE SET NULL
+*   **Kolom**:
+    *   `name` (VARCHAR(255) / TEXT, NOT NULL): Nama folder.
+    *   `created_at` (VARCHAR(100) / TEXT, NOT NULL): Timestamp pembuatan folder.
+
+#### 25. `shell_notes_templates`
+Menyimpan templat perintah CLI beserta variabel dinamis dan vendor target.
+*   **Primary Key**: `id` (SERIAL / INTEGER AUTOINCREMENT)
+*   **Foreign Keys**:
+    *   `folder_id` -> `shell_notes_folders(id)` ON DELETE SET NULL
+    *   `created_by` -> `users(id)` ON DELETE SET NULL
+*   **Kolom**:
+    *   `title` (VARCHAR(255) / TEXT, NOT NULL): Judul templat.
+    *   `content` (TEXT, NOT NULL): Isi skrip/perintah CLI dengan placeholder variabel seperti `{{vlan}}`.
+    *   `description` (TEXT): Deskripsi fungsi templat (mendukung Markdown).
+    *   `vendor_hint` (VARCHAR(100) / TEXT): Nama vendorOS target (misal: `Cisco`, `Juniper`).
+    *   `is_favorite` (INTEGER, DEFAULT 0): Penanda templat favorit (1=Ya, 0=Tidak).
+    *   `is_shared` (INTEGER, DEFAULT 0): Penanda status sharing publik (1=Ya, 0=Tidak).
+    *   `shared_token` (VARCHAR(64) / TEXT): Token acak untuk tautan sharing publik.
+    *   `variables` (TEXT, DEFAULT '[]'): JSON list dari variabel yang dideteksi otomatis dalam isi perintah.
+    *   `tags` (TEXT, DEFAULT '[]'): JSON list tag label untuk klasifikasi pencarian.
+    *   `created_at` / `updated_at` (VARCHAR(100) / TEXT): Tanggal pembuatan dan pembaruan.
+
+### H. Tabel Layer 2 Analysis & Monitoring
+
+#### 26. `device_l2_spanning_tree`
+Menyimpan parameter global STP (Spanning Tree Protocol) switch.
+*   **Primary Key**: `device_id` (INTEGER, references `devices(id)` ON DELETE CASCADE)
+*   **Kolom**:
+    *   `stp_mode` (VARCHAR(100) / TEXT, DEFAULT 'unknown'): Mode STP (RSTP, MSTP, PVST, dll.).
+    *   `root_bridge_id` (VARCHAR(255) / TEXT): MAC Address / ID Root Bridge.
+    *   `root_bridge_priority` (INTEGER): Prioritas Root Bridge.
+    *   `bridge_id` (VARCHAR(255) / TEXT): MAC Address / ID Bridge Lokal.
+    *   `bridge_priority` (INTEGER): Prioritas Bridge Lokal.
+    *   `root_path_cost` (BIGINT): Cost jalur menuju Root Bridge.
+    *   `root_port` (VARCHAR(100) / TEXT): Port lokal switch yang bertindak sebagai Root Port.
+    *   `topology_change_count` (BIGINT): Jumlah total Topology Change Notifications (TCN).
+    *   `last_topology_change` (VARCHAR(100) / TEXT): Waktu terakhir terjadinya perubahan topologi.
+    *   `confidence_score` (INTEGER, DEFAULT 100): Skor akurasi korelasi data (0-100%).
+    *   `data_source` (VARCHAR(100) / TEXT, DEFAULT 'Simulation'): Sumber data (`SNMP`, `CLI`, atau `Simulation`).
+    *   `validation_status` (TEXT, DEFAULT 'Verified'): Catatan hasil komparasi sumber data ganda.
+    *   `fetched_at` (VARCHAR(100) / TEXT): Waktu sinkronisasi data terakhir.
+
+#### 27. `device_l2_stp_ports`
+Menyimpan peran dan status STP untuk setiap port fisik switch.
+*   **Primary Key**: Joint `(device_id, interface_name)`
+*   **Foreign Key**: `device_id` -> `devices(id)` ON DELETE CASCADE
+*   **Kolom**:
+    *   `port_role` (VARCHAR(50) / TEXT): Peran port (Root, Designated, Alternate, Backup, Disabled).
+    *   `port_state` (VARCHAR(50) / TEXT): Status port (Forwarding, Blocking, Listening, Learning, Disabled).
+    *   `cost` (INTEGER): Cost port.
+    *   `priority` (INTEGER, DEFAULT 128): Prioritas port STP.
+    *   `edge_port` (INTEGER, DEFAULT 0): Penanda port tepi (1=Edge/PortFast, 0=Non-edge).
+    *   `bpdu_guard` / `root_guard` / `loop_guard` / `bpdu_filter` / `portfast` (VARCHAR(50) / TEXT): Konfigurasi fitur keamanan STP.
+    *   `fetched_at` (VARCHAR(100) / TEXT): Waktu sinkronisasi.
+
+#### 28. `device_l2_vlans`
+Menyimpan database VLAN aktif yang terdaftar di switch.
+*   **Primary Key**: Joint `(device_id, vlan_id)`
+*   **Foreign Key**: `device_id` -> `devices(id)` ON DELETE CASCADE
+*   **Kolom**:
+    *   `name` (VARCHAR(255) / TEXT): Nama VLAN.
+    *   `status` (VARCHAR(50) / TEXT, DEFAULT 'active'): Status keaktifan VLAN.
+    *   `ports` (TEXT): Daftar port switch yang terkait dengan VLAN ini (berbasis string/text).
+    *   `fetched_at` (VARCHAR(100) / TEXT): Waktu sinkronisasi.
+
+#### 29. `device_l2_interfaces`
+Menyimpan diagnostik fisik dan detail parameter Layer 2 per interface port.
+*   **Primary Key**: Joint `(device_id, interface_name)`
+*   **Foreign Key**: `device_id` -> `devices(id)` ON DELETE CASCADE
+*   **Kolom**:
+    *   `description` (TEXT): Deskripsi konfigurasi interface (alias/label).
+    *   `port_type` (VARCHAR(50) / TEXT): Mode port (`Access` / `Trunk`).
+    *   `oper_status` / `admin_status` (VARCHAR(50) / TEXT): Status operasional dan administratif port.
+    *   `speed` (VARCHAR(100) / TEXT): Kecepatan port (misal: `100M`, `1G`).
+    *   `duplex` (VARCHAR(50) / TEXT): Mode dupleks (`Full` / `Half`).
+    *   `mtu` (INTEGER): Maximum Transmission Unit.
+    *   `in_octets` / `out_octets` / `in_errors` / `out_errors` / `crc_errors` / `drops` / `discards` (BIGINT): Counter statistik error dan lalu lintas.
+    *   `broadcast_pps` / `multicast_pps` / `unknown_unicast_pps` (REAL): Laju paket per detik (pps) untuk deteksi storm.
+    *   `port_flaps` (INTEGER): Jumlah port down-up dalam window pemantauan.
+    *   `mac_count` (INTEGER): Jumlah MAC address terdaftar pada port.
+    *   `connected_device` (TEXT): Informasi perangkat terdeteksi terhubung.
+    *   `vlan` / `native_vlan` (VARCHAR(50) / TEXT): VLAN ID atau Native VLAN untuk mode trunk.
+    *   `allowed_vlans` (TEXT): Daftar VLAN yang diizinkan lewat trunk (allowed list).
+    *   `voice_vlan` (VARCHAR(50) / TEXT): VLAN ID suara (VoIP).
+    *   `poe_status` (VARCHAR(50) / TEXT): Status PoE (Active, Disabled, Fault, Searching).
+    *   `poe_consumption` (REAL): Konsumsi daya PoE aktif dalam Watt.
+    *   `sfp_vendor` / `sfp_model` / `sfp_serial` (VARCHAR(255) / TEXT): Manufaktur dan detail modul transiver fiber optik (SFP).
+    *   `sfp_rx_power` / `sfp_tx_power` (REAL): Laju daya optik RX (penerimaan) dan TX (pengiriman) dalam dBm.
+    *   `sfp_temp` (REAL) & `sfp_voltage` (REAL) & `sfp_bias_current` (REAL): Parameter diagnostik temperatur (°C), tegangan (V), dan arus bias (mA).
+    *   `sfp_health` (VARCHAR(50) / TEXT): Status kesehatan optik (`Healthy` / `Low RX Power` / `High Temp`).
+    *   `health_score` / `lifecycle_score` / `risk_score` (INTEGER): Skor KPI analitis untuk penentuan tingkat kerusakan.
+    *   `recommendation_action` / `recommendation_text` / `recommendation_code` (VARCHAR / TEXT): Rekomendasi tindakan optimasi (misal: `Safe to disable`).
+    *   `visual_indicator` (VARCHAR(50) / TEXT): Kode warna status faceplate (`green` / `red` / `orange` / `blue`).
+    *   `is_uplink` (INTEGER, DEFAULT 0) & `uplink_switch` & `uplink_bandwidth`: Parameter relasi uplink backbone.
+    *   `fetched_at` (VARCHAR(100) / TEXT): Waktu sinkronisasi.
+
+#### 30. `device_l2_port_security`
+Menyimpan konfigurasi Port Security switch per interface.
+*   **Primary Key**: Joint `(device_id, interface_name)`
+*   **Foreign Key**: `device_id` -> `devices(id)` ON DELETE CASCADE
+*   **Kolom**:
+    *   `sticky_mac` (INTEGER, DEFAULT 0): Penanda keaktifan MAC sticky.
+    *   `max_mac` (INTEGER, DEFAULT 1): Batas maksimal MAC yang diizinkan.
+    *   `current_mac` (INTEGER, DEFAULT 0): Jumlah MAC saat ini yang terikat.
+    *   `violation_mode` (VARCHAR(50) / TEXT): Mode reaksi pelanggaran (`Shutdown` / `Restrict` / `Protect`).
+    *   `violation_count` (INTEGER, DEFAULT 0): Jumlah insiden pelanggaran keamanan port.
+    *   `fetched_at` (VARCHAR(100) / TEXT): Waktu sinkronisasi.
+
+#### 31. `device_l2_macs`
+Menyimpan tabel cache MAC address Layer 2 terperinci per port switch.
+*   **Primary Key**: Joint `(device_id, interface_name, mac_address)`
+*   **Foreign Key**: `device_id` -> `devices(id)` ON DELETE CASCADE
+*   **Kolom**:
+    *   `vlan` (VARCHAR(50) / TEXT): VLAN ID tempat MAC dipelajari.
+    *   `entry_type` (VARCHAR(50) / TEXT): Tipe entri MAC (`dynamic` / `static`).
+    *   `mac_vendor` (VARCHAR(255) / TEXT): Manufaktur OUI terjemahan.
+    *   `first_seen` / `last_seen` (VARCHAR(100) / TEXT): Waktu pertama kali dan terakhir kali MAC terekam pada port ini.
+
+#### 32. `device_l2_timeline`
+Mencatat riwayat perubahan logis Layer 2 perangkat (Link state change, STP TCN, loops, dan alarm SFP).
+*   **Primary Key**: `id` (SERIAL / INTEGER AUTOINCREMENT)
+*   **Foreign Key**: `device_id` -> `devices(id)` ON DELETE CASCADE
+*   **Indeks**: `idx_device_l2_timeline_device` ON `device_l2_timeline(device_id)`
+*   **Kolom**:
+    *   `event_type` (VARCHAR(100) / TEXT): Tipe kejadian (`LINK_DOWN`, `STP_TCN`, `SFP_ALARM`, `LOOP_DETECTED`).
+    *   `interface_name` (VARCHAR(100) / TEXT): Interface terkait kejadian.
+    *   `details` (TEXT): Deskripsi detail kronologis.
+    *   `severity` (VARCHAR(50) / TEXT): Keparahan peristiwa (`info` / `warning` / `critical`).
+    *   `timestamp` (VARCHAR(100) / TEXT): Waktu peristiwa terjadi.
+
+#### 33. `device_l2_port_lifecycle`
+Menyimpan metrik siklus hidup statistik penggunaan fisik port untuk modul reklamasi.
+*   **Primary Key**: Joint `(device_id, interface_name)`
+*   **Foreign Key**: `device_id` -> `devices(id)` ON DELETE CASCADE
+*   **Kolom**:
+    *   `first_seen` & `last_seen` (VARCHAR(100) / TEXT): Window observasi port.
+    *   `last_link_up` & `last_link_down` (VARCHAR(100) / TEXT): Transisi link terakhir fisik.
+    *   `total_active_time` (BIGINT): Total durasi port aktif (detik).
+    *   `total_inactive_time` (BIGINT): Total durasi port mati (detik).
+    *   `link_event_count` (INTEGER): Jumlah kejadian link up/down (frekuensi fluktuasi).
+    *   `last_traffic_activity` (VARCHAR(100) / TEXT): Waktu terakhir terekam adanya transmisi paket data.
+    *   `avg_utilization` / `peak_utilization` (REAL): Utilisasi rata-rata dan puncak bandwidth port (%).
+    *   `mac_history` / `neighbor_history` / `vlan_history` (TEXT): Riwayat historis dalam format JSON string.
+    *   `classification` (VARCHAR(100) / TEXT): Klasifikasi siklus hidup (`Active`, `Unused >30 Days`, `Unused >90 Days`, `Never Used`, `Candidate for Reuse`, `Safe to Disable`).
+
+### I. Tabel SNMP Traps, Integrasi Backup Eksternal & Ping
+
+#### 34. `snmp_traps`
+Menyimpan datagram paket trap yang dikirim secara asinkron dari switch (UDP 162).
+*   **Primary Key**: `id` (SERIAL / INTEGER AUTOINCREMENT)
+*   **Foreign Key**: `device_id` -> `devices(id)` ON DELETE SET NULL
+*   **Indeks**: `idx_snmp_traps_ip` ON `snmp_traps(source_ip)`
+*   **Kolom**:
+    *   `source_ip` (VARCHAR(45) / TEXT, NOT NULL): Alamat IP pengirim trap.
+    *   `version` (VARCHAR(10) / TEXT): Versi SNMP Trap (v1 atau v2c).
+    *   `community` (VARCHAR(100) / TEXT): SNMP Community string.
+    *   `enterprise_oid` (VARCHAR(255) / TEXT): OID Enterprise pengenal.
+    *   `generic_trap` / `specific_trap` (INTEGER): Kode trap standard RFC.
+    *   `uptime` (BIGINT): Uptime perangkat pengirim saat trap dipicu.
+    *   `varbinds` (TEXT, NOT NULL): Payload data variabel trap terenkode JSON.
+    *   `received_at` (VARCHAR(100) / TEXT): Waktu trap diterima server.
+
+#### 35. `remote_backup_settings`
+Menyimpan konfigurasi server backup eksternal untuk automatisasi pengunggahan file.
+*   **Primary Key**: `id` (SERIAL / INTEGER AUTOINCREMENT)
+*   **Kolom**:
+    *   `protocol` (VARCHAR(50) / TEXT): Protokol unggah (`sftp` / `ftp` / `scp`).
+    *   `host` & `port` (VARCHAR / INTEGER): Detail alamat IP / domain dan port server backup.
+    *   `username` (VARCHAR(255) / TEXT): Nama pengguna login.
+    *   `password` (TEXT): Kata sandi terenkripsi Fernet.
+    *   `path` (VARCHAR(255) / TEXT): Direktori tujuan penyimpanan di server luar.
+    *   `is_active` (INTEGER): Status aktif integrasi backup eksternal (1=Ya, 0=Tidak).
+    *   `backup_db` (INTEGER): Status aktif unggah otomatis database (1=Ya, 0=Tidak).
+    *   `backup_config` (INTEGER): Status aktif unggah otomatis berkas konfigurasi switch (1=Ya, 0=Tidak).
+
+#### 36. `device_ping_history`
+Menyimpan catatan historis RTT (Round Trip Time) dan packet loss untuk analisis latensi perangkat.
+*   **Primary Key**: `id` (SERIAL / INTEGER AUTOINCREMENT)
+*   **Foreign Key**: `device_id` -> `devices(id)` ON DELETE CASCADE
+*   **Kolom**:
+    *   `rtt_ms` (REAL): Nilai Round Trip Time ping dalam milidetik.
+    *   `loss_pct` (INTEGER): Persentase packet loss (0-100%).
+    *   `status` (VARCHAR(50) / TEXT): Status jangkauan saat ping (`online` / `offline`).
+    *   `checked_at` (VARCHAR(100) / TEXT): Waktu eksekusi cek ping.
+
 ---
+
 
 ## 3. Diagram-Diagram Sistem (Mermaid)
 
