@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Server, Plus, Trash2, Edit2, Play, RefreshCw, Search, Download, Upload,
-  ChevronLeft, ChevronRight, CheckSquare, Square, X, Zap, CheckCheck, Layers, Wifi
+  ChevronLeft, ChevronRight, CheckSquare, Square, X, Zap, CheckCheck, Layers, Wifi, Terminal
 } from 'lucide-react'
 import { devicesApi, groupsApi } from '../api/client'
 import { useToast } from '../components/shared/ToastProvider'
@@ -618,6 +618,16 @@ export default function DeviceManagement() {
                                     )}
                                   </button>
                                 </>
+                              )}
+                              {(d.protocol === 'ssh' || d.protocol === 'serial') && (
+                                <button 
+                                  className="btn btn-ghost btn-sm" 
+                                  style={{ color: 'var(--purple)' }}
+                                  onClick={() => navigate(`/terminal?device_id=${d.id}&device_name=${encodeURIComponent(d.name)}`)}
+                                  title="Buka Console / Terminal"
+                                >
+                                  <Terminal size={13} />
+                                </button>
                               )}
                               <button className="btn btn-ghost btn-sm" onClick={() => openEdit(d)} title="Edit Device">
                                 <Edit2 size={13} />

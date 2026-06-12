@@ -20,14 +20,17 @@ export default function TerminalConsole() {
   // Map: tabId -> ref for WebCli
   const cliRefs = useRef({})
 
-  // Load allowed SSH devices
+  // Load allowed SSH & Serial devices
   const fetchDevices = async () => {
     setLoadingDevices(true)
     try {
       const res = await api.get('/devices')
-      // Only allow SSH protocol devices
-      const sshOnly = res.data.filter(d => (d.protocol || '').toLowerCase() === 'ssh')
-      setDevices(sshOnly)
+      // Allow SSH and Serial protocol devices
+      const supported = res.data.filter(d => {
+        const proto = (d.protocol || '').toLowerCase()
+        return proto === 'ssh' || proto === 'serial'
+      })
+      setDevices(supported)
     } catch (err) {
       toast.error('Gagal mengambil daftar perangkat.')
     } finally {
@@ -132,7 +135,7 @@ export default function TerminalConsole() {
             <Terminal size={22} style={{ color: 'var(--primary)' }} />
             Web CLI Terminal Console
           </div>
-          <div className="page-subtitle">SSH Multi-tab interactive sessions (max 8 connections)</div>
+          <div className="page-subtitle">SSH & Serial Multi-tab interactive sessions (max 8 connections)</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button
@@ -240,7 +243,7 @@ export default function TerminalConsole() {
                 <Terminal size={48} style={{ color: 'var(--text-muted)', opacity: 0.5 }} />
                 <div>
                   <div style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>No active terminals.</div>
-                  <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>Click "Open Terminal" to connect to a device via SSH.</div>
+                  <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>Click "Open Terminal" to connect to a device via SSH or Serial.</div>
                 </div>
                 <button className="btn btn-primary" onClick={handleOpenAdd}>
                   <Plus size={14} /> Connect Device
@@ -303,7 +306,7 @@ export default function TerminalConsole() {
                 </div>
               ) : devices.length === 0 ? (
                 <div style={{ padding: '16px 8px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-                  No SSH devices found. Make sure the device protocol is set to SSH.
+                  No SSH or Serial devices found. Make sure the device protocol is set to SSH or Serial.
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -317,7 +320,7 @@ export default function TerminalConsole() {
                     />
                   </div>
                   <div>
-                    <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>Select Device (SSH):</div>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>Select Device (SSH / Serial):</div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '250px', overflowY: 'auto', paddingRight: '4px' }}>
                       {devices.filter(dev => {
                         const q = searchQuery.toLowerCase().trim()
@@ -365,7 +368,7 @@ export default function TerminalConsole() {
                             <div>
                               <div style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                 {dev.name}
-                                {!(dev.credential_id || dev.username) && (
+                                {dev.protocol !== 'serial' && !(dev.credential_id || dev.username) && (
                                   <span 
                                     style={{ 
                                       fontSize: '10px', 
@@ -383,9 +386,14 @@ export default function TerminalConsole() {
                               </div>
                               <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>{dev.ip}</div>
                             </div>
-                            <span className="badge badge-online" style={{ fontSize: '10px' }}>
-                              {dev.device_type}
-                            </span>
+                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                              <span className={`badge badge-${dev.protocol}`} style={{ fontSize: '10px' }}>
+                                {dev.protocol?.toUpperCase()}
+                              </span>
+                              <span className="badge badge-online" style={{ fontSize: '10px' }}>
+                                {dev.device_type}
+                              </span>
+                            </div>
                           </div>
                         ))
                       )}
