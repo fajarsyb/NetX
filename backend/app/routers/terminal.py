@@ -13,10 +13,44 @@ def list_serial_ports():
     import serial.tools.list_ports
     try:
         ports = serial.tools.list_ports.comports()
-        return [{"port": p.device, "description": p.description} for p in ports]
+        result = []
+        for p in ports:
+            desc = (p.description or "").lower()
+            mfg = (p.manufacturer or "").lower()
+            hwid = (p.hwid or "").lower()
+            device = (p.device or "").lower()
+            
+            # Common keywords indicating a USB-to-Serial / console adapter
+            keywords = [
+                "usb", "ftdi", "prolific", "ch340", "ch341", 
+                "cp210", "silicon labs", "ft232", "console", 
+                "pl2303", "moxa", "qinheng", "arduino"
+            ]
+            
+            is_likely = False
+            for kw in keywords:
+                if kw in desc or kw in mfg or kw in hwid or kw in device:
+                    is_likely = True
+                    break
+            
+            # Check for Linux/macOS USB-to-Serial virtual device files
+            if "ttyusb" in device or "ttyacm" in device or "cu.usb" in device or "tty.usb" in device:
+                is_likely = True
+                
+            result.append({
+                "port": p.device,
+                "description": p.description or p.device,
+                "manufacturer": p.manufacturer or "",
+                "hwid": p.hwid or "",
+                "vid": p.vid,
+                "pid": p.pid,
+                "is_likely_console": is_likely
+            })
+        return result
     except Exception as e:
         logger.error(f"Error listing serial ports: {e}")
         return []
+
 
 async def forward_serial_out(ser, websocket):
     """Read from serial port and send to websocket."""

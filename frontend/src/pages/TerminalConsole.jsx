@@ -56,7 +56,8 @@ export default function TerminalConsole({ isPageActive = true }) {
   useEffect(() => {
     if (serialPorts.length > 0) {
       if (!selectedPort || !serialPorts.some(p => p.port === selectedPort)) {
-        setSelectedPort(serialPorts[0].port)
+        const likelyPort = serialPorts.find(p => p.is_likely_console)
+        setSelectedPort(likelyPort ? likelyPort.port : serialPorts[0].port)
       }
     } else {
       setSelectedPort('')
@@ -492,7 +493,9 @@ export default function TerminalConsole({ isPageActive = true }) {
                       >
                         <option value="">-- Pilih Serial Port --</option>
                         {serialPorts.map(p => (
-                          <option key={p.port} value={p.port}>{p.port} ({p.description})</option>
+                          <option key={p.port} value={p.port}>
+                            {p.is_likely_console ? `🔌 ${p.port} - ${p.description} (Direkomendasikan)` : `${p.port} (${p.description})`}
+                          </option>
                         ))}
                         <option value="custom">Input Manual...</option>
                       </select>

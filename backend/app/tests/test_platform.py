@@ -103,3 +103,45 @@ class TestPlatformArchitecture(unittest.TestCase):
         self.assertEqual(hostname, "AT48-LT-9A")
         self.assertTrue(message.startswith("dhclient: DHCPDISCOVER"))
 
+    def test_serial_port_detection_heuristics(self):
+        from unittest.mock import patch
+        from app.routers.terminal import list_serial_ports
+        
+        class MockListPortInfo:
+            def __init__(self, device, description, manufacturer, hwid, vid=None, pid=None):
+                self.device = device
+                self.description = description
+                self.manufacturer = manufacturer
+                self.hwid = hwid
+                self.vid = vid
+                self.pid = pid
+
+        mocked_ports = [
+            MockListPortInfo("COM3", "Prolific USB-to-Serial Comm Port", "Prolific", "USB VID:PID=067B:2303", 0x067b, 0x2303),
+            MockListPortInfo("/dev/ttyUSB0", "FT232R USB UART", "FTDI", "USB VID:PID=0403:6001", 0x0403, 0x6001),
+            MockListPortInfo("COM1", "Communications Port", "Microsoft", "ACPI\\PNP0501\\1", None, None),
+            MockListPortInfo("/dev/ttyS0", "Standard Serial Port", None, "PNP0501", None, None),
+        ]
+
+        with patch("serial.tools.list_ports.comports", return_value=mocked_ports):
+            res = list_serial_ports()
+            self.assertEqual(len(res), 4)
+            
+            # COM3
+            self.assertEqual(res[0]["port"], "COM3")
+            self.assertTrue(res[0]["is_likely_console"])
+            self.assertEqual(res[0]["manufacturer"], "Prolific")
+            
+            # /dev/ttyUSB0
+            self.assertEqual(res[1]["port"], "/dev/ttyUSB0")
+            self.assertTrue(res[1]["is_likely_console"])
+            
+            # COM1 (legacy motherboard)
+            self.assertEqual(res[2]["port"], "COM1")
+            self.assertFalse(res[2]["is_likely_console"])
+            
+            # /dev/ttyS0 (legacy motherboard)
+            self.assertEqual(res[3]["port"], "/dev/ttyS0")
+            self.assertFalse(res[3]["is_likely_console"])
+
+
