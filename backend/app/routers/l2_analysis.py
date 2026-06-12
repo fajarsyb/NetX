@@ -243,24 +243,51 @@ async def get_l2_lifecycle(device_id: int, current_user: dict = Depends(get_curr
                 r[history_col] = []
     return rows
 
+
+# ── In-process L2 refresh job registry ──────────────────────────────────────
+import asyncio as _asyncio
+import uuid as _uuid
+
+_l2_refresh_jobs: dict = {}  # job_id -> {"status": "pending"|"done"|"error", "result": ..., "error": ...}
+
 @router.post("/{device_id}/l2/refresh")
 async def refresh_l2_data(device_id: int, user: dict = Depends(require_operator_or_admin)):
-    """Triggers L2 data refresh scan on-demand via the job queue."""
+    """Triggers L2 data refresh scan on-demand. Returns a job_id immediately; poll /l2/refresh/{job_id}/status for result."""
     _require_device(device_id)
-    
-    from app.queue.queue import job_queue
-    try:
-        res = await job_queue.run_sync_over_async("refresh_l2", {
-            "device_id": device_id,
-            "user_id": user["id"],
-            "username": user["username"]
-        }, priority="high", timeout=90.0)
-        
-        if not res.get("success"):
-            raise HTTPException(status_code=503, detail=res.get("error", "Refresh L2 Analysis gagal."))
-            
-        return {"success": True, "message": "Informasi Layer 2 berhasil disinkronkan."}
-    except TimeoutError:
-        raise HTTPException(status_code=504, detail="Timeout: Sinkronisasi Layer 2 melebihi batas waktu.")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+
+    job_id = str(_uuid.uuid4())
+    _l2_refresh_jobs[job_id] = {"status": "pending", "result": None, "error": None}
+
+    async def _run():
+        from app.services.l2_service import L2AnalysisService
+        try:
+            res = await L2AnalysisService.refresh_device_l2_data(
+                device_id,
+                user={"id": user["id"], "username": user["username"]}
+            )
+            _l2_refresh_jobs[job_id] = {"status": "done", "result": res, "error": None}
+        except Exception as exc:
+            _l2_refresh_jobs[job_id] = {"status": "error", "result": None, "error": str(exc)}
+
+    _asyncio.create_task(_run())
+    return {"success": True, "job_id": job_id, "message": "Penyelarasan Layer 2 dimulai di latar belakang."}
+
+
+@router.get("/{device_id}/l2/refresh/{job_id}/status")
+async def get_l2_refresh_status(device_id: int, job_id: str, user: dict = Depends(require_operator_or_admin)):
+    """Poll the status of an in-progress or completed L2 refresh job."""
+    job = _l2_refresh_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job tidak ditemukan atau sudah kedaluwarsa.")
+
+    if job["status"] == "done":
+        # Clean up after reading
+        _l2_refresh_jobs.pop(job_id, None)
+        return {"status": "done", "success": True, "message": "Informasi Layer 2 berhasil disinkronkan."}
+    elif job["status"] == "error":
+        err = job.get("error", "Refresh L2 Analysis gagal.")
+        _l2_refresh_jobs.pop(job_id, None)
+        raise HTTPException(status_code=503, detail=err)
+    else:
+        return {"status": "pending", "message": "Penyelarasan Layer 2 sedang berjalan..."}
+

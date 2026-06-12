@@ -120,22 +120,44 @@ export default function PortAnalysis({ deviceId: propDeviceId }) {
   const handleRefresh = async () => {
     const devId = deviceId || selectedDevice
     if (!devId) return
-    
+
     setRefreshing(true)
-    toast.info('Memulai penyelarasan Layer 2... Proses ini dapat memakan waktu hingga 90 detik.')
+    toast.info('Memulai penyelarasan Layer 2...')
     try {
-      const trigger = devicesApi.refreshL2 ? devicesApi.refreshL2(devId) : devicesApi.post(`/devices/${devId}/l2/refresh`)
-      await trigger
+      // 1. Submit job — returns immediately with job_id
+      const startRes = await devicesApi.refreshL2(devId)
+      const jobId = startRes.data?.job_id
+      if (!jobId) throw new Error('Tidak ada job_id dari server.')
+
+      // 2. Poll status every 2s, up to 180s
+      const MAX_WAIT_MS = 180000
+      const INTERVAL_MS = 2000
+      const started = Date.now()
+
+      await new Promise((resolve, reject) => {
+        const poll = async () => {
+          if (Date.now() - started > MAX_WAIT_MS) {
+            return reject(new Error('Waktu habis setelah 3 menit menunggu penyelarasan L2.'))
+          }
+          try {
+            const statusRes = await devicesApi.getL2RefreshStatus(devId, jobId)
+            if (statusRes.data?.status === 'done') return resolve()
+            if (statusRes.data?.status === 'error') return reject(new Error(statusRes.data.message || 'Error tidak diketahui.'))
+            // Still pending — continue polling
+            setTimeout(poll, INTERVAL_MS)
+          } catch (pollErr) {
+            // HTTP 503 / 404 from status endpoint means error or expired
+            reject(new Error(pollErr.response?.data?.detail || pollErr.message))
+          }
+        }
+        setTimeout(poll, INTERVAL_MS)
+      })
+
       toast.success('Penyelarasan Layer 2 selesai.')
       await fetchL2Analysis(devId)
     } catch (err) {
       const detail = err.response?.data?.detail || err.message || 'Tidak diketahui'
-      const isTimeout = err.code === 'ECONNABORTED' || detail.toLowerCase().includes('timeout') || detail.toLowerCase().includes('timed out')
-      if (isTimeout) {
-        toast.error('Penyelarasan L2 gagal: Waktu habis. Worker mungkin sedang sibuk — coba lagi beberapa saat.')
-      } else {
-        toast.error('Penyelarasan L2 gagal: ' + detail)
-      }
+      toast.error('Penyelarasan L2 gagal: ' + detail)
     } finally {
       setRefreshing(false)
     }
