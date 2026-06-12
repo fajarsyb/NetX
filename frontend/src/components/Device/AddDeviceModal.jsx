@@ -32,7 +32,8 @@ const initial = {
   group_id: '', credential_id: '', threshold_profile_id: '',
   custom_arp_cmd: '', custom_lldp_cmd: '', custom_cdp_cmd: '', custom_routing_cmd: '', custom_info_cmd: '',
   snmp_version: 'v2c', snmp_community: 'public', device_role: 'Access Switch',
-  hardware_model: '', os_version: '', serial_number: '', mac_address: ''
+  hardware_model: '', os_version: '', serial_number: '', mac_address: '',
+  syslog_hostname: ''
 }
 
 const buildHierarchicalGroups = (groupsList) => {
@@ -87,7 +88,8 @@ export default function AddDeviceModal({ onClose, onSuccess, editDevice = null }
     hardware_model: editDevice.hardware_model || '',
     os_version: editDevice.os_version || '',
     serial_number: editDevice.serial_number || '',
-    mac_address: editDevice.mac_address || ''
+    mac_address: editDevice.mac_address || '',
+    syslog_hostname: editDevice.syslog_hostname || ''
   } : initial)
   const [showPass, setShowPass]   = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -416,6 +418,14 @@ export default function AddDeviceModal({ onClose, onSuccess, editDevice = null }
                   <input className="form-control" placeholder="00:11:22:33:44:55"
                     value={form.mac_address || ''} onChange={e => set('mac_address', e.target.value)} />
                 </div>
+              </div>
+              <div className="form-group mt-3">
+                <label className="form-label">Syslog Hostname / Alias (Pencocokan Syslog Header)</label>
+                <input className="form-control" placeholder="Contoh: AT48-LT-9A, DS-HERRITAGE-4650"
+                  value={form.syslog_hostname || ''} onChange={e => set('syslog_hostname', e.target.value)} />
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginTop: '2px' }}>
+                  Isi jika nama host yang dikirim via syslog berbeda dengan Nama Device di atas (penting jika berada di balik Docker NAT).
+                </span>
               </div>
             </div>
             <div className="form-group mt-2">

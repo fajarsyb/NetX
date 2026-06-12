@@ -448,6 +448,7 @@ def init_db():
             custom_info_cmd TEXT DEFAULT '',
             raw_info TEXT DEFAULT '',
             device_role VARCHAR(100) DEFAULT 'Access Switch',
+            syslog_hostname VARCHAR(255) DEFAULT NULL,
             FOREIGN KEY (group_id) REFERENCES device_groups(id) ON DELETE SET NULL,
             FOREIGN KEY (credential_id) REFERENCES device_credentials(id) ON DELETE SET NULL
         );
@@ -1033,6 +1034,12 @@ def init_db():
             c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS permissions TEXT DEFAULT NULL;")
         except Exception:
             pass
+        try:
+            c.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS syslog_hostname VARCHAR(255) DEFAULT NULL;")
+        except Exception:
+            pass
+
+
 
 
         # Add new columns to interface_stats_latest for PG
@@ -1129,6 +1136,7 @@ def init_db():
             custom_info_cmd TEXT DEFAULT '',
             raw_info TEXT DEFAULT '',
             device_role TEXT DEFAULT 'Access Switch',
+            syslog_hostname TEXT DEFAULT NULL,
             FOREIGN KEY (group_id) REFERENCES device_groups(id) ON DELETE SET NULL,
             FOREIGN KEY (credential_id) REFERENCES device_credentials(id) ON DELETE SET NULL
         );
@@ -1861,6 +1869,12 @@ def init_db():
             c.execute("ALTER TABLE users ADD COLUMN permissions TEXT DEFAULT NULL;")
         except sqlite3.OperationalError:
             pass
+        try:
+            c.execute("ALTER TABLE devices ADD COLUMN syslog_hostname TEXT DEFAULT NULL;")
+        except sqlite3.OperationalError:
+            pass
+
+
 
 
     conn.commit()

@@ -374,8 +374,10 @@ NetX mendukung penambahan berkas MIB secara dinamis untuk memperluas kapabilitas
 
 #### Q: Mengapa pengirim Syslog di Syslog Viewer terdeteksi sebagai IP Docker Gateway `172.18.0.1`?
 * **Penyebab**: Batasan default Docker Desktop di Windows/WSL2. Docker Desktop menggunakan userland-proxy/NAT layer untuk mempublikasikan port UDP, sehingga seluruh paket UDP yang tiba di kontainer syslog ditranslasikan alamat sumbernya menjadi IP Gateway Docker Bridge (`172.18.0.1`).
-* **Solusi**: Anda dapat memilih salah satu dari dua metode pemecahan masalah berikut:
-  1. **Metode A (WSL2 Mirrored Networking - Direkomendasikan)**:
+* **Solusi**: Anda dapat memilih salah satu dari metode pemecahan masalah berikut:
+  1. **Metode A (Pemetaan Alias Hostname — Paling Praktis & Direkomendasikan)**:
+     Buka menu **Manajemen Device** di NetX, lalu edit perangkat yang log-nya masuk ke "Tidak Terdaftar". Pada panel **Kustomisasi Detail Perangkat (Opsional / Manual)**, isi field **Syslog Hostname / Alias** dengan hostname asli perangkat (contoh: `AT48-LT-9A` atau `DS-HERRITAGE-4650`). NetX akan mencocokkan log masuk menggunakan alias hostname tersebut secara instan tanpa perlu memodifikasi konfigurasi Docker atau jaringan WSL.
+  2. **Metode B (WSL2 Mirrored Networking)**:
      Aktifkan mode jaringan mirrored di Windows WSL2 agar WSL mirroring interface jaringan fisik host secara langsung.
      - Buat file `.wslconfig` di direktori profil user Windows Anda (misalnya `C:\Users\<Username>\.wslconfig`).
      - Tambahkan baris berikut:
@@ -384,7 +386,7 @@ NetX mendukung penambahan berkas MIB secara dinamis untuk memperluas kapabilitas
        networkingMode=mirrored
        ```
      - Jalankan `wsl --shutdown` di terminal Windows Administrator, lalu restart Docker Desktop.
-  2. **Metode B (Jalankan Syslog di Host)**:
+  3. **Metode C (Jalankan Syslog di Host)**:
      Matikan kontainer syslog di Docker Compose (`docker compose stop syslog`) dan jalankan skrip syslog server secara lokal di Windows host menggunakan local Python:
      - Aktifkan virtualenv backend: `venv\Scripts\activate`
      - Set environment variables (`DB_ENGINE=postgresql`, `DB_HOST=localhost`, dst.) lalu jalankan: `python -m app.services.syslog_server`.

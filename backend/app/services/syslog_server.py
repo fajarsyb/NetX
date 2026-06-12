@@ -59,18 +59,18 @@ def resolve_device(ip: str, hostname: str | None) -> tuple[int | None, str]:
     """
     global IP_TO_DEVICE_CACHE, HOSTNAME_TO_DEVICE_CACHE, CACHE_LAST_CLEARED
     
-    # Auto-expire cache after 5 minutes
-    if datetime.now() - CACHE_LAST_CLEARED > timedelta(minutes=5):
+    # Auto-expire cache after 30 seconds
+    if datetime.now() - CACHE_LAST_CLEARED > timedelta(seconds=30):
         clear_ip_cache()
         
-    # 1. Search by hostname in devices name/ip first
+    # 1. Search by hostname in devices name/ip/syslog_hostname first
     if hostname and hostname != "-":
         if hostname in HOSTNAME_TO_DEVICE_CACHE:
             return HOSTNAME_TO_DEVICE_CACHE[hostname]
             
         conn = get_db_conn()
         c = conn.cursor()
-        c.execute("SELECT id, ip FROM devices WHERE name = ? OR ip = ?", (hostname, hostname))
+        c.execute("SELECT id, ip FROM devices WHERE name = ? OR ip = ? OR syslog_hostname = ?", (hostname, hostname, hostname))
         row = c.fetchone()
         conn.close()
         

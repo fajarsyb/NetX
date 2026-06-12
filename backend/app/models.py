@@ -26,6 +26,7 @@ class DeviceCreate(BaseModel):
     serial_number: Optional[str] = ""
     mac_address: Optional[str] = ""
     threshold_profile_id: Optional[int] = None
+    syslog_hostname: Optional[str] = None
 
 
 class DeviceUpdate(BaseModel):
@@ -52,6 +53,7 @@ class DeviceUpdate(BaseModel):
     serial_number: Optional[str] = None
     mac_address: Optional[str] = None
     threshold_profile_id: Optional[int] = None
+    syslog_hostname: Optional[str] = None
 
 class GroupCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
