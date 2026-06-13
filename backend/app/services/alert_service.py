@@ -106,7 +106,14 @@ def _send_alerts_background(device_id, anomaly_type, severity, interface_name, d
                 smtp_host = settings.get("alert_email_smtp_host")
                 smtp_port = int(settings.get("alert_email_smtp_port", 587) or 587)
                 smtp_user = settings.get("alert_email_smtp_user")
-                smtp_pass = settings.get("alert_email_smtp_password")
+                smtp_pass_raw = settings.get("alert_email_smtp_password")
+                smtp_pass = smtp_pass_raw
+                if smtp_pass_raw:
+                    from app.database import decrypt_password
+                    try:
+                        smtp_pass = decrypt_password(smtp_pass_raw)
+                    except Exception:
+                        pass
                 to_emails = [e.strip() for e in settings["alert_email_to"].split(",") if e.strip()]
                 
                 if not to_emails:
@@ -142,8 +149,36 @@ def _send_alerts_background(device_id, anomaly_type, severity, interface_name, d
     except Exception as ex:
         logger.error(f"Error in background alert handler: {ex}")
 
+import time
+
+# Thread-safe cooldown registry
+# Key: (device_id, anomaly_type) -> timestamp of last alert sent
+_ALERT_COOLDOWN = {}
+_ALERT_LOCK = threading.Lock()
+COOLDOWN_WINDOW_SECONDS = 1800  # 30 minutes
+
 def trigger_anomaly_alert(device_id, anomaly_type, severity, interface_name, details, detected_at):
-    """Entrypoint to trigger concurrent notification dispatch in background threads."""
+    """Entrypoint to trigger concurrent notification dispatch in background threads with a 30-minute cooldown."""
+    if anomaly_type == "test_alert":
+        # Bypass cooldown for manual test alerts
+        t = threading.Thread(
+            target=_send_alerts_background,
+            args=(device_id, anomaly_type, severity, interface_name, details, detected_at)
+        )
+        t.daemon = True
+        t.start()
+        return
+
+    key = (device_id, anomaly_type)
+    now = time.time()
+
+    with _ALERT_LOCK:
+        last_sent = _ALERT_COOLDOWN.get(key, 0)
+        if now - last_sent < COOLDOWN_WINDOW_SECONDS:
+            logger.info(f"Alert deduplicated: {anomaly_type} for device {device_id} is in cooldown (last sent {now - last_sent:.0f}s ago)")
+            return
+        _ALERT_COOLDOWN[key] = now
+
     t = threading.Thread(
         target=_send_alerts_background,
         args=(device_id, anomaly_type, severity, interface_name, details, detected_at)

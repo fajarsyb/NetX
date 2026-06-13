@@ -53,6 +53,14 @@ def get_system_settings(current_user: dict = Depends(get_current_user)):
         else:
             settings[key] = val
             
+    # Decrypt SMTP password if it exists
+    if "alert_email_smtp_password" in settings and settings["alert_email_smtp_password"]:
+        from app.database import decrypt_password
+        try:
+            settings["alert_email_smtp_password"] = decrypt_password(settings["alert_email_smtp_password"])
+        except Exception:
+            pass
+
     # Provide defaults if any settings are missing
     defaults = {
         "ping_auto_refresh_enabled": True,
@@ -88,6 +96,10 @@ def update_system_settings(
     c = conn.cursor()
     
     try:
+        from app.database import encrypt_password
+        smtp_pass = settings.alert_email_smtp_password or ""
+        enc_smtp_pass = encrypt_password(smtp_pass) if smtp_pass else ""
+
         updates = {
             "ping_auto_refresh_enabled": "true" if settings.ping_auto_refresh_enabled else "false",
             "ping_auto_refresh_interval": str(settings.ping_auto_refresh_interval),
@@ -105,7 +117,7 @@ def update_system_settings(
             "alert_email_smtp_host": settings.alert_email_smtp_host or "",
             "alert_email_smtp_port": str(settings.alert_email_smtp_port or 587),
             "alert_email_smtp_user": settings.alert_email_smtp_user or "",
-            "alert_email_smtp_password": settings.alert_email_smtp_password or "",
+            "alert_email_smtp_password": enc_smtp_pass,
             "alert_email_to": settings.alert_email_to or "",
         }
         
@@ -119,7 +131,7 @@ def update_system_settings(
             user["username"],
             "UPDATE_SYSTEM_SETTINGS",
             "system_settings",
-            f"Updated system settings: {updates}"
+            f"Updated system settings"
         )
         return {"success": True, "message": "Pengaturan sistem berhasil diperbarui."}
     except Exception as e:

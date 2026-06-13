@@ -568,17 +568,36 @@ export default function DeviceDetail() {
               <Activity size={16} style={{ color: 'var(--primary)' }} /> Performa & Utilisasi
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              {perfData && perfData.source && (
+              {(perfData || perfLoading) && (
                 <span style={{
                   fontSize: '10px',
                   fontWeight: 600,
                   textTransform: 'uppercase',
                   padding: '2px 6px',
                   borderRadius: '4px',
-                  background: perfData.source === 'simulated' ? 'var(--bg-hover)' : 'var(--success-glow)',
-                  color: perfData.source === 'simulated' ? 'var(--text-secondary)' : 'var(--success)'
+                  background: (perfData?.source || (perfLoading ? 'loading' : 'simulated')) === 'simulated' 
+                    ? 'rgba(255, 159, 67, 0.1)' 
+                    : ((perfData?.source || (perfLoading ? 'loading' : 'simulated')) === 'loading' ? 'var(--bg-hover)' : 'rgba(40, 199, 111, 0.1)'),
+                  color: (perfData?.source || (perfLoading ? 'loading' : 'simulated')) === 'simulated' 
+                    ? 'var(--warning)' 
+                    : ((perfData?.source || (perfLoading ? 'loading' : 'simulated')) === 'loading' ? 'var(--text-secondary)' : 'var(--success)')
                 }}>
-                  {perfData.source === 'simulated' ? 'Simulated' : `Real-time (${perfData.source.toUpperCase()})`}
+                  {(perfData?.source || (perfLoading ? 'loading' : 'simulated')) === 'simulated' 
+                    ? 'Simulasi' 
+                    : ((perfData?.source || (perfLoading ? 'loading' : 'simulated')) === 'loading' ? 'Memuat...' : `Real-time (${perfData?.source?.toUpperCase()})`)}
+                </span>
+              )}
+              {!perfData && !perfLoading && (
+                <span style={{
+                  fontSize: '10px',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                  background: 'rgba(255, 159, 67, 0.1)',
+                  color: 'var(--warning)'
+                }}>
+                  Simulasi
                 </span>
               )}
               <button
