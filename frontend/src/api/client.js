@@ -11,6 +11,7 @@ export const devicesApi = {
   exportCsv:      (params)   => api.get('/devices/export/csv', { params, responseType: 'blob' }),
   importCsv:      (file)     => api.post('/devices/import/csv', file, { headers: { 'Content-Type': 'multipart/form-data' } }),
   get:            (id)       => api.get(`/devices/${id}`),
+  getPerformance: (id)       => api.get(`/devices/${id}/performance`),
   create:         (data)     => api.post('/devices', data),
   update:         (id, data) => api.put(`/devices/${id}`, data),
   remove:         (id)       => api.delete(`/devices/${id}`),

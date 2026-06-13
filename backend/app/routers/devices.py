@@ -858,3 +858,21 @@ async def get_device_port_map(device_id: int, current_user: dict = Depends(get_c
     return sorted_ports
 
 
+@router.get("/{device_id}/performance")
+async def get_device_performance(device_id: int, current_user: dict = Depends(get_current_user)):
+    conn = get_db_conn()
+    c = conn.cursor()
+    c.execute("SELECT id, name, ip, group_id, status FROM devices WHERE id = ?", (device_id,))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Device tidak ditemukan.")
+    
+    device = dict(row)
+    if not check_user_device_access(device, current_user):
+        raise HTTPException(status_code=403, detail="Akses Ditolak: Anda tidak memiliki akses ke perangkat di grup ini.")
+        
+    from app.services.performance_monitor import get_device_performance_stats
+    return await get_device_performance_stats(device_id)
+
+

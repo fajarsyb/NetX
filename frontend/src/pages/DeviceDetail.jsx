@@ -99,10 +99,46 @@ export default function DeviceDetail() {
   // Port Analysis state
   const [portAnalysisSummary, setPortAnalysisSummary] = useState(null)
 
+  // Performance and utilization state
+  const [perfData, setPerfData] = useState(null)
+  const [perfLoading, setPerfLoading] = useState(false)
+
   // Load device info
   useEffect(() => {
     devicesApi.get(id).then(r => setDevice(r.data)).catch(() => navigate('/'))
   }, [id])
+
+  // Load real-time performance metrics
+  useEffect(() => {
+    if (!id) return
+    setPerfLoading(true)
+    devicesApi.getPerformance(id)
+      .then(r => setPerfData(r.data))
+      .catch(() => {
+        setPerfData({
+          cpu: ((id * 17) % 25) + 8,
+          ram: ((id * 23) % 35) + 30,
+          uptime: 'Offline',
+          source: 'simulated'
+        })
+      })
+      .finally(() => setPerfLoading(false))
+  }, [id])
+
+  const handleRefreshPerformance = async () => {
+    setPerfLoading(true)
+    toast.info('Menyegarkan metrik performa perangkat...')
+    try {
+      const res = await devicesApi.getPerformance(id)
+      setPerfData(res.data)
+      toast.success('Metrik performa berhasil diperbarui.')
+    } catch (e) {
+      toast.error('Gagal menyegarkan metrik performa.')
+    } finally {
+      setPerfLoading(false)
+    }
+  }
+
 
   // Load cached ARP & LLDP on mount
   useEffect(() => {
@@ -527,8 +563,34 @@ export default function DeviceDetail() {
           e.currentTarget.style.boxShadow = 'var(--shadow)';
         }}
         >
-          <h3 style={{ margin: '0 0 16px 0', fontSize: '13px', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-            <Activity size={16} style={{ color: 'var(--primary)' }} /> Performa & Utilisasi
+          <h3 style={{ margin: '0 0 16px 0', fontSize: '13px', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Activity size={16} style={{ color: 'var(--primary)' }} /> Performa & Utilisasi
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {perfData && (
+                <span style={{
+                  fontSize: '10px',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                  background: perfData.source === 'simulated' ? 'var(--bg-hover)' : 'var(--success-glow)',
+                  color: perfData.source === 'simulated' ? 'var(--text-secondary)' : 'var(--success)'
+                }}>
+                  {perfData.source === 'simulated' ? 'Simulated' : `Real-time (${perfData.source.toUpperCase()})`}
+                </span>
+              )}
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={handleRefreshPerformance}
+                disabled={perfLoading}
+                style={{ padding: '2px', height: '24px', width: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--border)' }}
+                title="Segarkan Metrik"
+              >
+                <RefreshCw size={12} className={perfLoading ? 'animate-spin' : ''} />
+              </button>
+            </div>
           </h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {/* CPU utilization */}
@@ -537,13 +599,13 @@ export default function DeviceDetail() {
                 <span style={{ color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <Cpu size={14} style={{ color: 'var(--text-muted)' }} /> CPU
                 </span>
-                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{simStats.cpu}%</span>
+                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{(perfData || simStats).cpu}%</span>
               </div>
               <div style={{ height: '6px', background: 'var(--bg-card-2)', borderRadius: '3px', overflow: 'hidden', border: '1px solid var(--border)' }}>
                 <div style={{
                   height: '100%',
-                  width: `${simStats.cpu}%`,
-                  background: simStats.cpu > 80 ? 'var(--danger)' : (simStats.cpu > 50 ? 'var(--warning)' : 'var(--primary)'),
+                  width: `${(perfData || simStats).cpu}%`,
+                  background: (perfData || simStats).cpu > 80 ? 'var(--danger)' : (((perfData || simStats).cpu > 50) ? 'var(--warning)' : 'var(--primary)'),
                   borderRadius: '3px',
                   transition: 'width 0.5s ease-in-out'
                 }} />
@@ -556,13 +618,13 @@ export default function DeviceDetail() {
                 <span style={{ color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <HardDrive size={14} style={{ color: 'var(--text-muted)' }} /> Memory
                 </span>
-                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{simStats.ram}%</span>
+                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{(perfData || simStats).ram}%</span>
               </div>
               <div style={{ height: '6px', background: 'var(--bg-card-2)', borderRadius: '3px', overflow: 'hidden', border: '1px solid var(--border)' }}>
                 <div style={{
                   height: '100%',
-                  width: `${simStats.ram}%`,
-                  background: simStats.ram > 85 ? 'var(--danger)' : 'var(--success)',
+                  width: `${(perfData || simStats).ram}%`,
+                  background: (perfData || simStats).ram > 85 ? 'var(--danger)' : 'var(--success)',
                   borderRadius: '3px',
                   transition: 'width 0.5s ease-in-out'
                 }} />
@@ -572,7 +634,7 @@ export default function DeviceDetail() {
             {/* Uptime */}
             <div className="flex-between" style={{ fontSize: '12px', paddingTop: '6px', borderTop: '1px solid var(--border)' }}>
               <span style={{ color: 'var(--text-muted)' }}>Device Uptime</span>
-              <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{simStats.uptime}</span>
+              <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{(perfData || simStats).uptime}</span>
             </div>
           </div>
         </div>
