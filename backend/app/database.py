@@ -58,7 +58,13 @@ def decrypt_password(enc: str) -> str:
 # Load environment variables from .env file if python-dotenv is installed
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    # Explicitly load .env from the backend directory to prevent loading docker-compose's root .env
+    backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    dotenv_path = os.path.join(backend_dir, ".env")
+    if os.path.exists(dotenv_path):
+        load_dotenv(dotenv_path=dotenv_path)
+    else:
+        load_dotenv()
 except ImportError:
     pass
 
@@ -320,6 +326,7 @@ class SQLiteConnectionWrapper:
         return getattr(self.real_conn, name)
 
 
+PG_POOL_ERR = None
 if DB_ENGINE == "postgresql":
     try:
         import psycopg2
@@ -338,11 +345,17 @@ if DB_ENGINE == "postgresql":
     except Exception as e:
         import logging
         logging.getLogger("netx.database").error(f"Gagal inisialisasi pool PostgreSQL: {e}")
+        PG_POOL_ERR = e
 
 
 # ─── DATABASE CONNECTION ────────────────────────────────────────────────────
 def get_db_conn():
-    if DB_ENGINE == "postgresql" and PG_POOL is not None:
+    if DB_ENGINE == "postgresql":
+        if PG_POOL is None:
+            err_msg = f"DB_ENGINE is set to 'postgresql' but PostgreSQL Connection Pool (PG_POOL) failed to initialize. Error: {PG_POOL_ERR}"
+            import logging
+            logging.getLogger("netx.database").critical(err_msg)
+            raise RuntimeError(err_msg)
         try:
             conn = PG_POOL.getconn()
             return PostgreSQLConnectionWrapper(conn)

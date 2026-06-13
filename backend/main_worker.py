@@ -7,7 +7,12 @@ import redis.asyncio as aioredis
 from dotenv import load_dotenv
 
 # Load env file
-load_dotenv()
+backend_dir = os.path.dirname(os.path.abspath(__file__))
+dotenv_path = os.path.join(backend_dir, ".env")
+if os.path.exists(dotenv_path):
+    load_dotenv(dotenv_path=dotenv_path)
+else:
+    load_dotenv()
 
 # Add current directory to path to allow importing app module
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
