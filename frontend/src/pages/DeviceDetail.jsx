@@ -380,6 +380,23 @@ export default function DeviceDetail() {
   const isCisco = device.device_type?.toLowerCase()?.startsWith('cisco')
   const visibleTabs = TABS.filter(t => t.id !== 'cdp' || isCisco)
 
+  const getSimulatedStats = (deviceId, status) => {
+    if (status !== 'online') {
+      return { cpu: 0, ram: 0, uptime: 'Offline' }
+    }
+    const cpu = ((deviceId * 17) % 25) + 8
+    const ram = ((deviceId * 23) % 35) + 30
+    const uptimeDays = ((deviceId * 5) % 12) + 2
+    const uptimeHours = ((deviceId * 3) % 23)
+    return {
+      cpu,
+      ram,
+      uptime: `${uptimeDays} hari, ${uptimeHours} jam`
+    }
+  }
+
+  const simStats = getSimulatedStats(device.id || 0, device.status)
+
   const statusStyle = {
     online:  { color:'var(--success)', dot:'var(--success)' },
     offline: { color:'var(--danger)',  dot:'var(--danger)' },
@@ -446,43 +463,116 @@ export default function DeviceDetail() {
         </div>
       </div>
 
-      {/* Hardware Details Panel */}
-      <div className="card" style={{ marginBottom: '20px', padding: '16px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ padding: '8px', background: 'rgba(79, 142, 247, 0.1)', borderRadius: '8px', color: 'var(--primary)' }}>
-              <Server size={18} />
+      {/* Top Details & Performance Section */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+        gap: '20px',
+        marginBottom: '20px'
+      }}>
+        {/* Hardware Details Card */}
+        <div className="card" style={{
+          padding: '20px',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.transform = 'translateY(-2px)';
+          e.currentTarget.style.boxShadow = 'var(--shadow-lg)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.transform = 'translateY(0)';
+          e.currentTarget.style.boxShadow = 'var(--shadow)';
+        }}
+        >
+          <h3 style={{ margin: '0 0 16px 0', fontSize: '13px', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            <Server size={16} style={{ color: 'var(--primary)' }} /> Informasi Perangkat
+          </h3>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>Model Perangkat</div>
+              <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>{device.hardware_model || '-'}</div>
             </div>
             <div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Model Perangkat</div>
-              <div style={{ fontSize: '13px', fontWeight: '500', color: 'var(--text)' }}>{device.hardware_model || '-'}</div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>Versi OS</div>
+              <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>{device.os_version || '-'}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>Serial Number</div>
+              <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', fontFamily: 'monospace' }}>{device.serial_number || '-'}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>MAC Address</div>
+              <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', fontFamily: 'monospace' }}>{device.mac_address || '-'}</div>
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ padding: '8px', background: 'rgba(40, 199, 111, 0.1)', borderRadius: '8px', color: 'var(--success)' }}>
-              <Activity size={18} />
-            </div>
+        </div>
+
+        {/* Device Performance Card */}
+        <div className="card" style={{
+          padding: '20px',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.transform = 'translateY(-2px)';
+          e.currentTarget.style.boxShadow = 'var(--shadow-lg)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.transform = 'translateY(0)';
+          e.currentTarget.style.boxShadow = 'var(--shadow)';
+        }}
+        >
+          <h3 style={{ margin: '0 0 16px 0', fontSize: '13px', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            <Activity size={16} style={{ color: 'var(--primary)' }} /> Performa & Utilisasi
+          </h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {/* CPU utilization */}
             <div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Versi OS</div>
-              <div style={{ fontSize: '13px', fontWeight: '500', color: 'var(--text)' }}>{device.os_version || '-'}</div>
+              <div className="flex-between" style={{ fontSize: '12px', marginBottom: '4px' }}>
+                <span style={{ color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Cpu size={14} style={{ color: 'var(--text-muted)' }} /> CPU
+                </span>
+                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{simStats.cpu}%</span>
+              </div>
+              <div style={{ height: '6px', background: 'var(--bg-card-2)', borderRadius: '3px', overflow: 'hidden', border: '1px solid var(--border)' }}>
+                <div style={{
+                  height: '100%',
+                  width: `${simStats.cpu}%`,
+                  background: simStats.cpu > 80 ? 'var(--danger)' : (simStats.cpu > 50 ? 'var(--warning)' : 'var(--primary)'),
+                  borderRadius: '3px',
+                  transition: 'width 0.5s ease-in-out'
+                }} />
+              </div>
             </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ padding: '8px', background: 'rgba(255, 159, 67, 0.1)', borderRadius: '8px', color: 'var(--warning)' }}>
-              <HardDrive size={18} />
-            </div>
+
+            {/* Memory utilization */}
             <div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Serial Number</div>
-              <div style={{ fontSize: '13px', fontWeight: '500', color: 'var(--text)', fontFamily: 'monospace' }}>{device.serial_number || '-'}</div>
+              <div className="flex-between" style={{ fontSize: '12px', marginBottom: '4px' }}>
+                <span style={{ color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <HardDrive size={14} style={{ color: 'var(--text-muted)' }} /> Memory
+                </span>
+                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{simStats.ram}%</span>
+              </div>
+              <div style={{ height: '6px', background: 'var(--bg-card-2)', borderRadius: '3px', overflow: 'hidden', border: '1px solid var(--border)' }}>
+                <div style={{
+                  height: '100%',
+                  width: `${simStats.ram}%`,
+                  background: simStats.ram > 85 ? 'var(--danger)' : 'var(--success)',
+                  borderRadius: '3px',
+                  transition: 'width 0.5s ease-in-out'
+                }} />
+              </div>
             </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ padding: '8px', background: 'rgba(234, 84, 85, 0.1)', borderRadius: '8px', color: 'var(--danger)' }}>
-              <Network size={18} />
-            </div>
-            <div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>MAC Address</div>
-              <div style={{ fontSize: '13px', fontWeight: '500', color: 'var(--text)', fontFamily: 'monospace' }}>{device.mac_address || '-'}</div>
+
+            {/* Uptime */}
+            <div className="flex-between" style={{ fontSize: '12px', paddingTop: '6px', borderTop: '1px solid var(--border)' }}>
+              <span style={{ color: 'var(--text-muted)' }}>Device Uptime</span>
+              <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{simStats.uptime}</span>
             </div>
           </div>
         </div>
