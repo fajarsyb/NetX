@@ -568,7 +568,7 @@ export default function DeviceDetail() {
               <Activity size={16} style={{ color: 'var(--primary)' }} /> Performa & Utilisasi
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              {perfData && (
+              {perfData && perfData.source && (
                 <span style={{
                   fontSize: '10px',
                   fontWeight: 600,
@@ -599,13 +599,13 @@ export default function DeviceDetail() {
                 <span style={{ color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <Cpu size={14} style={{ color: 'var(--text-muted)' }} /> CPU
                 </span>
-                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{(perfData || simStats).cpu}%</span>
+                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{(perfData?.cpu ?? simStats?.cpu ?? 0)}%</span>
               </div>
               <div style={{ height: '6px', background: 'var(--bg-card-2)', borderRadius: '3px', overflow: 'hidden', border: '1px solid var(--border)' }}>
                 <div style={{
                   height: '100%',
-                  width: `${(perfData || simStats).cpu}%`,
-                  background: (perfData || simStats).cpu > 80 ? 'var(--danger)' : (((perfData || simStats).cpu > 50) ? 'var(--warning)' : 'var(--primary)'),
+                  width: `${(perfData?.cpu ?? simStats?.cpu ?? 0)}%`,
+                  background: (perfData?.cpu ?? simStats?.cpu ?? 0) > 80 ? 'var(--danger)' : (((perfData?.cpu ?? simStats?.cpu ?? 0) > 50) ? 'var(--warning)' : 'var(--primary)'),
                   borderRadius: '3px',
                   transition: 'width 0.5s ease-in-out'
                 }} />
@@ -618,13 +618,13 @@ export default function DeviceDetail() {
                 <span style={{ color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <HardDrive size={14} style={{ color: 'var(--text-muted)' }} /> Memory
                 </span>
-                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{(perfData || simStats).ram}%</span>
+                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{(perfData?.ram ?? simStats?.ram ?? 0)}%</span>
               </div>
               <div style={{ height: '6px', background: 'var(--bg-card-2)', borderRadius: '3px', overflow: 'hidden', border: '1px solid var(--border)' }}>
                 <div style={{
                   height: '100%',
-                  width: `${(perfData || simStats).ram}%`,
-                  background: (perfData || simStats).ram > 85 ? 'var(--danger)' : 'var(--success)',
+                  width: `${(perfData?.ram ?? simStats?.ram ?? 0)}%`,
+                  background: (perfData?.ram ?? simStats?.ram ?? 0) > 85 ? 'var(--danger)' : 'var(--success)',
                   borderRadius: '3px',
                   transition: 'width 0.5s ease-in-out'
                 }} />
@@ -634,7 +634,7 @@ export default function DeviceDetail() {
             {/* Uptime */}
             <div className="flex-between" style={{ fontSize: '12px', paddingTop: '6px', borderTop: '1px solid var(--border)' }}>
               <span style={{ color: 'var(--text-muted)' }}>Device Uptime</span>
-              <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{(perfData || simStats).uptime}</span>
+              <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{(perfData?.uptime ?? simStats?.uptime ?? '—')}</span>
             </div>
           </div>
         </div>

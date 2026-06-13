@@ -199,108 +199,6 @@ async def fetch_snmp_performance(ip: str, community: str, snmp_version: str, ven
     return None
 
 
-async def fetch_cli_performance(device_dict: dict, password: str, vendor: str) -> dict:
-    """Connect via SSH/Telnet and run commands to parse CPU/RAM/Uptime."""
-    if vendor == "cisco":
-        # Cisco IOS CPU and Memory parsing
-        cpu_out = await connect_and_run(device_dict, password, "show processes cpu | include one minute")
-        mem_out = await connect_and_run(device_dict, password, "show memory statistics | include Processor")
-        ver_out = await connect_and_run(device_dict, password, "show version | include uptime")
-        
-        cpu_match = re.search(r"one minute:\s*(\d+)%", cpu_out)
-        cpu = int(cpu_match.group(1)) if cpu_match else 0
-        
-        ram = 0
-        # Processor   308EAA0   123456789    45678901    77777888
-        mem_match = re.search(r"Processor\s+\S+\s+(\d+)\s+(\d+)", mem_out)
-        if mem_match:
-            try:
-                total = int(mem_match.group(1))
-                used = int(mem_match.group(2))
-                if total > 0:
-                    ram = int((used / total) * 100)
-            except:
-                pass
-                
-        up_match = re.search(r"uptime is\s+(.*)", ver_out, re.IGNORECASE)
-        uptime = up_match.group(1).strip() if up_match else "—"
-        
-        return {"cpu": cpu, "ram": ram, "uptime": uptime, "source": "cli"}
-
-    elif vendor == "juniper":
-        out = await connect_and_run(device_dict, password, "show chassis routing-engine")
-        cpu_match = re.search(r"CPU utilization\s*:\s*(\d+)\s*percent", out, re.IGNORECASE)
-        mem_match = re.search(r"Memory utilization\s*:\s*(\d+)\s*percent", out, re.IGNORECASE)
-        up_match = re.search(r"Up time\s+(.*)", out, re.IGNORECASE)
-        
-        cpu = int(cpu_match.group(1)) if cpu_match else 0
-        ram = int(mem_match.group(1)) if mem_match else 0
-        uptime = up_match.group(1).strip() if up_match else "—"
-        
-        return {"cpu": cpu, "ram": ram, "uptime": uptime, "source": "cli"}
-
-    elif vendor == "huawei":
-        cpu_out = await connect_and_run(device_dict, password, "display cpu-usage")
-        mem_out = await connect_and_run(device_dict, password, "display memory-usage")
-        ver_out = await connect_and_run(device_dict, password, "display version")
-        
-        cpu_match = re.search(r"CPU\s+Usage\s*:\s*(\d+)%", cpu_out, re.IGNORECASE)
-        mem_match = re.search(r"Memory\s+Usage\s*:\s*(\d+)%", mem_out, re.IGNORECASE)
-        up_match = re.search(r"uptime is\s+(.*)", ver_out, re.IGNORECASE)
-        
-        cpu = int(cpu_match.group(1)) if cpu_match else 0
-        ram = int(mem_match.group(1)) if mem_match else 0
-        uptime = up_match.group(1).strip() if up_match else "—"
-        
-        return {"cpu": cpu, "ram": ram, "uptime": uptime, "source": "cli"}
-
-    elif vendor == "ruckus":
-        cpu_out = await connect_and_run(device_dict, password, "show cpu")
-        mem_out = await connect_and_run(device_dict, password, "show memory")
-        ver_out = await connect_and_run(device_dict, password, "show version")
-        
-        cpu_match = re.search(r"(\d+)%\s*busy", cpu_out)
-        cpu = int(cpu_match.group(1)) if cpu_match else 0
-        
-        ram = 0
-        tot_match = re.search(r"(\d+)\s*bytes\s*total", mem_out, re.IGNORECASE)
-        fre_match = re.search(r"(\d+)\s*bytes\s*free", mem_out, re.IGNORECASE)
-        if tot_match and fre_match:
-            try:
-                total = int(tot_match.group(1))
-                free = int(fre_match.group(1))
-                if total > 0:
-                    ram = int(((total - free) / total) * 100)
-            except:
-                pass
-                
-        up_match = re.search(r"uptime is\s+(.*)", ver_out, re.IGNORECASE)
-        uptime = up_match.group(1).strip() if up_match else "—"
-        
-        return {"cpu": cpu, "ram": ram, "uptime": uptime, "source": "cli"}
-
-    elif vendor == "ruijie":
-        cpu_out = await connect_and_run(device_dict, password, "show cpu")
-        mem_out = await connect_and_run(device_dict, password, "show memory")
-        ver_out = await connect_and_run(device_dict, password, "show version")
-        
-        # 5 seconds: 12%, 1 minute: 10%
-        cpu_match = re.search(r"1\s+minute:\s*(\d+)%", cpu_out, re.IGNORECASE)
-        cpu = int(cpu_match.group(1)) if cpu_match else 0
-        
-        ram = 0
-        mem_match = re.search(r"Memory\s+usage\s*:\s*(\d+)%", mem_out, re.IGNORECASE)
-        if mem_match:
-            ram = int(mem_match.group(1))
-            
-        up_match = re.search(r"uptime is\s+(.*)", ver_out, re.IGNORECASE)
-        uptime = up_match.group(1).strip() if up_match else "—"
-        
-        return {"cpu": cpu, "ram": ram, "uptime": uptime, "source": "cli"}
-
-    return None
-
-
 def get_simulated_performance(device_id: int, status: str) -> dict:
     """Consistent simulated statistics fallback when query is not available or device is offline."""
     if status != 'online':
@@ -325,7 +223,7 @@ def get_simulated_performance(device_id: int, status: str) -> dict:
 
 
 async def get_device_performance_stats(device_id: int) -> dict:
-    """Gather device CPU, Memory, and Uptime using SNMP, CLI fallback, or simulated fallback."""
+    """Gather device CPU, Memory, and Uptime using SNMP or simulated fallback."""
     conn = get_db_conn()
     c = conn.cursor()
     c.execute("SELECT * FROM devices WHERE id = ?", (device_id,))
@@ -353,18 +251,5 @@ async def get_device_performance_stats(device_id: int) -> dict:
         if snmp_res:
             return snmp_res
 
-    # 2. Try CLI Fallback
-    protocol = device_dict.get("protocol", "ssh").lower()
-    if protocol in ("ssh", "telnet"):
-        try:
-            username, password = get_device_credentials(device_dict)
-            device_dict["username"] = username
-            if username and password:
-                cli_res = await fetch_cli_performance(device_dict, password, vendor)
-                if cli_res:
-                    return cli_res
-        except Exception as e:
-            logger.debug(f"CLI performance query failed for {device_dict.get('ip')}: {e}")
-
-    # 3. Fallback to simulation
+    # 2. Fallback to simulation
     return get_simulated_performance(device_id, status)
